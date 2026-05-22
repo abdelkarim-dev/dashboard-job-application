@@ -1987,6 +1987,22 @@ textarea.drawer-input {
 .board-card-company-group:active {
   cursor: grabbing;
 }
+
+.board-card-company-group.dragging-group {
+  opacity: 0.62;
+  outline: 2px solid var(--md-primary);
+  outline-offset: -2px;
+  transform: rotate(0.6deg);
+}
+
+.board-card-company-group .board-card-header {
+  cursor: grab;
+}
+
+.board-card-company-group .board-card-header:active {
+  cursor: grabbing;
+}
+
 .company-group-badge {
   display: inline-block !important;
   font-size: 9px !important;

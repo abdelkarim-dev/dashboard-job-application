@@ -6,6 +6,8 @@ const state = {
   evaluations: {},
   filters: { search: "", status: "", today: false },
   dragId: null,
+  dragIds: [],
+  dragType: "",
 };
 
 // ── DOM refs ───────────────────────────────────────────────────
@@ -887,6 +889,13 @@ function makeColumn(status, apps) {
 
         const companyCard = document.createElement("div");
         companyCard.className = "board-card board-card-company-group";
+        companyCard.draggable = true;
+        companyCard.dataset.groupKey = companyName;
+        companyCard.setAttribute(
+          "aria-label",
+          `${companyName} group, ${companyApps.length} ${companyApps.length === 1 ? "role" : "roles"}`,
+        );
+        companyCard.title = `Drag to move all ${companyApps.length} ${companyApps.length === 1 ? "role" : "roles"} for ${companyName}`;
 
         const cardHeader = document.createElement("div");
         cardHeader.className = "board-card-header";
@@ -990,6 +999,8 @@ function makeColumn(status, apps) {
           roleRow.addEventListener("dragstart", (e) => {
             e.stopPropagation();
             state.dragId = app.id;
+            state.dragIds = [app.id];
+            state.dragType = "application";
             e.dataTransfer.effectAllowed = "move";
             e.dataTransfer.setData("text/plain", app.id);
             setTimeout(() => roleRow.classList.add("dragging"), 0);
@@ -997,12 +1008,30 @@ function makeColumn(status, apps) {
 
           roleRow.addEventListener("dragend", () => {
             roleRow.classList.remove("dragging");
+            resetDragState();
           });
 
           rolesContainer.appendChild(roleRow);
         });
 
         companyCard.appendChild(rolesContainer);
+
+        companyCard.addEventListener("dragstart", (e) => {
+          if (e.target.closest(".company-group-role-row, a, button")) return;
+          const ids = companyApps.map((app) => app.id);
+          state.dragId = null;
+          state.dragIds = ids;
+          state.dragType = "group";
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", ids.join(","));
+          e.dataTransfer.setData("application/x-job-hunt-group", JSON.stringify(ids));
+          setTimeout(() => companyCard.classList.add("dragging-group"), 0);
+        });
+
+        companyCard.addEventListener("dragend", () => {
+          companyCard.classList.remove("dragging-group");
+          resetDragState();
+        });
 
         list.appendChild(companyCard);
       });
@@ -1044,13 +1073,11 @@ function makeColumn(status, apps) {
   col.addEventListener("drop", async (e) => {
     e.preventDefault();
     col.classList.remove("drag-over");
-    if (state.dragId) {
-      const app = state.applications.find((a) => a.id === state.dragId);
-      if (app && app.status !== status) {
-        await updateStatus(state.dragId, status);
-      }
+    const ids = state.dragIds.length ? state.dragIds : (state.dragId ? [state.dragId] : []);
+    if (ids.length) {
+      await updateStatuses(ids, status);
     }
-    state.dragId = null;
+    resetDragState();
   });
 
   return col;
@@ -1155,6 +1182,8 @@ function makeCard(app) {
 
   btn.addEventListener("dragstart", (e) => {
     state.dragId = app.id;
+    state.dragIds = [app.id];
+    state.dragType = "application";
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", app.id);
     setTimeout(() => btn.classList.add("dragging"), 0);
@@ -1162,6 +1191,7 @@ function makeCard(app) {
 
   btn.addEventListener("dragend", () => {
     btn.classList.remove("dragging");
+    resetDragState();
   });
 
   return btn;
@@ -1169,22 +1199,40 @@ function makeCard(app) {
 
 // ── Status update via drag ─────────────────────────────────────
 async function updateStatus(id, newStatus) {
-  const app = state.applications.find((a) => a.id === id);
-  if (!app) return;
+  return updateStatuses([id], newStatus);
+}
+
+async function updateStatuses(ids, newStatus) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  const appsToMove = uniqueIds
+    .map((id) => state.applications.find((app) => app.id === id))
+    .filter((app) => app && app.status !== newStatus);
+  if (appsToMove.length === 0) return;
+
   try {
-    const res = await fetch(`/api/applications/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...app, status: newStatus }),
-    });
-    if (res.ok) {
-      const updated = await res.json();
-      state.applications = state.applications.map((a) => (a.id === id ? updated : a));
-      render();
-    }
+    const updatedApps = await Promise.all(
+      appsToMove.map(async (app) => {
+        const res = await fetch(`/api/applications/${encodeURIComponent(app.id)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...app, status: newStatus }),
+        });
+        if (!res.ok) throw new Error("Status update failed");
+        return res.json();
+      }),
+    );
+    const updates = new Map(updatedApps.map((app) => [app.id, app]));
+    state.applications = state.applications.map((app) => updates.get(app.id) || app);
+    render();
   } catch {
     // ignore — board stays as-is
   }
+}
+
+function resetDragState() {
+  state.dragId = null;
+  state.dragIds = [];
+  state.dragType = "";
 }
 
 // ── Drawer ─────────────────────────────────────────────────────
