@@ -1608,7 +1608,8 @@ textarea.drawer-input {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 0;
+  align-self: start;
+  min-height: max-content;
 }
 
 .analytics-grid {
@@ -1702,7 +1703,9 @@ textarea.drawer-input {
   box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: max-content;
+  overflow: visible;
   transition: border-color 250ms, box-shadow 250ms;
 }
 .analytics-panel-card:hover {
@@ -1883,11 +1886,14 @@ textarea.drawer-input {
 /* Distributions Progress Bars */
 .distributions-card {
   gap: 14px;
+  overflow: visible;
 }
 .distribution-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 0 0 auto;
+  min-height: max-content;
 }
 .distribution-section h4 {
   margin: 0;
@@ -1901,11 +1907,15 @@ textarea.drawer-input {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 0 0 auto;
+  min-height: max-content;
 }
 .dist-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 0 0 auto;
+  min-height: 42px;
   padding: 8px 12px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.01);
@@ -1917,11 +1927,13 @@ textarea.drawer-input {
 }
 .dist-meta {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   font-size: 11px;
   font-weight: 600;
   color: var(--md-on-surface);
+  line-height: 1.25;
 }
 .dist-role-name {
   min-width: 0;
