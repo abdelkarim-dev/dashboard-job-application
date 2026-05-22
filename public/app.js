@@ -815,11 +815,13 @@ function makeColumn(status, apps) {
     const groupWord = keys.size === 1 ? labelSingular : labelPlural;
     
     const applicationWord = apps.length === 1 ? "application" : "applications";
-    badgeText = `${keys.size} ${groupWord} · ${apps.length} ${applicationWord}`;
+    const compactGroupWord = groupBy === "company" ? "co" : "grp";
+    badgeText = `${keys.size} ${compactGroupWord} · ${apps.length} apps`;
     badgeTitle = `${keys.size} ${groupWord} and ${apps.length} ${applicationWord}`;
   }
   badge.textContent = badgeText;
   badge.title = badgeTitle;
+  badge.setAttribute("aria-label", badgeTitle);
 
   header.append(label, badge);
 

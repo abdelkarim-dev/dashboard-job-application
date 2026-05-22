@@ -24,11 +24,6 @@
               <button class="tab-btn" id="tabAnalyticsBtn" type="button">📊 Analytics</button>
               <button class="tab-btn" id="tabProfileBtn" type="button">👤 Profile</button>
             </nav>
-            <div class="topbar-actions">
-              <button class="btn-ghost" id="refreshBtn" type="button">Refresh</button>
-              <a class="btn-ghost link-button" href="/api/export.csv">Export CSV</a>
-              <button class="btn-primary" id="newBtn" type="button">+ New</button>
-            </div>
         </header>
 
         <!-- Board View Tab -->
@@ -47,6 +42,11 @@
               <option value="salary-desc">Salary High-Low</option>
             </select>
             <button class="btn-ghost filter-bar-ext" id="extensionSetupBtn" type="button">Extension setup</button>
+            <div class="board-toolbar-actions" aria-label="Board actions">
+              <button class="btn-ghost" id="refreshBtn" type="button">Refresh</button>
+              <a class="btn-ghost link-button" href="/api/export.csv">Export CSV</a>
+              <button class="btn-primary" id="newBtn" type="button">+ New</button>
+            </div>
           </div>
 
           <!-- Full kanban board -->
