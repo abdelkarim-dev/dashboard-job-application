@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job Hunt Cockpit</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="top-bar">
+      <div class="brand">
+        <div class="brand-icon">JH</div>
+        <span>Job Cockpit</span>
+      </div>
+      <div class="top-bar-actions">
+        <p class="state-text" id="stateText">Reading page…</p>
+      </div>
+    </header>
+
+    <!-- Job preview card — always visible -->
+    <div class="job-card">
+      <div class="job-info">
+        <div class="job-company-row">
+          <strong class="job-company" id="jobCompany">Detecting…</strong>
+          <span class="existing-badge" id="existingBadge" hidden>✓ In tracker</span>
+        </div>
+        <span class="job-role" id="jobRole"></span>
+        <span class="job-meta" id="jobMeta"></span>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-filled" id="evaluateBtn" type="button">🧠 Evaluate with Gemma</button>
+      </div>
+      <div class="autofill-web-row" style="margin-top: 8px; width: 100%;">
+        <button class="btn btn-secondary-autofill" id="autofillWebFormBtn" type="button">
+          ⚡ Inject Form Fields
+        </button>
+      </div>
+    </div>
+
+    <!-- Evaluation view -->
+    <section class="view-section" id="viewEval" hidden>
+      <div class="section-header">
+        <div class="section-label">Gemma evaluation</div>
+        <div class="progress-bar" id="evalProgress" role="progressbar" aria-label="Evaluating job" hidden>
+          <div class="progress-bar-indicator"></div>
+        </div>
+      </div>
+      <div class="eval-hero">
+        <div class="score-donut" id="scoreDonut">
+          <div class="score-center">
+            <strong class="score-number" id="scoreNumber">—</strong>
+            <span class="score-denom">/100</span>
+          </div>
+        </div>
+        <div class="score-meta">
+          <strong class="verdict" id="verdictText">Not evaluated</strong>
+          <span class="verdict-hint" id="verdictHint">Click to evaluate</span>
+        </div>
+      </div>
+      <div class="eval-details" id="evaluationResult"></div>
+    </section>
+
+    <!-- Tracker view -->
+    <section class="view-section" id="viewTrack" hidden>
+      <div class="section-header">
+        <div class="section-label" id="trackerLabel">Job details</div>
+        <div class="progress-bar" id="formProgress" role="progressbar" aria-label="Prefilling form" hidden>
+          <div class="progress-bar-indicator"></div>
+        </div>
+      </div>
+
+      <div class="success-banner" id="successBanner" hidden>
+        <span class="success-check">✓</span>
+        <div>
+          <strong id="successTitle">Added to tracker!</strong>
+        </div>
+      </div>
+
+      <form id="captureForm">
+        <div class="field">
+          <label class="field-label" for="f-company">Company</label>
+          <input id="f-company" name="company" class="field-input" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-role">Role</label>
+          <input id="f-role" name="role" class="field-input" required autocomplete="off" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-status">Status</label>
+          <select id="f-status" name="status" class="field-input">
+            <option selected>Applied</option>
+            <option>Interview</option>
+            <option>Offer</option>
+            <option>Rejected</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-location">Location</label>
+          <input id="f-location" name="location" class="field-input" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-salary">Salary</label>
+          <input id="f-salary" name="salary" class="field-input" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-skills">Skills</label>
+          <input id="f-skills" name="skills" class="field-input" placeholder="Python, TypeScript…" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-group">Group / Category</label>
+          <input id="f-group" name="group" class="field-input" placeholder="e.g., Tier 1, Warm Leads, Remote-Only" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-notes">Notes</label>
+          <textarea id="f-notes" name="notes" rows="2" class="field-input"></textarea>
+        </div>
+        <input name="id" type="hidden" />
+        <input name="dateApplied" type="hidden" />
+        <input name="source" type="hidden" value="Extension" />
+        <input name="sourceUrl" type="hidden" />
+        <textarea name="description" hidden></textarea>
+        <button class="btn btn-save" id="saveBtn" type="submit" disabled>
+          Add to Tracker
+        </button>
+      </form>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

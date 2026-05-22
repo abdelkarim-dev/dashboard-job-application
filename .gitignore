@@ -1,0 +1,17 @@
+# Dependencies and generated files
+node_modules/
+coverage/
+.DS_Store
+
+# Local logs
+*.log
+server.log
+
+# Private job hunt data
+data/*.json
+data/*.bak
+data/*.csv
+
+# Editor metadata
+.idea/
+.vscode/

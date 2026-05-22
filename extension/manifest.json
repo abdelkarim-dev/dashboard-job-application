@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Job Hunt Cockpit Capture",
+  "description": "Capture job posts into the local Job Hunt Cockpit tracker.",
+  "version": "1.1.6",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Capture job",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1:8787/*"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

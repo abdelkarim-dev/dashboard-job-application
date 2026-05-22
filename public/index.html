@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job Hunt Cockpit</title>
+    <link rel="stylesheet" href="/styles.css?v=20260522-dashboard-timestamps" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <main class="workspace">
+
+        <!-- Topbar -->
+        <header class="topbar">
+          <div class="topbar-brand">
+            <div class="brand-mark">JH</div>
+            <div>
+              <p class="eyebrow">Big hunt mode</p>
+              <h2>Job Hunt Cockpit</h2>
+            </div>
+          </div>
+            <nav class="topbar-tabs" aria-label="View switching">
+              <button class="tab-btn active" id="tabBoardBtn" type="button">📋 Board</button>
+              <button class="tab-btn" id="tabAnalyticsBtn" type="button">📊 Analytics</button>
+              <button class="tab-btn" id="tabProfileBtn" type="button">👤 Profile</button>
+            </nav>
+            <div class="topbar-actions">
+              <button class="btn-ghost" id="refreshBtn" type="button">Refresh</button>
+              <a class="btn-ghost link-button" href="/api/export.csv">Export CSV</a>
+              <button class="btn-primary" id="newBtn" type="button">+ New</button>
+            </div>
+        </header>
+
+        <!-- Board View Tab -->
+        <div class="tab-content-container active" id="boardView">
+          <!-- Filter bar -->
+          <div class="filter-bar">
+            <div class="search-wrap">
+              <span class="search-icon">🔍</span>
+              <input class="search-input" id="searchInput" type="search" placeholder="Search jobs…" autocomplete="off" />
+            </div>
+            <select class="filter-select" id="sortSelector">
+              <option value="dateApplied-desc">Newest Stage Date</option>
+              <option value="dateApplied-asc">Oldest Stage Date</option>
+              <option value="company-asc">Company A-Z</option>
+              <option value="company-desc">Company Z-A</option>
+              <option value="salary-desc">Salary High-Low</option>
+            </select>
+            <button class="btn-ghost filter-bar-ext" id="extensionSetupBtn" type="button">Extension setup</button>
+          </div>
+
+          <!-- Full kanban board -->
+          <div class="board-wrap" id="boardWrap" aria-label="Application board"></div>
+        </div>
+
+        <!-- Analytics View Tab -->
+        <div class="tab-content-container" id="analyticsView" hidden>
+          <div class="analytics-header">
+            <div>
+              <p class="eyebrow">Job hunt intelligence</p>
+              <h2>Analytics & Insights</h2>
+            </div>
+            <button class="btn-primary analytics-gemma-btn" id="categorizeRolesBtn" type="button">
+              🧠 Reclassify Roles with Gemma
+            </button>
+          </div>
+          <div class="analytics-insight-strip" aria-label="Timestamp and role classification insights">
+            <article class="analytics-insight-card">
+              <span>Latest application</span>
+              <strong id="insightLatestApplied">—</strong>
+              <small id="insightLatestAppliedMeta">—</small>
+            </article>
+            <article class="analytics-insight-card">
+              <span>Latest rejection</span>
+              <strong id="insightLatestRejected">—</strong>
+              <small id="insightLatestRejectedMeta">—</small>
+            </article>
+            <article class="analytics-insight-card">
+              <span>Gemma role categories</span>
+              <strong id="insightCategoryCoverage">—</strong>
+              <small id="insightCategoryCoverageMeta">—</small>
+            </article>
+          </div>
+          <div class="analytics-layout">
+            <!-- Left side: KPI grid & Funnel -->
+            <div class="analytics-left">
+              <!-- KPI Grid -->
+              <div class="analytics-grid">
+                <article class="metric-card" id="cardInterviewRate">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Interview Rate</span>
+                    <span class="metric-card-icon">⚡</span>
+                  </div>
+                  <strong class="metric-card-value" id="analyticInterviewRate">0%</strong>
+                  <p class="metric-card-desc">Applied → Interview conversion</p>
+                </article>
+                <article class="metric-card" id="cardOfferRate">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Offer Conversion</span>
+                    <span class="metric-card-icon">🎉</span>
+                  </div>
+                  <strong class="metric-card-value" id="analyticOfferRate">0%</strong>
+                  <p class="metric-card-desc">Applied → Offer conversion</p>
+                </article>
+                <article class="metric-card" id="cardStaleRoles">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Stale Roles</span>
+                    <span class="metric-card-icon">⏳</span>
+                  </div>
+                  <strong class="metric-card-value" id="analyticStaleCount">0</strong>
+                  <p class="metric-card-desc">No updates in 14+ days</p>
+                </article>
+                <article class="metric-card" id="cardAppliedToday">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Applied Today</span>
+                    <span class="metric-card-icon">★</span>
+                  </div>
+                  <strong class="metric-card-value" id="analyticAppliedToday">0</strong>
+                  <p class="metric-card-desc">Submitted today</p>
+                </article>
+                <article class="metric-card" id="cardUniqueRoles">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Unique Roles</span>
+                    <span class="metric-card-icon">◎</span>
+                  </div>
+                  <strong class="metric-card-value" id="analyticUniqueRoles">0</strong>
+                  <p class="metric-card-desc">Different role titles</p>
+                </article>
+                <article class="metric-card" id="cardTopRole">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Top Role Target</span>
+                    <span class="metric-card-icon">◆</span>
+                  </div>
+                  <strong class="metric-card-value metric-card-value-text" id="analyticTopRole">—</strong>
+                  <p class="metric-card-desc">Most frequent title</p>
+                </article>
+                <article class="metric-card" id="cardAvgRolesPerCompany">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Avg Apps / Category</span>
+                    <span class="metric-card-icon">📊</span>
+                  </div>
+                  <strong class="metric-card-value" id="analyticAvgRolesPerCompany">0.0</strong>
+                  <p class="metric-card-desc">Average applications per Gemma category</p>
+                </article>
+                <article class="metric-card" id="cardTotalApplications">
+                  <div class="metric-card-header">
+                    <span class="metric-card-label">Gemma Categories</span>
+                    <span class="metric-card-icon">📦</span>
+                  </div>
+                  <strong class="metric-card-value" id="analyticTotalApplications">0</strong>
+                  <p class="metric-card-desc">Unique role categories</p>
+                </article>
+              </div>
+
+              <!-- Conversion Funnel -->
+              <div class="analytics-panel-card funnel-card">
+                <h3>Conversion Funnel</h3>
+                <div class="funnel-container">
+                  <div class="funnel-stage stage-applied">
+                    <div class="funnel-label">Applied</div>
+                    <div class="funnel-bar"><div class="funnel-bar-fill" id="funnelFillApplied" style="width: 100%;"></div></div>
+                    <div class="funnel-value" id="funnelValApplied">0</div>
+                  </div>
+                  <div class="funnel-stage stage-interview">
+                    <div class="funnel-label">Interviewing</div>
+                    <div class="funnel-bar"><div class="funnel-bar-fill" id="funnelFillInterview" style="width: 0%;"></div></div>
+                    <div class="funnel-value" id="funnelValInterview">0 (0%)</div>
+                  </div>
+                  <div class="funnel-stage stage-offer">
+                    <div class="funnel-label">Offers</div>
+                    <div class="funnel-bar"><div class="funnel-bar-fill" id="funnelFillOffer" style="width: 0%;"></div></div>
+                    <div class="funnel-value" id="funnelValOffer">0 (0%)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right side: Table and Feeds -->
+            <div class="analytics-right">
+              <!-- Stale Roles Actions -->
+              <div class="analytics-panel-card stale-table-card">
+                <h3>Stale Roles Action Board</h3>
+                <div class="stale-table-container">
+                  <table class="analytics-table">
+                    <thead>
+                      <tr>
+                        <th>Company</th>
+                        <th>Role</th>
+                        <th>Applied</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="staleRolesList">
+                      <!-- Filled dynamically -->
+                    </tbody>
+                  </table>
+                  <p class="empty-placeholder" id="staleEmptyPlaceholder">No stale roles! You're fully up-to-date! 🎉</p>
+                </div>
+              </div>
+
+              <!-- Today Activity Feed -->
+              <div class="analytics-panel-card activity-card">
+                <h3>Applied Today activity feed</h3>
+                <div class="activity-timeline" id="todayActivityFeed">
+                  <!-- Filled dynamically -->
+                </div>
+                <p class="empty-placeholder" id="todayActivityPlaceholder">No roles applied for today yet.</p>
+              </div>
+
+              <!-- Distributions -->
+              <div class="analytics-panel-card distributions-card">
+                <h3>Pipeline Distributions</h3>
+                  <div class="distribution-section">
+                    <h4>Status Proportions</h4>
+                    <div class="distribution-container" id="statusDistributionBars"></div>
+                  </div>
+                </div>
+
+              <div class="analytics-panel-card role-mix-card">
+                <h3>Gemma Category Mix</h3>
+                <div class="distribution-container" id="roleDistributionBars"></div>
+                <p class="empty-placeholder" id="roleDistributionPlaceholder">No role statistics yet.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Profile View Tab -->
+        <div class="tab-content-container" id="profileView" hidden>
+          <div class="profile-layout">
+            <div class="profile-card">
+              <div class="profile-card-header">
+                <h3>👤 Target Profile Copilot</h3>
+                <p class="profile-card-desc">Gemma uses this profile to evaluate how well job listings match your experience, career goals, target compensation, and remote preferences.</p>
+              </div>
+              <form id="profileForm" class="profile-form">
+                <!-- Personal Autofill Settings -->
+                <div class="profile-section-title">⚡ Personal Autofill Profile</div>
+                <p class="profile-section-desc">These standard details are used by the Chrome Extension to pre-fill application forms on sites like Greenhouse, Lever, and Workday.</p>
+
+                <div class="profile-field-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-fullName">Full Name</label>
+                    <input type="text" id="p-fullName" name="fullName" class="profile-input" placeholder="e.g. Alex Mercer" required />
+                  </div>
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-email">Email Address</label>
+                    <input type="email" id="p-email" name="email" class="profile-input" placeholder="e.g. alex.mercer@example.com" required />
+                  </div>
+                </div>
+
+                <div class="profile-field-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-phone">Phone Number</label>
+                    <input type="tel" id="p-phone" name="phone" class="profile-input" placeholder="e.g. +1 (604) 555-0199" required />
+                  </div>
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-portfolio">Portfolio / Website URL <span class="profile-label-optional">Optional</span></label>
+                    <input type="url" id="p-portfolio" name="portfolio" class="profile-input" placeholder="e.g. https://alexmercer.dev" />
+                  </div>
+                </div>
+
+                <div class="profile-field-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-github">GitHub Profile URL <span class="profile-label-optional">Optional</span></label>
+                    <input type="url" id="p-github" name="github" class="profile-input" placeholder="e.g. https://github.com/alexmercer" />
+                  </div>
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-linkedin">LinkedIn Profile URL</label>
+                    <input type="url" id="p-linkedin" name="linkedin" class="profile-input" placeholder="e.g. https://linkedin.com/in/alexmercer" />
+                  </div>
+                </div>
+
+                <div class="profile-field" style="margin-bottom: 12px;">
+                  <label class="profile-label" for="p-resumeText">Resume Plain-Text</label>
+                  <p class="profile-field-desc">Paste your plain text resume. The AI Copilot uses this to draft high-quality custom question answers.</p>
+                  <textarea id="p-resumeText" name="resumeText" class="profile-textarea" rows="6" placeholder="Paste resume contents..."></textarea>
+                </div>
+
+                <hr class="profile-separator" style="border: 0; border-top: 1px solid var(--md-outline-variant); margin: 24px 0;" />
+
+                <!-- Voluntary Disclosures & Demographics -->
+                <div class="profile-section-title">📊 Voluntary Disclosures & Work Authorization</div>
+                <p class="profile-section-desc">Demographics and sponsorship settings. The extension uses these to auto-select dropdown values in application forms.</p>
+
+                <div class="profile-field-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-legallyAuthorized">Legally Authorized to Work?</label>
+                    <select id="p-legallyAuthorized" name="legallyAuthorized" class="profile-input" style="width: 100%; height: 40px; background-color: var(--md-surface-1);">
+                      <option>Yes</option>
+                      <option>No</option>
+                    </select>
+                  </div>
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-requiresSponsorship">Requires Sponsorship?</label>
+                    <select id="p-requiresSponsorship" name="requiresSponsorship" class="profile-input" style="width: 100%; height: 40px; background-color: var(--md-surface-1);">
+                      <option>No</option>
+                      <option>Yes</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="profile-field-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-gender">Gender Identity</label>
+                    <select id="p-gender" name="gender" class="profile-input" style="width: 100%; height: 40px; background-color: var(--md-surface-1);">
+                      <option>Decline to Self-Identify</option>
+                      <option>Male</option>
+                      <option>Female</option>
+                      <option>Non-binary</option>
+                    </select>
+                  </div>
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-race">Race / Ethnicity</label>
+                    <select id="p-race" name="race" class="profile-input" style="width: 100%; height: 40px; background-color: var(--md-surface-1);">
+                      <option>Decline to Self-Identify</option>
+                      <option>White</option>
+                      <option>Asian</option>
+                      <option>Black or African American</option>
+                      <option>Hispanic or Latino</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="profile-field-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-veteranStatus">Veteran Status</label>
+                    <select id="p-veteranStatus" name="veteranStatus" class="profile-input" style="width: 100%; height: 40px; background-color: var(--md-surface-1);">
+                      <option>No</option>
+                      <option>Yes</option>
+                      <option>Decline to Self-Identify</option>
+                    </select>
+                  </div>
+                  <div class="profile-field">
+                    <label class="profile-label" for="p-disabilityStatus">Disability Status</label>
+                    <select id="p-disabilityStatus" name="disabilityStatus" class="profile-input" style="width: 100%; height: 40px; background-color: var(--md-surface-1);">
+                      <option>No, I don't have a disability</option>
+                      <option>Yes</option>
+                      <option>Decline to Self-Identify</option>
+                    </select>
+                  </div>
+                </div>
+
+                <hr class="profile-separator" style="border: 0; border-top: 1px solid var(--md-outline-variant); margin: 24px 0;" />
+
+                <!-- Gemma AI evaluation preferences -->
+                <div class="profile-section-title">🤖 Gemma Copilot Preferences</div>
+                <p class="profile-section-desc">Gemma uses this prompt to evaluate match score, remote eligibility, compensation, and role fit.</p>
+
+                <div class="profile-field">
+                  <label class="profile-label" for="p-gemmaPrompt">Evaluation Prompt</label>
+                  <p class="profile-field-desc">Keep your profile, target roles, weak-fit roles, compensation bar, and scoring preferences here.</p>
+                  <textarea id="p-gemmaPrompt" name="gemmaPrompt" class="profile-textarea profile-textarea-large" rows="16" required></textarea>
+                </div>
+                <div class="profile-actions">
+                  <button type="submit" class="btn-primary" id="saveProfileBtn">Save Profile</button>
+                  <span class="profile-feedback" id="profileFeedback" hidden></span>
+                </div>
+              </form>
+            </div>
+          </div>
+
+      </main>
+    </div>
+
+    <!-- Detail / Edit drawer -->
+    <aside class="detail-drawer" id="detailDrawer" hidden aria-label="Application details">
+      <div class="drawer-header">
+        <div class="drawer-header-meta">
+          <p class="eyebrow" id="drawerMode">New application</p>
+          <h2 class="drawer-title" id="drawerTitle">—</h2>
+        </div>
+        <div class="drawer-header-actions">
+          <button class="drawer-delete-btn" id="drawerDeleteBtn" type="button" hidden>Delete</button>
+          <button class="drawer-close-btn" id="drawerCloseBtn" type="button" aria-label="Close">✕</button>
+        </div>
+      </div>
+      <div class="drawer-body">
+        <form id="drawerForm">
+          <input type="hidden" name="id" />
+
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-company">Company</label>
+            <input id="d-company" name="company" class="drawer-input" required autocomplete="off" />
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-role">Role</label>
+            <input id="d-role" name="role" class="drawer-input" required autocomplete="off" />
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-status">Status</label>
+            <select id="d-status" name="status" class="drawer-input">
+              <option>Applied</option>
+              <option>Interview</option>
+              <option>Offer</option>
+              <option>Rejected</option>
+            </select>
+          </div>
+          <div class="drawer-row">
+            <div class="drawer-field">
+              <label class="drawer-label" for="d-date">Date applied</label>
+              <input id="d-date" name="dateApplied" type="date" class="drawer-input" />
+            </div>
+            <div class="drawer-field">
+              <label class="drawer-label" for="d-appliedAt">Applied timestamp</label>
+              <input id="d-appliedAt" name="appliedAt" type="datetime-local" class="drawer-input" />
+            </div>
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-rejectedAt">Rejection timestamp</label>
+            <input id="d-rejectedAt" name="rejectedAt" type="datetime-local" class="drawer-input" />
+          </div>
+          <div class="drawer-field stage-dates-wrap" id="d-stageDatesWrap" hidden>
+            <span class="drawer-label">Stage dates</span>
+            <div class="stage-dates-list" id="d-stageDates"></div>
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-location">Location</label>
+            <input id="d-location" name="location" class="drawer-input" />
+          </div>
+          <div class="drawer-row">
+            <div class="drawer-field">
+              <label class="drawer-label" for="d-salary">Salary</label>
+              <input id="d-salary" name="salary" class="drawer-input" />
+            </div>
+            <div class="drawer-field">
+              <label class="drawer-label" for="d-equity">Equity</label>
+              <input id="d-equity" name="equity" class="drawer-input" />
+            </div>
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-skills">Skills</label>
+            <input id="d-skills" name="skills" class="drawer-input" placeholder="Python, TypeScript, Go" />
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-group">Group / Category</label>
+            <input id="d-group" name="group" class="drawer-input" placeholder="e.g., Tier 1, Warm Leads, Remote-Only" autocomplete="off" />
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-url">Source URL</label>
+            <input id="d-url" name="sourceUrl" type="url" class="drawer-input" />
+          </div>
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-notes">Notes</label>
+            <textarea id="d-notes" name="notes" class="drawer-input" rows="4"></textarea>
+          </div>
+          <!-- Gemma AI Evaluator Section -->
+          <div class="drawer-field gemma-eval-field" id="gemmaEvalSection" hidden>
+            <div class="gemma-eval-header">
+              <span class="drawer-label">✨ Gemma AI Evaluation</span>
+              <button class="btn-ghost btn-sm" id="d-evaluateBtn" type="button">Evaluate Role</button>
+            </div>
+            <div class="gemma-eval-progress" id="d-evalProgress" hidden>
+              <div class="progress-bar-ind"></div>
+            </div>
+            <div class="gemma-eval-content" id="d-evaluationResult"></div>
+          </div>
+
+          <div class="drawer-field">
+            <label class="drawer-label" for="d-description">Full description</label>
+            <textarea id="d-description" name="description" class="drawer-input" rows="10" placeholder="Captured automatically when saving from the extension."></textarea>
+          </div>
+          <div class="drawer-form-actions">
+            <button class="drawer-save-btn" type="submit">Save</button>
+            <p class="drawer-feedback" id="drawerFeedback" hidden></p>
+          </div>
+        </form>
+        <a class="drawer-open-link" id="drawerOpenLink" target="_blank" rel="noreferrer" hidden>Open job posting ↗</a>
+      </div>
+    </aside>
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+
+    <!-- Extension setup dialog -->
+    <dialog class="setup-dialog" id="extensionDialog" aria-labelledby="extensionDialogTitle">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Chrome extension</p>
+          <h3 id="extensionDialogTitle">Capture jobs from any posting</h3>
+        </div>
+        <button class="icon-button" id="closeExtensionDialog" type="button" aria-label="Close">✕</button>
+      </div>
+      <ol class="setup-steps">
+        <li>Open Chrome and go to <code>chrome://extensions</code>.</li>
+        <li>Enable Developer mode (toggle top-right).</li>
+        <li>Click <strong>Load unpacked</strong> and select this folder:</li>
+      </ol>
+      <code class="path-block" id="extensionPath"></code>
+      <p class="dialog-note">Once loaded, visit any job posting and click the extension icon to capture and track it.</p>
+    </dialog>
+
+    <script type="module" src="/app.js?v=20260522-dashboard-timestamps"></script>
+  </body>
+</html>

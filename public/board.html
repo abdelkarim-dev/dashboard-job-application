@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Board · Job Hunt Cockpit</title>
+    <link rel="stylesheet" href="/board.css" />
+  </head>
+  <body>
+    <header class="board-header">
+      <div class="board-header-left">
+        <a class="back-link" href="/">← Dashboard</a>
+        <div class="board-title">
+          <span class="board-eyebrow">Job Hunt Cockpit</span>
+          <h1>Application Board</h1>
+        </div>
+      </div>
+      <div class="board-header-right">
+        <input class="board-search" id="boardSearch" type="search" placeholder="Search…" autocomplete="off" />
+        <select class="board-filter" id="priorityFilter">
+          <option value="">All priorities</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+        <button class="board-refresh-btn" id="refreshBtn" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <div class="board-wrap">
+      <div class="board-columns" id="boardColumns"></div>
+    </div>
+
+    <!-- Detail panel -->
+    <aside class="detail-drawer" id="detailDrawer" aria-label="Application detail" hidden>
+      <div class="drawer-header">
+        <div class="drawer-meta">
+          <span class="drawer-company" id="drawerCompany"></span>
+          <h2 class="drawer-role" id="drawerRole"></h2>
+        </div>
+        <button class="drawer-close" id="drawerClose" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="drawer-body">
+        <div class="drawer-row">
+          <label class="drawer-label">Status</label>
+          <select class="drawer-select" id="drawerStatus">
+            <option>Applied</option>
+            <option>Interview</option>
+            <option>Offer</option>
+            <option>Rejected</option>
+          </select>
+        </div>
+        <div class="drawer-row">
+          <label class="drawer-label">Priority</label>
+          <select class="drawer-select" id="drawerPriority">
+            <option>High</option>
+            <option>Medium</option>
+            <option>Low</option>
+          </select>
+        </div>
+        <div class="drawer-row">
+          <label class="drawer-label">Location</label>
+          <span class="drawer-value" id="drawerLocation"></span>
+        </div>
+        <div class="drawer-row">
+          <label class="drawer-label">Salary</label>
+          <span class="drawer-value" id="drawerSalary"></span>
+        </div>
+        <div class="drawer-row">
+          <label class="drawer-label">Applied</label>
+          <span class="drawer-value" id="drawerDate"></span>
+        </div>
+        <div class="drawer-row drawer-row--skills">
+          <label class="drawer-label">Skills</label>
+          <div class="drawer-skills" id="drawerSkills"></div>
+        </div>
+        <div class="drawer-row drawer-row--notes">
+          <label class="drawer-label">Notes</label>
+          <textarea class="drawer-notes" id="drawerNotes" rows="4" placeholder="Add notes…"></textarea>
+        </div>
+        <div class="drawer-actions">
+          <button class="drawer-save-btn" id="drawerSave" type="button">Save changes</button>
+          <a class="drawer-open-link" id="drawerLink" target="_blank" rel="noreferrer" hidden>Open posting ↗</a>
+        </div>
+        <p class="drawer-feedback" id="drawerFeedback" hidden></p>
+      </div>
+    </aside>
+
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+
+    <script type="module" src="/board.js"></script>
+  </body>
+</html>
