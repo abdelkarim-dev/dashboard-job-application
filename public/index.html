@@ -316,6 +316,26 @@
                   </label>
                 </div>
 
+                <div class="code-toolbar">
+                  <span>Python</span>
+                  <div class="learning-actions">
+                    <input class="learning-input small" id="practiceFocusMinutesInput" type="number" min="0" step="5" value="25" aria-label="Focus minutes" />
+                    <input class="learning-input small" id="practiceHintsInput" type="number" min="0" step="1" value="0" aria-label="Hints used" />
+                    <select class="learning-input small" id="practiceConfidenceInput" aria-label="Confidence">
+                      <option value="1">Confidence 1</option>
+                      <option value="2">Confidence 2</option>
+                      <option value="3" selected>Confidence 3</option>
+                      <option value="4">Confidence 4</option>
+                      <option value="5">Confidence 5</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="code-editor-wrap">
+                  <pre class="line-numbers" id="pythonLineNumbers">1</pre>
+                  <textarea class="python-editor" id="pythonEditor" spellcheck="false" autocomplete="off"></textarea>
+                  <div class="snippet-menu" id="snippetMenu" hidden></div>
+                </div>
+
                 <div class="practice-tabs">
                   <button class="practice-subtab active" data-practice-panel="problemNotesPanel" type="button">Problem</button>
                   <button class="practice-subtab" data-practice-panel="problemTestsPanel" type="button">Tests</button>
@@ -342,26 +362,6 @@
 
                 <div class="practice-subpanel" id="problemHistoryPanel" hidden>
                   <div class="history-list" id="problemHistoryList"></div>
-                </div>
-
-                <div class="code-toolbar">
-                  <span>Python</span>
-                  <div class="learning-actions">
-                    <input class="learning-input small" id="practiceFocusMinutesInput" type="number" min="0" step="5" value="25" aria-label="Focus minutes" />
-                    <input class="learning-input small" id="practiceHintsInput" type="number" min="0" step="1" value="0" aria-label="Hints used" />
-                    <select class="learning-input small" id="practiceConfidenceInput" aria-label="Confidence">
-                      <option value="1">Confidence 1</option>
-                      <option value="2">Confidence 2</option>
-                      <option value="3" selected>Confidence 3</option>
-                      <option value="4">Confidence 4</option>
-                      <option value="5">Confidence 5</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="code-editor-wrap">
-                  <pre class="line-numbers" id="pythonLineNumbers">1</pre>
-                  <textarea class="python-editor" id="pythonEditor" spellcheck="false" autocomplete="off"></textarea>
-                  <div class="snippet-menu" id="snippetMenu" hidden></div>
                 </div>
 
                 <label class="learning-field">

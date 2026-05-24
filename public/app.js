@@ -1690,11 +1690,16 @@ function renderProblemList() {
   });
 }
 
-function selectProblem(id) {
+function selectProblem(id, options = {}) {
   persistSelectedProblemDraft();
   state.practice.selectedProblemId = id;
   pythonRunResults.replaceChildren();
   renderPractice();
+  if (options.scroll !== false) {
+    requestAnimationFrame(() => {
+      practiceDetailPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 }
 
 function getSelectedProblem() {
