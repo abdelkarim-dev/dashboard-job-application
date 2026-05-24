@@ -151,6 +151,29 @@ test("practice problem normalization preserves local metadata and tests", () => 
   assert.equal(problem.customTests[0].name, "basic");
 });
 
+test("seeded practice problems keep solutions hidden behind starter code", () => {
+  const legacySeed = normalizePracticeProblem({
+    id: "lc-two-sum",
+    title: "Two Sum",
+    methodName: "twoSum",
+    draft: "class Solution:\n    def twoSum(self, nums, target):\n        seen = {}\n        for index, value in enumerate(nums):\n            need = target - value d\n            if need in seen:\n                return [seen[need], index]\n            seen[value] = index\n        return []\n",
+    userStarted: true,
+  });
+
+  assert.match(legacySeed.starterCode, /pass/);
+  assert.match(legacySeed.solutionCode, /seen =/);
+  assert.equal(legacySeed.draft, legacySeed.starterCode);
+  assert.equal(legacySeed.userStarted, false);
+
+  const revealedSeed = normalizePracticeProblem({
+    ...legacySeed,
+    draft: legacySeed.solutionCode,
+    solutionRevealed: true,
+  });
+  assert.equal(revealedSeed.draft, legacySeed.solutionCode);
+  assert.equal(revealedSeed.solutionRevealed, true);
+});
+
 test("SRS scheduling uses fixed review intervals", () => {
   assert.equal(nextReviewDate("2026-05-24T10:00:00.000Z", 0), "2026-05-25");
   assert.equal(nextReviewDate("2026-05-24T10:00:00.000Z", 1), "2026-05-27");

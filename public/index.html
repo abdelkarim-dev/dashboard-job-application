@@ -323,6 +323,8 @@
                   </div>
                   <div class="compiler-actions">
                     <span class="compiler-count" id="compilerTestCount">0 tests</span>
+                    <button class="btn-ghost" id="starterCodeBtn" type="button">Starter</button>
+                    <button class="btn-ghost" id="solutionCodeBtn" type="button">Show Solution</button>
                     <button class="btn-ghost" id="saveProblemBtn" type="button">Save</button>
                     <button class="btn-primary" id="runPythonBtn" type="button">Compile & Run</button>
                     <button class="btn-ghost" id="markSolvedBtn" type="button">Mark Solved</button>
@@ -348,9 +350,10 @@
                     </select>
                   </div>
                 </div>
-                <div class="code-editor-wrap">
+                <div class="code-editor-wrap" id="codeEditorWrap">
                   <pre class="line-numbers" id="pythonLineNumbers">1</pre>
                   <textarea class="python-editor" id="pythonEditor" spellcheck="false" autocomplete="off"></textarea>
+                  <div class="ace-editor" id="pythonAceEditor" aria-label="Python code editor"></div>
                   <div class="snippet-menu" id="snippetMenu" hidden></div>
                 </div>
 
@@ -681,6 +684,11 @@
       <p class="dialog-note">Once loaded, visit any job posting and click the extension icon to capture and track it.</p>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260524-learning-hub"></script>
+    <script src="/vendor/ace/ace.js"></script>
+    <script src="/vendor/ace/ext-language_tools.js"></script>
+    <script src="/vendor/ace/mode-python.js"></script>
+    <script src="/vendor/ace/theme-one_dark.js"></script>
+    <script src="/vendor/ace/snippets/python.js"></script>
+    <script type="module" src="/app.js?v=20260524-ace-editor"></script>
   </body>
 </html>

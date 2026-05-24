@@ -1417,6 +1417,16 @@ textarea.drawer-input {
   background: #0d1117;
 }
 
+.code-editor-wrap.ace-ready {
+  display: block;
+  min-height: 420px;
+}
+
+.code-editor-wrap.ace-ready .line-numbers,
+.code-editor-wrap.ace-ready .python-editor {
+  display: none;
+}
+
 .line-numbers {
   margin: 0;
   padding: 12px 10px;
@@ -1438,6 +1448,33 @@ textarea.drawer-input {
   color: #e6edf3;
   line-height: 1.55;
   outline: none;
+}
+
+.ace-editor {
+  display: none;
+  min-height: 420px;
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.code-editor-wrap.ace-ready .ace-editor {
+  display: block;
+}
+
+.ace_editor,
+.ace_editor * {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ace_editor .ace_gutter {
+  background: #111820;
+  color: #7d8590;
+}
+
+.ace_editor .ace_marker-layer .ace_active-line,
+.ace_editor .ace_gutter-active-line {
+  background: rgba(162, 201, 255, 0.08);
 }
 
 .snippet-menu {

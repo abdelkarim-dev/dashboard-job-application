@@ -92,7 +92,9 @@ const problemDescriptionInput = document.getElementById("problemDescriptionInput
 const problemNotesInput = document.getElementById("problemNotesInput");
 const problemTestsInput = document.getElementById("problemTestsInput");
 const problemHistoryList = document.getElementById("problemHistoryList");
+const codeEditorWrap = document.getElementById("codeEditorWrap");
 const pythonEditor = document.getElementById("pythonEditor");
+const pythonAceEditorEl = document.getElementById("pythonAceEditor");
 const pythonLineNumbers = document.getElementById("pythonLineNumbers");
 const snippetMenu = document.getElementById("snippetMenu");
 const practiceFocusMinutesInput = document.getElementById("practiceFocusMinutesInput");
@@ -103,6 +105,8 @@ const saveProblemBtn = document.getElementById("saveProblemBtn");
 const runPythonBtn = document.getElementById("runPythonBtn");
 const markSolvedBtn = document.getElementById("markSolvedBtn");
 const markFailedBtn = document.getElementById("markFailedBtn");
+const starterCodeBtn = document.getElementById("starterCodeBtn");
+const solutionCodeBtn = document.getElementById("solutionCodeBtn");
 const compilerStatusText = document.getElementById("compilerStatusText");
 const compilerTestCount = document.getElementById("compilerTestCount");
 const compilerQuickTestInput = document.getElementById("compilerQuickTestInput");
@@ -145,6 +149,8 @@ const statusDistributionBars   = document.getElementById("statusDistributionBars
 const roleDistributionBars     = document.getElementById("roleDistributionBars");
 const roleDistributionPlaceholder = document.getElementById("roleDistributionPlaceholder");
 
+let aceEditor = null;
+
 const VIEW_REGISTRY = {
   board: { button: tabBoardBtn, view: boardView },
   analytics: { button: tabAnalyticsBtn, view: analyticsView },
@@ -177,6 +183,7 @@ async function init() {
 
   // Initialize theme (strictly forced dark theme)
   setTheme("dark");
+  initAceEditor();
 
   Object.entries(VIEW_REGISTRY).forEach(([name, entry]) => {
     entry.button?.addEventListener("click", () => showView(name));
@@ -294,6 +301,8 @@ async function init() {
   runPythonBtn.addEventListener("click", runSelectedProblem);
   markSolvedBtn.addEventListener("click", () => markSelectedProblem("solved"));
   markFailedBtn.addEventListener("click", () => markSelectedProblem("failed"));
+  starterCodeBtn.addEventListener("click", useStarterCode);
+  solutionCodeBtn.addEventListener("click", revealSolutionCode);
   pythonEditor.addEventListener("input", () => {
     updateLineNumbers();
     maybeShowAutocomplete();
@@ -325,6 +334,76 @@ async function init() {
 function setTheme(theme) {
   document.documentElement.dataset.theme = "dark";
   localStorage.setItem("theme", "dark");
+}
+
+function initAceEditor() {
+  if (!window.ace || !pythonAceEditorEl) return;
+
+  window.ace.config.set("basePath", "/vendor/ace");
+  window.ace.config.set("modePath", "/vendor/ace");
+  window.ace.config.set("themePath", "/vendor/ace");
+  window.ace.config.set("workerPath", "/vendor/ace");
+
+  const languageTools = window.ace.require("ace/ext/language_tools");
+  languageTools.addCompleter({
+    getCompletions(_editor, _session, _pos, prefix, callback) {
+      const snippets = getMatchingSnippets(prefix).map((snippet) => ({
+        caption: snippet.label,
+        value: snippet.code,
+        meta: "snippet",
+        score: 1000,
+      }));
+      const keywords = [
+        "def", "class", "return", "for", "while", "if", "elif", "else", "from", "import",
+        "len", "range", "enumerate", "zip", "sorted", "set", "dict", "list", "tuple",
+      ].map((word) => ({ caption: word, value: word, meta: "python", score: 800 }));
+      callback(null, [...snippets, ...keywords]);
+    },
+  });
+
+  aceEditor = window.ace.edit(pythonAceEditorEl);
+  aceEditor.setTheme("ace/theme/one_dark");
+  aceEditor.session.setMode("ace/mode/python");
+  aceEditor.session.setTabSize(4);
+  aceEditor.session.setUseSoftTabs(true);
+  aceEditor.setOptions({
+    enableBasicAutocompletion: true,
+    enableLiveAutocompletion: true,
+    enableSnippets: true,
+    fontSize: 14,
+    highlightActiveLine: true,
+    showPrintMargin: false,
+    wrap: true,
+  });
+  aceEditor.commands.addCommand({
+    name: "runPythonTests",
+    bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" },
+    exec: () => runSelectedProblem(),
+  });
+  aceEditor.session.on("change", () => {
+    pythonEditor.value = aceEditor.getValue();
+    updateLineNumbers();
+  });
+  window.__practiceAceEditor = aceEditor;
+  codeEditorWrap?.classList.add("ace-ready");
+}
+
+function getCodeEditorValue() {
+  return aceEditor ? aceEditor.getValue() : pythonEditor.value;
+}
+
+function setCodeEditorValue(value = "") {
+  pythonEditor.value = value;
+  if (aceEditor && aceEditor.getValue() !== value) {
+    aceEditor.setValue(value, -1);
+    aceEditor.clearSelection();
+  }
+  updateLineNumbers();
+}
+
+function focusCodeEditor() {
+  if (aceEditor) aceEditor.focus();
+  else pythonEditor.focus();
 }
 
 async function showView(name) {
@@ -1744,12 +1823,15 @@ function renderSelectedProblem() {
   problemDescriptionInput.value = problem.description || "";
   problemNotesInput.value = problem.notes || "";
   problemTestsInput.value = JSON.stringify(problem.customTests || [], null, 2);
-  pythonEditor.value = problem.draft || "";
+  setCodeEditorValue(getVisibleProblemDraft(problem));
   compilerQuickTestInput.value = "";
   compilerTestCount.textContent = formatTestCount((problem.customTests || []).length);
   compilerStatusText.textContent = problem.methodName
     ? `Runs ${problem.methodName} with local python3. Add a quick JSON test when needed.`
     : "Set a method name before compiling tests.";
+  solutionCodeBtn.disabled = !problem.solutionCode;
+  solutionCodeBtn.textContent = problem.solutionRevealed ? "Solution Shown" : "Show Solution";
+  starterCodeBtn.disabled = !problem.starterCode;
   practiceReflectionInput.value = "";
   renderProblemHistory(problem);
   updateLineNumbers();
@@ -1789,10 +1871,57 @@ function renderProblemHistory(problem) {
 function persistSelectedProblemDraft() {
   const problem = getSelectedProblem();
   if (!problem) return;
-  problem.draft = pythonEditor.value;
+  const currentCode = getCodeEditorValue();
+  problem.draft = currentCode;
+  problem.userStarted = Boolean(
+    problem.solutionRevealed ||
+    (currentCode.trim() && currentCode.trim() !== String(problem.starterCode || "").trim())
+  );
+}
+
+function getVisibleProblemDraft(problem) {
+  if (!problem) return "";
+  if (problem.solutionRevealed) return problem.solutionCode || problem.draft || problem.starterCode || "";
+  if (looksLikeSolutionDraft(problem.draft, problem.solutionCode)) {
+    return problem.starterCode || "";
+  }
+  return problem.draft || problem.starterCode || "";
+}
+
+function looksLikeSolutionDraft(draft = "", solutionCode = "") {
+  const a = comparableCode(draft);
+  const b = comparableCode(solutionCode);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const maxLength = Math.max(a.length, b.length);
+  if (maxLength < 40) return false;
+  if (Math.abs(a.length - b.length) / maxLength > 0.12) return false;
+  return editDistanceWithin(a, b, Math.ceil(maxLength * 0.08));
+}
+
+function comparableCode(value = "") {
+  return String(value).replace(/[^A-Za-z0-9_]+/g, "").toLowerCase();
+}
+
+function editDistanceWithin(a, b, limit) {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let rowMin = current[0];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const value = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+      current[j] = value;
+      rowMin = Math.min(rowMin, value);
+    }
+    if (rowMin > limit) return false;
+    previous = current;
+  }
+  return previous[b.length] <= limit;
 }
 
 function readProblemForm() {
+  const selectedProblem = getSelectedProblem();
   let customTests = [];
   try {
     customTests = JSON.parse(problemTestsInput.value || "[]");
@@ -1809,7 +1938,9 @@ function readProblemForm() {
     description: problemDescriptionInput.value,
     notes: problemNotesInput.value,
     customTests,
-    draft: pythonEditor.value,
+    draft: getCodeEditorValue(),
+    solutionRevealed: Boolean(selectedProblem?.solutionRevealed),
+    userStarted: true,
   };
 }
 
@@ -1835,6 +1966,35 @@ function readCompilerQuickTest() {
 
 function formatTestCount(count) {
   return `${count} ${count === 1 ? "test" : "tests"}`;
+}
+
+function useStarterCode() {
+  const problem = getSelectedProblem();
+  if (!problem?.starterCode) return;
+  const currentCode = getCodeEditorValue();
+  if (currentCode.trim() && currentCode.trim() !== problem.starterCode.trim()) {
+    const ok = window.confirm("Replace the editor with the starter template?");
+    if (!ok) return;
+  }
+  setCodeEditorValue(problem.starterCode);
+  problem.draft = problem.starterCode;
+  problem.solutionRevealed = false;
+  problem.userStarted = false;
+  solutionCodeBtn.textContent = "Show Solution";
+  compilerStatusText.textContent = "Starter template loaded. Solution is still hidden.";
+  focusCodeEditor();
+}
+
+function revealSolutionCode() {
+  const problem = getSelectedProblem();
+  if (!problem?.solutionCode) return;
+  setCodeEditorValue(problem.solutionCode);
+  problem.draft = problem.solutionCode;
+  problem.solutionRevealed = true;
+  problem.userStarted = true;
+  solutionCodeBtn.textContent = "Solution Shown";
+  compilerStatusText.textContent = "Solution revealed. It will only be saved if you click Save or run it.";
+  focusCodeEditor();
 }
 
 async function saveSelectedProblem() {
@@ -2044,7 +2204,7 @@ function renderRunResults(result) {
 }
 
 function updateLineNumbers() {
-  const count = Math.max(1, pythonEditor.value.split("\n").length);
+  const count = Math.max(1, getCodeEditorValue().split("\n").length);
   pythonLineNumbers.textContent = Array.from({ length: count }, (_, index) => index + 1).join("\n");
 }
 
@@ -2064,7 +2224,7 @@ function handleEditorKeydown(event) {
   }
   if (event.key === "Tab") {
     event.preventDefault();
-    insertAtCursor(pythonEditor, "    ");
+    insertCodeAtCursor("    ");
     updateLineNumbers();
     return;
   }
@@ -2098,7 +2258,7 @@ function showSnippetMenu(prefix = "", matches = getMatchingSnippets(prefix)) {
       replaceEditorPrefix(prefix, snippet.code);
       hideSnippetMenu();
       updateLineNumbers();
-      pythonEditor.focus();
+      focusCodeEditor();
     });
     snippetMenu.appendChild(button);
   });
@@ -2115,13 +2275,33 @@ function getMatchingSnippets(prefix) {
 }
 
 function getEditorPrefix() {
+  if (aceEditor) {
+    const position = aceEditor.getCursorPosition();
+    const line = aceEditor.session.getLine(position.row).slice(0, position.column);
+    return line.match(/[A-Za-z_][A-Za-z0-9_]*$/)?.[0] || "";
+  }
   const before = pythonEditor.value.slice(0, pythonEditor.selectionStart);
   return before.match(/[A-Za-z_][A-Za-z0-9_]*$/)?.[0] || "";
 }
 
 function replaceEditorPrefix(prefix, text) {
+  if (aceEditor) {
+    if (!prefix) {
+      aceEditor.insert(text);
+      return;
+    }
+    const position = aceEditor.getCursorPosition();
+    aceEditor.session.replace(
+      {
+        start: { row: position.row, column: Math.max(0, position.column - prefix.length) },
+        end: position,
+      },
+      text
+    );
+    return;
+  }
   if (!prefix) {
-    insertAtCursor(pythonEditor, text);
+    insertCodeAtCursor(text);
     return;
   }
   const start = pythonEditor.selectionStart - prefix.length;
@@ -2139,6 +2319,14 @@ function insertAtCursor(textarea, text) {
   const end = textarea.selectionEnd;
   textarea.value = `${textarea.value.slice(0, start)}${text}${textarea.value.slice(end)}`;
   textarea.selectionStart = textarea.selectionEnd = start + text.length;
+}
+
+function insertCodeAtCursor(text) {
+  if (aceEditor) {
+    aceEditor.insert(text);
+    return;
+  }
+  insertAtCursor(pythonEditor, text);
 }
 
 function showPracticePanel(panelId) {

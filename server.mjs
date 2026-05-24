@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
+const aceDir = path.join(__dirname, "node_modules", "ace-builds", "src-min-noconflict");
 const dataDir = path.join(__dirname, "data");
 const dataFile = path.join(dataDir, "applications.json");
 const profileFile = path.join(dataDir, "profile.json");
@@ -629,6 +630,15 @@ const defaultPracticeProblems = [
   },
 ];
 
+const defaultPracticeProblemById = new Map(defaultPracticeProblems.map((problem) => [problem.id, problem]));
+defaultPracticeProblems.forEach((problem) => {
+  const solutionCode = String(problem.solutionCode || problem.draft || "");
+  problem.solutionCode = solutionCode;
+  problem.starterCode = String(problem.starterCode || makeStarterCode(problem));
+  problem.draft = problem.starterCode;
+  problem.userStarted = false;
+});
+
 const defaultPracticeStore = {
   version: 1,
   settings: {
@@ -751,9 +761,10 @@ const defaultSystemDesignStore = {
 };
 
 async function loadPracticeStore() {
-  const store = normalizePracticeStore(await readJsonFile(practiceFile, defaultPracticeStore));
+  const raw = await readJsonFile(practiceFile, defaultPracticeStore);
+  const store = normalizePracticeStore(raw);
   const merged = mergeSeededPracticeProblems(store);
-  if (merged.added > 0) {
+  if (merged.added > 0 || JSON.stringify(raw) !== JSON.stringify(merged.store)) {
     await writeJsonFile(practiceFile, merged.store);
     return merged.store;
   }
@@ -809,6 +820,8 @@ function normalizePracticeProblem(input = {}, existing = {}) {
   const base = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
   const title = clean(source.title ?? base.title) || "Untitled Problem";
   const slug = clean(source.slug ?? base.slug) || slugify(title);
+  const id = clean(source.id ?? base.id) || `problem-${slug}-${Date.now()}`;
+  const seededProblem = defaultPracticeProblemById.get(id);
   const customTests = Array.isArray(source.customTests)
     ? source.customTests
     : (Array.isArray(source.tests) ? source.tests : (Array.isArray(base.customTests) ? base.customTests : []));
@@ -819,8 +832,17 @@ function normalizePracticeProblem(input = {}, existing = {}) {
   const solveCount = Math.max(0, Number(source.solveCount ?? base.solveCount ?? 0) || 0);
   const lastSolvedAt = cleanTimestamp(source.lastSolvedAt) || cleanTimestamp(base.lastSolvedAt);
   const nextReviewAt = cleanStageDate(source.nextReviewAt) || cleanStageDate(base.nextReviewAt);
+  const methodName = clean(source.methodName ?? base.methodName);
+  const solutionCode = String(source.solutionCode ?? base.solutionCode ?? seededProblem?.solutionCode ?? "");
+  const starterCode = String(source.starterCode ?? base.starterCode ?? seededProblem?.starterCode ?? makeStarterCode({ title, methodName }));
+  const userStarted = Boolean(source.userStarted ?? base.userStarted ?? (!seededProblem && (source.draft || base.draft)));
+  let draft = String(source.draft ?? source.codeDraft ?? base.draft ?? base.codeDraft ?? starterCode);
+  const solutionRevealed = Boolean(source.solutionRevealed ?? base.solutionRevealed ?? false);
+  if (seededProblem && !solutionRevealed && looksLikeSolutionDraft(draft, solutionCode)) {
+    draft = starterCode;
+  }
   return {
-    id: clean(source.id ?? base.id) || `problem-${slug}-${Date.now()}`,
+    id,
     title,
     slug,
     url: clean(source.url ?? base.url),
@@ -829,13 +851,17 @@ function normalizePracticeProblem(input = {}, existing = {}) {
     paidOnly: Boolean(source.paidOnly ?? base.paidOnly ?? false),
     acceptance: normalizeOptionalNumber(source.acceptance ?? base.acceptance),
     syncedAt: cleanTimestamp(source.syncedAt) || cleanTimestamp(base.syncedAt) || new Date().toISOString(),
-    methodName: clean(source.methodName ?? base.methodName),
+    methodName,
     description: String(source.description ?? base.description ?? ""),
     examples: String(source.examples ?? base.examples ?? ""),
     constraints: String(source.constraints ?? base.constraints ?? ""),
     notes: String(source.notes ?? base.notes ?? ""),
     customTests: customTests.map(normalizePracticeTest).filter(Boolean),
-    draft: String(source.draft ?? source.codeDraft ?? base.draft ?? base.codeDraft ?? ""),
+    starterCode,
+    solutionCode,
+    solutionRevealed,
+    userStarted: draft === starterCode ? false : userStarted,
+    draft,
     solved: Boolean((source.solved ?? base.solved ?? (solveCount > 0)) || lastSolvedAt),
     solveCount,
     reviewLevel,
@@ -857,6 +883,54 @@ function normalizePracticeTest(test) {
     kwargs: test.kwargs && typeof test.kwargs === "object" && !Array.isArray(test.kwargs) ? test.kwargs : {},
     expected: test.expected,
   };
+}
+
+function makeStarterCode(problem = {}) {
+  const methodName = clean(problem.methodName);
+  const title = clean(problem.title);
+  if (!methodName && /lru cache/i.test(title)) {
+    return "class LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n\n    def get(self, key):\n        pass\n\n    def put(self, key, value):\n        pass\n";
+  }
+  if (!methodName) {
+    return "class Solution:\n    def solve(self):\n        pass\n";
+  }
+  return `class Solution:\n    def ${methodName}(self, *args):\n        pass\n`;
+}
+
+function looksLikeSolutionDraft(draft = "", solutionCode = "") {
+  const a = comparableCode(draft);
+  const b = comparableCode(solutionCode);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const maxLength = Math.max(a.length, b.length);
+  if (maxLength < 40) return false;
+  if (Math.abs(a.length - b.length) / maxLength > 0.12) return false;
+  return editDistanceWithin(a, b, Math.ceil(maxLength * 0.08));
+}
+
+function comparableCode(value = "") {
+  return String(value).replace(/[^A-Za-z0-9_]+/g, "").toLowerCase();
+}
+
+function editDistanceWithin(a, b, limit) {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let rowMin = current[0];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const value = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost,
+      );
+      current[j] = value;
+      rowMin = Math.min(rowMin, value);
+    }
+    if (rowMin > limit) return false;
+    previous = current;
+  }
+  return previous[b.length] <= limit;
 }
 
 function normalizeAttempt(input) {
@@ -988,6 +1062,10 @@ function recordProblemAttempt(problem, attemptInput = {}, now = new Date().toISO
   }
   if (attemptInput.draft !== undefined || attemptInput.codeDraft !== undefined) {
     next.draft = String(attemptInput.draft ?? attemptInput.codeDraft ?? "");
+    next.userStarted = true;
+  }
+  if (attemptInput.solutionRevealed !== undefined) {
+    next.solutionRevealed = Boolean(attemptInput.solutionRevealed);
   }
   next.updatedAt = now;
   return next;
@@ -2578,6 +2656,7 @@ async function handleApi(req, res, url) {
       const runnable = normalizePracticeProblem({
         ...existing,
         draft: code,
+        solutionRevealed: input.solutionRevealed,
         customTests: Array.isArray(input.customTests) ? input.customTests : existing.customTests,
         methodName: input.methodName ?? existing.methodName,
       });
@@ -2595,6 +2674,7 @@ async function handleApi(req, res, url) {
         stderr: result.stderr || "",
         error: result.error || "",
         draft: code,
+        solutionRevealed: input.solutionRevealed,
       });
       store.problems[index] = updated;
       await savePracticeStore(store);
@@ -2611,7 +2691,9 @@ async function handleApi(req, res, url) {
 
     if (action === "mark-solved" && req.method === "POST") {
       const input = await readBody(req);
-      const base = input.draft !== undefined ? normalizePracticeProblem({ ...existing, draft: input.draft }) : existing;
+      const base = input.draft !== undefined
+        ? normalizePracticeProblem({ ...existing, draft: input.draft, solutionRevealed: input.solutionRevealed })
+        : existing;
       const updated = markProblemSolved(base, input);
       store.problems[index] = updated;
       await savePracticeStore(store);
@@ -2620,7 +2702,9 @@ async function handleApi(req, res, url) {
 
     if (action === "mark-failed" && req.method === "POST") {
       const input = await readBody(req);
-      const base = input.draft !== undefined ? normalizePracticeProblem({ ...existing, draft: input.draft }) : existing;
+      const base = input.draft !== undefined
+        ? normalizePracticeProblem({ ...existing, draft: input.draft, solutionRevealed: input.solutionRevealed })
+        : existing;
       const updated = markProblemFailed(base, input);
       store.problems[index] = updated;
       await savePracticeStore(store);
@@ -2857,10 +2941,18 @@ async function handleApi(req, res, url) {
 }
 
 async function handleStatic(req, res, url) {
-  const rawPath = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
-  const filePath = path.normalize(path.join(publicDir, rawPath));
-  if (!filePath.startsWith(publicDir)) return send(res, 403, "Forbidden");
+  const decodedPath = decodeURIComponent(url.pathname);
+  if (decodedPath.startsWith("/vendor/ace/")) {
+    return serveStaticFile(res, aceDir, decodedPath.slice("/vendor/ace/".length));
+  }
+  const rawPath = decodedPath === "/" ? "index.html" : decodedPath.replace(/^\/+/, "");
+  return serveStaticFile(res, publicDir, rawPath);
+}
 
+async function serveStaticFile(res, rootDir, relativePath) {
+  const filePath = path.normalize(path.join(rootDir, relativePath));
+  const relative = path.relative(rootDir, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return send(res, 403, "Forbidden");
   try {
     const info = await stat(filePath);
     if (!info.isFile()) return send(res, 404, "Not found");
