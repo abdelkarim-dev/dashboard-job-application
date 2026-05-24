@@ -1347,6 +1347,65 @@ textarea.drawer-input {
   margin-top: 4px;
 }
 
+.compiler-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(162,201,255,.12), var(--md-surface-1));
+  padding: 12px;
+}
+
+.compiler-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.compiler-copy strong {
+  font-size: 15px;
+}
+
+.compiler-copy span,
+.compiler-quick-test summary {
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+}
+
+.compiler-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.compiler-count {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.compiler-quick-test {
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: 8px;
+}
+
+.compiler-quick-test summary {
+  cursor: pointer;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.compiler-quick-test textarea {
+  margin-top: 8px;
+}
+
 .code-editor-wrap {
   position: relative;
   min-height: 320px;

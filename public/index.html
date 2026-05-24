@@ -316,6 +316,24 @@
                   </label>
                 </div>
 
+                <div class="compiler-panel" aria-label="Python compiler">
+                  <div class="compiler-copy">
+                    <strong>Python Compiler</strong>
+                    <span id="compilerStatusText">Runs the selected method against saved and quick tests locally.</span>
+                  </div>
+                  <div class="compiler-actions">
+                    <span class="compiler-count" id="compilerTestCount">0 tests</span>
+                    <button class="btn-ghost" id="saveProblemBtn" type="button">Save</button>
+                    <button class="btn-primary" id="runPythonBtn" type="button">Compile & Run</button>
+                    <button class="btn-ghost" id="markSolvedBtn" type="button">Mark Solved</button>
+                    <button class="btn-ghost" id="markFailedBtn" type="button">Mark Failed</button>
+                  </div>
+                  <details class="compiler-quick-test">
+                    <summary>Quick custom test</summary>
+                    <textarea class="learning-textarea mono" id="compilerQuickTestInput" rows="4" placeholder='{"name":"quick","args":[...],"expected":...}'></textarea>
+                  </details>
+                </div>
+
                 <div class="code-toolbar">
                   <span>Python</span>
                   <div class="learning-actions">
@@ -369,12 +387,6 @@
                   <textarea class="learning-textarea" id="practiceReflectionInput" rows="2"></textarea>
                 </label>
 
-                <div class="practice-actions">
-                  <button class="btn-ghost" id="saveProblemBtn" type="button">Save</button>
-                  <button class="btn-primary" id="runPythonBtn" type="button">Run Tests</button>
-                  <button class="btn-ghost" id="markSolvedBtn" type="button">Mark Solved</button>
-                  <button class="btn-ghost" id="markFailedBtn" type="button">Mark Failed</button>
-                </div>
                 <div class="run-results" id="pythonRunResults"></div>
               </div>
             </section>

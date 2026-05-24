@@ -103,6 +103,9 @@ const saveProblemBtn = document.getElementById("saveProblemBtn");
 const runPythonBtn = document.getElementById("runPythonBtn");
 const markSolvedBtn = document.getElementById("markSolvedBtn");
 const markFailedBtn = document.getElementById("markFailedBtn");
+const compilerStatusText = document.getElementById("compilerStatusText");
+const compilerTestCount = document.getElementById("compilerTestCount");
+const compilerQuickTestInput = document.getElementById("compilerQuickTestInput");
 const pythonRunResults = document.getElementById("pythonRunResults");
 const coursesList = document.getElementById("coursesList");
 const newCourseBtn = document.getElementById("newCourseBtn");
@@ -152,11 +155,17 @@ const VIEW_REGISTRY = {
 };
 
 const PYTHON_SNIPPETS = [
-  { label: "defaultdict", code: "from collections import defaultdict\ncounts = defaultdict(int)" },
-  { label: "deque", code: "from collections import deque\nqueue = deque()" },
-  { label: "heap", code: "import heapq\nheap = []\nheapq.heappush(heap, value)" },
-  { label: "binary search", code: "left, right = 0, len(nums) - 1\nwhile left <= right:\n    mid = (left + right) // 2\n    if nums[mid] == target:\n        return mid\n    if nums[mid] < target:\n        left = mid + 1\n    else:\n        right = mid - 1" },
-  { label: "dfs", code: "def dfs(node):\n    if node in seen:\n        return\n    seen.add(node)\n    for nei in graph[node]:\n        dfs(nei)" },
+  { label: "class Solution", trigger: "class", code: "class Solution:\n    def solve(self):\n        pass" },
+  { label: "defaultdict", trigger: "defaultdict", code: "from collections import defaultdict\ncounts = defaultdict(int)" },
+  { label: "Counter", trigger: "counter", code: "from collections import Counter\ncounts = Counter(nums)" },
+  { label: "deque", trigger: "deque", code: "from collections import deque\nqueue = deque()" },
+  { label: "heap", trigger: "heap", code: "import heapq\nheap = []\nheapq.heappush(heap, value)" },
+  { label: "binary search", trigger: "binary", code: "left, right = 0, len(nums) - 1\nwhile left <= right:\n    mid = (left + right) // 2\n    if nums[mid] == target:\n        return mid\n    if nums[mid] < target:\n        left = mid + 1\n    else:\n        right = mid - 1" },
+  { label: "two pointers", trigger: "two", code: "left, right = 0, len(nums) - 1\nwhile left < right:\n    # move the pointer that unlocks progress\n    left += 1" },
+  { label: "sliding window", trigger: "sliding", code: "left = 0\nfor right, value in enumerate(nums):\n    # expand with value\n    while False:\n        # shrink until valid\n        left += 1" },
+  { label: "dfs", trigger: "dfs", code: "def dfs(node):\n    if node in seen:\n        return\n    seen.add(node)\n    for nei in graph[node]:\n        dfs(nei)" },
+  { label: "bfs", trigger: "bfs", code: "from collections import deque\nqueue = deque([start])\nseen = {start}\nwhile queue:\n    node = queue.popleft()\n    for nei in graph[node]:\n        if nei not in seen:\n            seen.add(nei)\n            queue.append(nei)" },
+  { label: "dp array", trigger: "dp", code: "dp = [0] * (n + 1)\nfor i in range(1, n + 1):\n    dp[i] = dp[i - 1]" },
 ];
 
 
@@ -287,11 +296,19 @@ async function init() {
   markFailedBtn.addEventListener("click", () => markSelectedProblem("failed"));
   pythonEditor.addEventListener("input", () => {
     updateLineNumbers();
-    hideSnippetMenu();
+    maybeShowAutocomplete();
   });
   pythonEditor.addEventListener("keydown", handleEditorKeydown);
   document.querySelectorAll(".practice-subtab").forEach((button) => {
     button.addEventListener("click", () => showPracticePanel(button.dataset.practicePanel));
+  });
+  problemTestsInput.addEventListener("input", () => {
+    try {
+      const tests = JSON.parse(problemTestsInput.value || "[]");
+      compilerTestCount.textContent = formatTestCount(Array.isArray(tests) ? tests.length : 0);
+    } catch {
+      compilerTestCount.textContent = "invalid tests";
+    }
   });
   newCourseBtn.addEventListener("click", createNewCourse);
   newSystemDesignBtn.addEventListener("click", createNewSystemDesignTopic);
@@ -1728,6 +1745,11 @@ function renderSelectedProblem() {
   problemNotesInput.value = problem.notes || "";
   problemTestsInput.value = JSON.stringify(problem.customTests || [], null, 2);
   pythonEditor.value = problem.draft || "";
+  compilerQuickTestInput.value = "";
+  compilerTestCount.textContent = formatTestCount((problem.customTests || []).length);
+  compilerStatusText.textContent = problem.methodName
+    ? `Runs ${problem.methodName} with local python3. Add a quick JSON test when needed.`
+    : "Set a method name before compiling tests.";
   practiceReflectionInput.value = "";
   renderProblemHistory(problem);
   updateLineNumbers();
@@ -1791,6 +1813,30 @@ function readProblemForm() {
   };
 }
 
+function readCompilerQuickTest() {
+  const raw = compilerQuickTestInput.value.trim();
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Quick test must be one JSON object");
+    }
+    return {
+      name: String(parsed.name || "quick test"),
+      args: Array.isArray(parsed.args) ? parsed.args : [],
+      expected: parsed.expected,
+      kwargs: parsed.kwargs && typeof parsed.kwargs === "object" && !Array.isArray(parsed.kwargs) ? parsed.kwargs : {},
+    };
+  } catch (error) {
+    renderRunResults({ ok: false, error: `Invalid quick test JSON: ${error.message}`, results: [] });
+    return null;
+  }
+}
+
+function formatTestCount(count) {
+  return `${count} ${count === 1 ? "test" : "tests"}`;
+}
+
 async function saveSelectedProblem() {
   const problem = getSelectedProblem();
   const payload = readProblemForm();
@@ -1819,15 +1865,20 @@ async function runSelectedProblem() {
   const problem = getSelectedProblem();
   const payload = readProblemForm();
   if (!problem || !payload) return;
+  const quickTest = readCompilerQuickTest();
+  if (quickTest === null) return;
+  const runTests = quickTest ? [...payload.customTests, quickTest] : payload.customTests;
   runPythonBtn.disabled = true;
-  runPythonBtn.textContent = "Running...";
-  renderRunResults({ ok: true, message: "Running Python...", results: [] });
+  runPythonBtn.textContent = "Compiling...";
+  compilerStatusText.textContent = `Compiling ${problemMethodInput.value || "solution"} with ${formatTestCount(runTests.length)}...`;
+  renderRunResults({ ok: true, message: "Compiling and running Python locally...", results: [] });
   try {
     const res = await fetch(`/api/practice/problems/${encodeURIComponent(problem.id)}/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...payload,
+        customTests: runTests,
         code: payload.draft,
         timeSpentMinutes: Number(practiceFocusMinutesInput.value) || 0,
         hintsUsed: Number(practiceHintsInput.value) || 0,
@@ -1838,12 +1889,16 @@ async function runSelectedProblem() {
     const result = await res.json();
     if (result.problem) replacePracticeProblem(result.problem);
     renderPractice();
+    compilerStatusText.textContent = result.ok
+      ? `Compiled. ${result.passed || 0}/${result.total || 0} tests passed.`
+      : `Compiler error: ${result.error || "run failed"}`;
     renderRunResults(result);
   } catch (error) {
+    compilerStatusText.textContent = "Compiler failed to reach the local server.";
     renderRunResults({ ok: false, error: "Python runner failed.", results: [] });
   } finally {
     runPythonBtn.disabled = false;
-    runPythonBtn.textContent = "Run Tests";
+    runPythonBtn.textContent = "Compile & Run";
   }
 }
 
@@ -1994,6 +2049,19 @@ function updateLineNumbers() {
 }
 
 function handleEditorKeydown(event) {
+  if (!snippetMenu.hidden && (event.key === "Enter" || event.key === "Tab")) {
+    const first = snippetMenu.querySelector("button");
+    if (first) {
+      event.preventDefault();
+      first.click();
+      return;
+    }
+  }
+  if (!snippetMenu.hidden && event.key === "Escape") {
+    event.preventDefault();
+    hideSnippetMenu();
+    return;
+  }
   if (event.key === "Tab") {
     event.preventDefault();
     insertAtCursor(pythonEditor, "    ");
@@ -2002,18 +2070,32 @@ function handleEditorKeydown(event) {
   }
   if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
     event.preventDefault();
-    showSnippetMenu();
+    showSnippetMenu("");
   }
 }
 
-function showSnippetMenu() {
+function maybeShowAutocomplete() {
+  const prefix = getEditorPrefix();
+  if (prefix.length < 2) {
+    hideSnippetMenu();
+    return;
+  }
+  const matches = getMatchingSnippets(prefix);
+  if (!matches.length) {
+    hideSnippetMenu();
+    return;
+  }
+  showSnippetMenu(prefix, matches);
+}
+
+function showSnippetMenu(prefix = "", matches = getMatchingSnippets(prefix)) {
   snippetMenu.replaceChildren();
-  PYTHON_SNIPPETS.forEach((snippet) => {
+  matches.slice(0, 8).forEach((snippet) => {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = snippet.label;
     button.addEventListener("click", () => {
-      insertAtCursor(pythonEditor, snippet.code);
+      replaceEditorPrefix(prefix, snippet.code);
       hideSnippetMenu();
       updateLineNumbers();
       pythonEditor.focus();
@@ -2021,6 +2103,31 @@ function showSnippetMenu() {
     snippetMenu.appendChild(button);
   });
   snippetMenu.hidden = false;
+}
+
+function getMatchingSnippets(prefix) {
+  const needle = String(prefix || "").toLowerCase();
+  if (!needle) return PYTHON_SNIPPETS;
+  return PYTHON_SNIPPETS.filter((snippet) => {
+    const trigger = String(snippet.trigger || snippet.label).toLowerCase();
+    return trigger.startsWith(needle) || snippet.label.toLowerCase().includes(needle);
+  });
+}
+
+function getEditorPrefix() {
+  const before = pythonEditor.value.slice(0, pythonEditor.selectionStart);
+  return before.match(/[A-Za-z_][A-Za-z0-9_]*$/)?.[0] || "";
+}
+
+function replaceEditorPrefix(prefix, text) {
+  if (!prefix) {
+    insertAtCursor(pythonEditor, text);
+    return;
+  }
+  const start = pythonEditor.selectionStart - prefix.length;
+  const end = pythonEditor.selectionEnd;
+  pythonEditor.value = `${pythonEditor.value.slice(0, start)}${text}${pythonEditor.value.slice(end)}`;
+  pythonEditor.selectionStart = pythonEditor.selectionEnd = start + text.length;
 }
 
 function hideSnippetMenu() {
