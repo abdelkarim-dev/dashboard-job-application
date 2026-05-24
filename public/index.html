@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Job Hunt Cockpit</title>
-    <link rel="stylesheet" href="/styles.css?v=20260522-dashboard-timestamps" />
+    <link rel="stylesheet" href="/styles.css?v=20260524-learning-hub" />
   </head>
   <body>
     <div class="app-shell">
@@ -22,6 +22,9 @@
             <nav class="topbar-tabs" aria-label="View switching">
               <button class="tab-btn active" id="tabBoardBtn" type="button">📋 Board</button>
               <button class="tab-btn" id="tabAnalyticsBtn" type="button">📊 Analytics</button>
+              <button class="tab-btn" id="tabPracticeBtn" type="button">⌨ Practice</button>
+              <button class="tab-btn" id="tabCoursesBtn" type="button">▦ Courses</button>
+              <button class="tab-btn" id="tabSystemDesignBtn" type="button">◇ System Design</button>
               <button class="tab-btn" id="tabProfileBtn" type="button">👤 Profile</button>
             </nav>
         </header>
@@ -225,6 +228,183 @@
           </div>
         </div>
 
+        <!-- Practice View Tab -->
+        <div class="tab-content-container learning-view" id="practiceView" hidden>
+          <div class="learning-header">
+            <div>
+              <p class="eyebrow">Interview training</p>
+              <h2>Practice</h2>
+            </div>
+            <div class="learning-actions">
+              <button class="btn-ghost" id="practiceCalendarBtn" type="button">Calendar Block</button>
+              <button class="btn-ghost" id="practiceSyncBtn" type="button">Sync Metadata</button>
+              <button class="btn-primary" id="practiceNewProblemBtn" type="button">+ Problem</button>
+            </div>
+          </div>
+
+          <div class="learning-metrics" aria-label="Practice metrics">
+            <article class="learning-metric"><span>Due</span><strong id="practiceMetricDue">0</strong></article>
+            <article class="learning-metric"><span>Solved</span><strong id="practiceMetricSolved">0</strong></article>
+            <article class="learning-metric"><span>Focus</span><strong id="practiceMetricFocus">0m</strong></article>
+            <article class="learning-metric"><span>Streak</span><strong id="practiceMetricStreak">0</strong></article>
+          </div>
+
+          <div class="practice-layout">
+            <aside class="practice-sidebar">
+              <div class="learning-card compact">
+                <div class="learning-filter-grid">
+                  <input class="learning-input" id="practiceSearchInput" type="search" placeholder="Search problems..." autocomplete="off" />
+                  <select class="learning-input" id="practiceDifficultyFilter">
+                    <option value="">All difficulty</option>
+                    <option>Easy</option>
+                    <option>Medium</option>
+                    <option>Hard</option>
+                  </select>
+                  <select class="learning-input" id="practiceStatusFilter">
+                    <option value="">All status</option>
+                    <option value="due">Due</option>
+                    <option value="solved">Solved</option>
+                    <option value="unsolved">Unsolved</option>
+                  </select>
+                </div>
+              </div>
+              <div class="learning-card due-card">
+                <div class="learning-card-title">
+                  <h3>Review Queue</h3>
+                  <span id="practiceDueCount">0</span>
+                </div>
+                <div class="mini-list" id="practiceDueList"></div>
+              </div>
+              <div class="problem-list" id="practiceProblemList"></div>
+            </aside>
+
+            <section class="practice-detail">
+              <div class="learning-empty" id="practiceEmptyState">
+                <strong>Select a problem</strong>
+                <span>Your local bank, notes, drafts, and history stay in ignored data files.</span>
+              </div>
+
+              <div class="practice-editor-shell" id="practiceDetailPanel" hidden>
+                <div class="practice-detail-top">
+                  <div>
+                    <p class="eyebrow" id="practiceProblemMeta">Problem</p>
+                    <h2 id="practiceProblemTitle">—</h2>
+                  </div>
+                  <a class="btn-ghost link-button" id="practiceProblemUrl" href="#" target="_blank" rel="noreferrer" hidden>Open</a>
+                </div>
+
+                <div class="practice-form-grid">
+                  <label class="learning-field">
+                    <span>Title</span>
+                    <input class="learning-input" id="problemTitleInput" />
+                  </label>
+                  <label class="learning-field">
+                    <span>Difficulty</span>
+                    <select class="learning-input" id="problemDifficultyInput">
+                      <option>Easy</option>
+                      <option>Medium</option>
+                      <option>Hard</option>
+                    </select>
+                  </label>
+                  <label class="learning-field">
+                    <span>Method</span>
+                    <input class="learning-input" id="problemMethodInput" placeholder="twoSum" />
+                  </label>
+                  <label class="learning-field">
+                    <span>Tags</span>
+                    <input class="learning-input" id="problemTagsInput" placeholder="Array, Hash Table" />
+                  </label>
+                </div>
+
+                <div class="practice-tabs">
+                  <button class="practice-subtab active" data-practice-panel="problemNotesPanel" type="button">Problem</button>
+                  <button class="practice-subtab" data-practice-panel="problemTestsPanel" type="button">Tests</button>
+                  <button class="practice-subtab" data-practice-panel="problemHistoryPanel" type="button">History</button>
+                </div>
+
+                <div class="practice-subpanel active" id="problemNotesPanel">
+                  <label class="learning-field">
+                    <span>Description</span>
+                    <textarea class="learning-textarea" id="problemDescriptionInput" rows="5"></textarea>
+                  </label>
+                  <label class="learning-field">
+                    <span>Notes</span>
+                    <textarea class="learning-textarea" id="problemNotesInput" rows="4"></textarea>
+                  </label>
+                </div>
+
+                <div class="practice-subpanel" id="problemTestsPanel" hidden>
+                  <label class="learning-field">
+                    <span>Custom Tests JSON</span>
+                    <textarea class="learning-textarea mono" id="problemTestsInput" rows="8"></textarea>
+                  </label>
+                </div>
+
+                <div class="practice-subpanel" id="problemHistoryPanel" hidden>
+                  <div class="history-list" id="problemHistoryList"></div>
+                </div>
+
+                <div class="code-toolbar">
+                  <span>Python</span>
+                  <div class="learning-actions">
+                    <input class="learning-input small" id="practiceFocusMinutesInput" type="number" min="0" step="5" value="25" aria-label="Focus minutes" />
+                    <input class="learning-input small" id="practiceHintsInput" type="number" min="0" step="1" value="0" aria-label="Hints used" />
+                    <select class="learning-input small" id="practiceConfidenceInput" aria-label="Confidence">
+                      <option value="1">Confidence 1</option>
+                      <option value="2">Confidence 2</option>
+                      <option value="3" selected>Confidence 3</option>
+                      <option value="4">Confidence 4</option>
+                      <option value="5">Confidence 5</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="code-editor-wrap">
+                  <pre class="line-numbers" id="pythonLineNumbers">1</pre>
+                  <textarea class="python-editor" id="pythonEditor" spellcheck="false" autocomplete="off"></textarea>
+                  <div class="snippet-menu" id="snippetMenu" hidden></div>
+                </div>
+
+                <label class="learning-field">
+                  <span>Reflection</span>
+                  <textarea class="learning-textarea" id="practiceReflectionInput" rows="2"></textarea>
+                </label>
+
+                <div class="practice-actions">
+                  <button class="btn-ghost" id="saveProblemBtn" type="button">Save</button>
+                  <button class="btn-primary" id="runPythonBtn" type="button">Run Tests</button>
+                  <button class="btn-ghost" id="markSolvedBtn" type="button">Mark Solved</button>
+                  <button class="btn-ghost" id="markFailedBtn" type="button">Mark Failed</button>
+                </div>
+                <div class="run-results" id="pythonRunResults"></div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <!-- Courses View Tab -->
+        <div class="tab-content-container learning-view" id="coursesView" hidden>
+          <div class="learning-header">
+            <div>
+              <p class="eyebrow">Study roadmap</p>
+              <h2>Courses</h2>
+            </div>
+            <button class="btn-primary" id="newCourseBtn" type="button">+ Course</button>
+          </div>
+          <div class="learning-grid-list" id="coursesList"></div>
+        </div>
+
+        <!-- System Design View Tab -->
+        <div class="tab-content-container learning-view" id="systemDesignView" hidden>
+          <div class="learning-header">
+            <div>
+              <p class="eyebrow">Architecture reps</p>
+              <h2>System Design</h2>
+            </div>
+            <button class="btn-primary" id="newSystemDesignBtn" type="button">+ Topic</button>
+          </div>
+          <div class="learning-grid-list" id="systemDesignList"></div>
+        </div>
+
         <!-- Profile View Tab -->
         <div class="tab-content-container" id="profileView" hidden>
           <div class="profile-layout">
@@ -359,6 +539,7 @@
               </form>
             </div>
           </div>
+        </div>
 
       </main>
     </div>
@@ -488,6 +669,6 @@
       <p class="dialog-note">Once loaded, visit any job posting and click the extension icon to capture and track it.</p>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260522-dashboard-timestamps"></script>
+    <script type="module" src="/app.js?v=20260524-learning-hub"></script>
   </body>
 </html>

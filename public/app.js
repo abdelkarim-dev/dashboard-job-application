@@ -8,6 +8,15 @@ const state = {
   dragId: null,
   dragIds: [],
   dragType: "",
+  currentView: "board",
+  practice: {
+    store: null,
+    selectedProblemId: "",
+    filters: { search: "", difficulty: "", status: "" },
+    calendarPayload: null,
+  },
+  courses: null,
+  systemDesign: null,
 };
 
 // ── DOM refs ───────────────────────────────────────────────────
@@ -41,14 +50,64 @@ const dEvaluationResult   = document.getElementById("d-evaluationResult");
 // Navigation View Tabs and Grouping
 const tabBoardBtn         = document.getElementById("tabBoardBtn");
 const tabAnalyticsBtn     = document.getElementById("tabAnalyticsBtn");
+const tabPracticeBtn      = document.getElementById("tabPracticeBtn");
+const tabCoursesBtn       = document.getElementById("tabCoursesBtn");
+const tabSystemDesignBtn  = document.getElementById("tabSystemDesignBtn");
 const tabProfileBtn       = document.getElementById("tabProfileBtn");
 const categorizeRolesBtn  = document.getElementById("categorizeRolesBtn");
 const boardView           = document.getElementById("boardView");
 const analyticsView       = document.getElementById("analyticsView");
+const practiceView        = document.getElementById("practiceView");
+const coursesView         = document.getElementById("coursesView");
+const systemDesignView    = document.getElementById("systemDesignView");
 const profileView         = document.getElementById("profileView");
 const profileForm         = document.getElementById("profileForm");
 const profileFeedback     = document.getElementById("profileFeedback");
 const groupBySelector     = document.getElementById("groupBySelector");
+
+// Learning Hub elements
+const practiceMetricDue = document.getElementById("practiceMetricDue");
+const practiceMetricSolved = document.getElementById("practiceMetricSolved");
+const practiceMetricFocus = document.getElementById("practiceMetricFocus");
+const practiceMetricStreak = document.getElementById("practiceMetricStreak");
+const practiceDueCount = document.getElementById("practiceDueCount");
+const practiceDueList = document.getElementById("practiceDueList");
+const practiceProblemList = document.getElementById("practiceProblemList");
+const practiceSearchInput = document.getElementById("practiceSearchInput");
+const practiceDifficultyFilter = document.getElementById("practiceDifficultyFilter");
+const practiceStatusFilter = document.getElementById("practiceStatusFilter");
+const practiceSyncBtn = document.getElementById("practiceSyncBtn");
+const practiceCalendarBtn = document.getElementById("practiceCalendarBtn");
+const practiceNewProblemBtn = document.getElementById("practiceNewProblemBtn");
+const practiceEmptyState = document.getElementById("practiceEmptyState");
+const practiceDetailPanel = document.getElementById("practiceDetailPanel");
+const practiceProblemMeta = document.getElementById("practiceProblemMeta");
+const practiceProblemTitle = document.getElementById("practiceProblemTitle");
+const practiceProblemUrl = document.getElementById("practiceProblemUrl");
+const problemTitleInput = document.getElementById("problemTitleInput");
+const problemDifficultyInput = document.getElementById("problemDifficultyInput");
+const problemMethodInput = document.getElementById("problemMethodInput");
+const problemTagsInput = document.getElementById("problemTagsInput");
+const problemDescriptionInput = document.getElementById("problemDescriptionInput");
+const problemNotesInput = document.getElementById("problemNotesInput");
+const problemTestsInput = document.getElementById("problemTestsInput");
+const problemHistoryList = document.getElementById("problemHistoryList");
+const pythonEditor = document.getElementById("pythonEditor");
+const pythonLineNumbers = document.getElementById("pythonLineNumbers");
+const snippetMenu = document.getElementById("snippetMenu");
+const practiceFocusMinutesInput = document.getElementById("practiceFocusMinutesInput");
+const practiceHintsInput = document.getElementById("practiceHintsInput");
+const practiceConfidenceInput = document.getElementById("practiceConfidenceInput");
+const practiceReflectionInput = document.getElementById("practiceReflectionInput");
+const saveProblemBtn = document.getElementById("saveProblemBtn");
+const runPythonBtn = document.getElementById("runPythonBtn");
+const markSolvedBtn = document.getElementById("markSolvedBtn");
+const markFailedBtn = document.getElementById("markFailedBtn");
+const pythonRunResults = document.getElementById("pythonRunResults");
+const coursesList = document.getElementById("coursesList");
+const newCourseBtn = document.getElementById("newCourseBtn");
+const systemDesignList = document.getElementById("systemDesignList");
+const newSystemDesignBtn = document.getElementById("newSystemDesignBtn");
 
 // Analytics Page elements
 const analyticInterviewRate      = document.getElementById("analyticInterviewRate");
@@ -83,6 +142,23 @@ const statusDistributionBars   = document.getElementById("statusDistributionBars
 const roleDistributionBars     = document.getElementById("roleDistributionBars");
 const roleDistributionPlaceholder = document.getElementById("roleDistributionPlaceholder");
 
+const VIEW_REGISTRY = {
+  board: { button: tabBoardBtn, view: boardView },
+  analytics: { button: tabAnalyticsBtn, view: analyticsView },
+  practice: { button: tabPracticeBtn, view: practiceView, load: loadPractice },
+  courses: { button: tabCoursesBtn, view: coursesView, load: loadCourses },
+  systemDesign: { button: tabSystemDesignBtn, view: systemDesignView, load: loadSystemDesign },
+  profile: { button: tabProfileBtn, view: profileView, load: loadProfileIntoForm },
+};
+
+const PYTHON_SNIPPETS = [
+  { label: "defaultdict", code: "from collections import defaultdict\ncounts = defaultdict(int)" },
+  { label: "deque", code: "from collections import deque\nqueue = deque()" },
+  { label: "heap", code: "import heapq\nheap = []\nheapq.heappush(heap, value)" },
+  { label: "binary search", code: "left, right = 0, len(nums) - 1\nwhile left <= right:\n    mid = (left + right) // 2\n    if nums[mid] == target:\n        return mid\n    if nums[mid] < target:\n        left = mid + 1\n    else:\n        right = mid - 1" },
+  { label: "dfs", code: "def dfs(node):\n    if node in seen:\n        return\n    seen.add(node)\n    for nei in graph[node]:\n        dfs(nei)" },
+];
+
 
 // ── Boot ───────────────────────────────────────────────────────
 init();
@@ -93,43 +169,8 @@ async function init() {
   // Initialize theme (strictly forced dark theme)
   setTheme("dark");
 
-  // View Tabs Action
-  tabBoardBtn.addEventListener("click", () => {
-    tabBoardBtn.classList.add("active");
-    tabAnalyticsBtn.classList.remove("active");
-    tabProfileBtn.classList.remove("active");
-    boardView.classList.add("active");
-    boardView.hidden = false;
-    analyticsView.classList.remove("active");
-    analyticsView.hidden = true;
-    profileView.classList.remove("active");
-    profileView.hidden = true;
-  });
-
-  tabAnalyticsBtn.addEventListener("click", () => {
-    tabAnalyticsBtn.classList.add("active");
-    tabBoardBtn.classList.remove("active");
-    tabProfileBtn.classList.remove("active");
-    analyticsView.classList.add("active");
-    analyticsView.hidden = false;
-    boardView.classList.remove("active");
-    boardView.hidden = true;
-    profileView.classList.remove("active");
-    profileView.hidden = true;
-    render();
-  });
-
-  tabProfileBtn.addEventListener("click", () => {
-    tabProfileBtn.classList.add("active");
-    tabBoardBtn.classList.remove("active");
-    tabAnalyticsBtn.classList.remove("active");
-    profileView.classList.add("active");
-    profileView.hidden = false;
-    boardView.classList.remove("active");
-    boardView.hidden = true;
-    analyticsView.classList.remove("active");
-    analyticsView.hidden = true;
-    loadProfileIntoForm();
+  Object.entries(VIEW_REGISTRY).forEach(([name, entry]) => {
+    entry.button?.addEventListener("click", () => showView(name));
   });
 
   profileForm.addEventListener("submit", handleProfileSave);
@@ -225,8 +266,39 @@ async function init() {
     if (e.target === extensionDialog) extensionDialog.close();
   });
 
+  practiceSearchInput.addEventListener("input", () => {
+    state.practice.filters.search = practiceSearchInput.value.trim().toLowerCase();
+    renderPractice();
+  });
+  practiceDifficultyFilter.addEventListener("change", () => {
+    state.practice.filters.difficulty = practiceDifficultyFilter.value;
+    renderPractice();
+  });
+  practiceStatusFilter.addEventListener("change", () => {
+    state.practice.filters.status = practiceStatusFilter.value;
+    renderPractice();
+  });
+  practiceSyncBtn.addEventListener("click", syncPracticeBank);
+  practiceCalendarBtn.addEventListener("click", syncPracticeCalendar);
+  practiceNewProblemBtn.addEventListener("click", createNewPracticeProblem);
+  saveProblemBtn.addEventListener("click", saveSelectedProblem);
+  runPythonBtn.addEventListener("click", runSelectedProblem);
+  markSolvedBtn.addEventListener("click", () => markSelectedProblem("solved"));
+  markFailedBtn.addEventListener("click", () => markSelectedProblem("failed"));
+  pythonEditor.addEventListener("input", () => {
+    updateLineNumbers();
+    hideSnippetMenu();
+  });
+  pythonEditor.addEventListener("keydown", handleEditorKeydown);
+  document.querySelectorAll(".practice-subtab").forEach((button) => {
+    button.addEventListener("click", () => showPracticePanel(button.dataset.practicePanel));
+  });
+  newCourseBtn.addEventListener("click", createNewCourse);
+  newSystemDesignBtn.addEventListener("click", createNewSystemDesignTopic);
+
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !detailDrawer.hidden) closeDrawer();
+    if (e.key === "Escape") hideSnippetMenu();
   });
 
   await loadApplications();
@@ -236,6 +308,20 @@ async function init() {
 function setTheme(theme) {
   document.documentElement.dataset.theme = "dark";
   localStorage.setItem("theme", "dark");
+}
+
+async function showView(name) {
+  state.currentView = name;
+  Object.entries(VIEW_REGISTRY).forEach(([viewName, entry]) => {
+    const active = viewName === name;
+    entry.button?.classList.toggle("active", active);
+    if (entry.view) {
+      entry.view.classList.toggle("active", active);
+      entry.view.hidden = !active;
+    }
+  });
+  if (name === "analytics") render();
+  if (VIEW_REGISTRY[name]?.load) await VIEW_REGISTRY[name].load();
 }
 
 // ── Data loading ───────────────────────────────────────────────
@@ -1499,6 +1585,672 @@ function showProfileFeedback(text, isError) {
   setTimeout(() => {
     profileFeedback.hidden = true;
   }, 3000);
+}
+
+// ── Learning Hub: Practice ─────────────────────────────────────
+async function loadPractice() {
+  try {
+    const res = await fetch("/api/practice");
+    state.practice.store = await res.json();
+    if (!state.practice.selectedProblemId && state.practice.store.problems.length) {
+      state.practice.selectedProblemId = state.practice.store.problems[0].id;
+    }
+    renderPractice();
+  } catch (error) {
+    renderLearningError(practiceProblemList, "Practice data is unavailable.");
+  }
+}
+
+function renderPractice() {
+  const store = state.practice.store;
+  if (!store) return;
+  const stats = store.stats || {};
+  const due = store.due || [];
+  practiceMetricDue.textContent = stats.dueToday ?? due.length ?? 0;
+  practiceMetricSolved.textContent = stats.solved ?? 0;
+  practiceMetricFocus.textContent = `${stats.focusMinutes ?? 0}m`;
+  practiceMetricStreak.textContent = stats.streak ?? 0;
+  practiceDueCount.textContent = due.length;
+  renderDueList(due);
+  renderProblemList();
+  renderSelectedProblem();
+}
+
+function renderDueList(due) {
+  practiceDueList.replaceChildren();
+  if (!due.length) {
+    const empty = document.createElement("p");
+    empty.className = "mini-empty";
+    empty.textContent = "No due reviews";
+    practiceDueList.appendChild(empty);
+    return;
+  }
+  due.slice(0, 6).forEach((problem) => {
+    const button = document.createElement("button");
+    button.className = "mini-list-item";
+    button.type = "button";
+    button.textContent = `${problem.title} · ${problem.nextReviewAt}`;
+    button.addEventListener("click", () => selectProblem(problem.id));
+    practiceDueList.appendChild(button);
+  });
+}
+
+function getFilteredProblems() {
+  const store = state.practice.store;
+  if (!store) return [];
+  const dueIds = new Set((store.due || []).map((problem) => problem.id));
+  const { search, difficulty, status } = state.practice.filters;
+  return [...store.problems]
+    .filter((problem) => {
+      if (difficulty && problem.difficulty !== difficulty) return false;
+      if (status === "due" && !dueIds.has(problem.id)) return false;
+      if (status === "solved" && !problem.solveCount) return false;
+      if (status === "unsolved" && problem.solveCount) return false;
+      if (search) {
+        const hay = [problem.title, problem.slug, problem.difficulty, ...(problem.tags || [])].join(" ").toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const dueDiff = Number(dueIds.has(b.id)) - Number(dueIds.has(a.id));
+      if (dueDiff) return dueDiff;
+      const reviewDiff = String(a.nextReviewAt || "9999").localeCompare(String(b.nextReviewAt || "9999"));
+      if (reviewDiff) return reviewDiff;
+      return a.title.localeCompare(b.title);
+    });
+}
+
+function renderProblemList() {
+  practiceProblemList.replaceChildren();
+  const problems = getFilteredProblems();
+  if (!problems.length) {
+    const empty = document.createElement("p");
+    empty.className = "learning-empty-list";
+    empty.textContent = "No matching problems";
+    practiceProblemList.appendChild(empty);
+    return;
+  }
+  const dueIds = new Set((state.practice.store.due || []).map((problem) => problem.id));
+  problems.forEach((problem) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "problem-row";
+    button.classList.toggle("active", problem.id === state.practice.selectedProblemId);
+    button.classList.toggle("due", dueIds.has(problem.id));
+    const title = document.createElement("strong");
+    title.textContent = problem.title;
+    const meta = document.createElement("span");
+    meta.textContent = `${problem.difficulty} · ${(problem.tags || []).slice(0, 3).join(", ") || "No tags"}`;
+    const footer = document.createElement("small");
+    footer.textContent = problem.nextReviewAt ? `Review ${problem.nextReviewAt}` : `${problem.solveCount || 0} solves`;
+    button.append(title, meta, footer);
+    button.addEventListener("click", () => selectProblem(problem.id));
+    practiceProblemList.appendChild(button);
+  });
+}
+
+function selectProblem(id) {
+  persistSelectedProblemDraft();
+  state.practice.selectedProblemId = id;
+  pythonRunResults.replaceChildren();
+  renderPractice();
+}
+
+function getSelectedProblem() {
+  return state.practice.store?.problems.find((problem) => problem.id === state.practice.selectedProblemId) || null;
+}
+
+function renderSelectedProblem() {
+  const problem = getSelectedProblem();
+  practiceEmptyState.hidden = Boolean(problem);
+  practiceDetailPanel.hidden = !problem;
+  if (!problem) return;
+
+  practiceProblemTitle.textContent = problem.title;
+  practiceProblemMeta.textContent = `${problem.difficulty} · ${(problem.tags || []).join(", ") || "No tags"}`;
+  if (problem.url) {
+    practiceProblemUrl.href = problem.url;
+    practiceProblemUrl.hidden = false;
+  } else {
+    practiceProblemUrl.hidden = true;
+  }
+  problemTitleInput.value = problem.title || "";
+  problemDifficultyInput.value = problem.difficulty || "Medium";
+  problemMethodInput.value = problem.methodName || "";
+  problemTagsInput.value = (problem.tags || []).join(", ");
+  problemDescriptionInput.value = problem.description || "";
+  problemNotesInput.value = problem.notes || "";
+  problemTestsInput.value = JSON.stringify(problem.customTests || [], null, 2);
+  pythonEditor.value = problem.draft || "";
+  practiceReflectionInput.value = "";
+  renderProblemHistory(problem);
+  updateLineNumbers();
+}
+
+function renderProblemHistory(problem) {
+  problemHistoryList.replaceChildren();
+  const rows = [
+    ...(problem.history || []).map((item) => ({ type: item.type, at: item.at, note: item.note })),
+    ...(problem.attempts || []).slice(0, 12).map((item) => ({
+      type: item.passed ? "attempt passed" : "attempt failed",
+      at: item.createdAt,
+      note: `${item.passedTests}/${item.totalTests} tests${item.timeSpentMinutes ? ` · ${item.timeSpentMinutes}m` : ""}`,
+    })),
+  ].sort((a, b) => parseDateTime(b.at) - parseDateTime(a.at));
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "mini-empty";
+    empty.textContent = "No history yet";
+    problemHistoryList.appendChild(empty);
+    return;
+  }
+  rows.slice(0, 18).forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    const top = document.createElement("strong");
+    top.textContent = item.type;
+    const meta = document.createElement("span");
+    meta.textContent = formatDateTimeShort(item.at);
+    const note = document.createElement("p");
+    note.textContent = item.note || "";
+    row.append(top, meta, note);
+    problemHistoryList.appendChild(row);
+  });
+}
+
+function persistSelectedProblemDraft() {
+  const problem = getSelectedProblem();
+  if (!problem) return;
+  problem.draft = pythonEditor.value;
+}
+
+function readProblemForm() {
+  let customTests = [];
+  try {
+    customTests = JSON.parse(problemTestsInput.value || "[]");
+    if (!Array.isArray(customTests)) throw new Error("Tests must be an array");
+  } catch (error) {
+    renderRunResults({ ok: false, error: `Invalid tests JSON: ${error.message}`, results: [] });
+    return null;
+  }
+  return {
+    title: problemTitleInput.value.trim(),
+    difficulty: problemDifficultyInput.value,
+    methodName: problemMethodInput.value.trim(),
+    tags: problemTagsInput.value.split(/[,;]+/).map((item) => item.trim()).filter(Boolean),
+    description: problemDescriptionInput.value,
+    notes: problemNotesInput.value,
+    customTests,
+    draft: pythonEditor.value,
+  };
+}
+
+async function saveSelectedProblem() {
+  const problem = getSelectedProblem();
+  const payload = readProblemForm();
+  if (!problem || !payload) return null;
+  saveProblemBtn.disabled = true;
+  try {
+    const res = await fetch(`/api/practice/problems/${encodeURIComponent(problem.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const updated = await res.json();
+    replacePracticeProblem(updated);
+    renderPractice();
+    renderRunResults({ ok: true, message: "Saved.", results: [] });
+    return updated;
+  } catch (error) {
+    renderRunResults({ ok: false, error: "Save failed.", results: [] });
+    return null;
+  } finally {
+    saveProblemBtn.disabled = false;
+  }
+}
+
+async function runSelectedProblem() {
+  const problem = getSelectedProblem();
+  const payload = readProblemForm();
+  if (!problem || !payload) return;
+  runPythonBtn.disabled = true;
+  runPythonBtn.textContent = "Running...";
+  renderRunResults({ ok: true, message: "Running Python...", results: [] });
+  try {
+    const res = await fetch(`/api/practice/problems/${encodeURIComponent(problem.id)}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...payload,
+        code: payload.draft,
+        timeSpentMinutes: Number(practiceFocusMinutesInput.value) || 0,
+        hintsUsed: Number(practiceHintsInput.value) || 0,
+        confidence: Number(practiceConfidenceInput.value) || 1,
+        notes: practiceReflectionInput.value,
+      }),
+    });
+    const result = await res.json();
+    if (result.problem) replacePracticeProblem(result.problem);
+    renderPractice();
+    renderRunResults(result);
+  } catch (error) {
+    renderRunResults({ ok: false, error: "Python runner failed.", results: [] });
+  } finally {
+    runPythonBtn.disabled = false;
+    runPythonBtn.textContent = "Run Tests";
+  }
+}
+
+async function markSelectedProblem(kind) {
+  const problem = getSelectedProblem();
+  const payload = readProblemForm();
+  if (!problem || !payload) return;
+  const endpoint = kind === "solved" ? "mark-solved" : "mark-failed";
+  try {
+    const res = await fetch(`/api/practice/problems/${encodeURIComponent(problem.id)}/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...payload,
+        timeSpentMinutes: Number(practiceFocusMinutesInput.value) || 0,
+        hintsUsed: Number(practiceHintsInput.value) || 0,
+        confidence: Number(practiceConfidenceInput.value) || 1,
+        reflection: practiceReflectionInput.value,
+      }),
+    });
+    const updated = await res.json();
+    replacePracticeProblem(updated);
+    await refreshPracticeSummary();
+    renderRunResults({
+      ok: true,
+      message: kind === "solved"
+        ? `Solved. Next review: ${updated.nextReviewAt || "not scheduled"}.`
+        : `Logged. Next review: ${updated.nextReviewAt || "not scheduled"}.`,
+      results: [],
+    });
+  } catch (error) {
+    renderRunResults({ ok: false, error: "Could not update review state.", results: [] });
+  }
+}
+
+async function refreshPracticeSummary() {
+  const res = await fetch("/api/practice");
+  state.practice.store = await res.json();
+  renderPractice();
+}
+
+function replacePracticeProblem(updated) {
+  const store = state.practice.store;
+  if (!store || !updated?.id) return;
+  const index = store.problems.findIndex((problem) => problem.id === updated.id);
+  if (index >= 0) store.problems[index] = updated;
+  else store.problems.unshift(updated);
+  state.practice.selectedProblemId = updated.id;
+}
+
+async function createNewPracticeProblem() {
+  const title = "New Practice Problem";
+  try {
+    const res = await fetch("/api/practice/problems", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        difficulty: "Medium",
+        tags: ["Custom"],
+        methodName: "solve",
+        customTests: [{ name: "example", args: [], expected: null }],
+        draft: "class Solution:\n    def solve(self):\n        return None\n",
+      }),
+    });
+    const problem = await res.json();
+    if (!state.practice.store) await loadPractice();
+    replacePracticeProblem(problem);
+    renderPractice();
+  } catch (error) {
+    renderRunResults({ ok: false, error: "Could not create problem.", results: [] });
+  }
+}
+
+async function syncPracticeBank() {
+  practiceSyncBtn.disabled = true;
+  try {
+    await fetch("/api/practice/sync-leetcode-bank", { method: "POST" });
+    await refreshPracticeSummary();
+  } finally {
+    practiceSyncBtn.disabled = false;
+  }
+}
+
+async function syncPracticeCalendar() {
+  practiceCalendarBtn.disabled = true;
+  try {
+    const res = await fetch("/api/calendar/sync-reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: todayString() }),
+    });
+    const result = await res.json();
+    state.practice.calendarPayload = result.payload;
+    renderRunResults({
+      ok: true,
+      message: result.fallback || "Calendar payload prepared.",
+      results: [],
+      stdout: result.payload ? JSON.stringify(result.payload, null, 2) : "",
+    });
+  } catch (error) {
+    renderRunResults({ ok: false, error: "Calendar sync payload failed.", results: [] });
+  } finally {
+    practiceCalendarBtn.disabled = false;
+  }
+}
+
+function renderRunResults(result) {
+  pythonRunResults.replaceChildren();
+  const box = document.createElement("div");
+  box.className = result.ok ? "run-result-box ok" : "run-result-box error";
+  const title = document.createElement("strong");
+  title.textContent = result.message || (result.ok ? `${result.passed || 0}/${result.total || 0} tests passed` : (result.error || "Failed"));
+  box.appendChild(title);
+  if (result.error && result.message) {
+    const error = document.createElement("p");
+    error.textContent = result.error;
+    box.appendChild(error);
+  }
+  if (result.stdout) {
+    const pre = document.createElement("pre");
+    pre.textContent = result.stdout;
+    box.appendChild(pre);
+  }
+  if (Array.isArray(result.results) && result.results.length) {
+    const list = document.createElement("div");
+    list.className = "test-result-list";
+    result.results.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = item.passed ? "test-result-row pass" : "test-result-row fail";
+      const label = document.createElement("strong");
+      label.textContent = item.name || "test";
+      const detail = document.createElement("span");
+      detail.textContent = item.passed
+        ? "passed"
+        : `expected ${JSON.stringify(item.expected)} · got ${JSON.stringify(item.actual)}${item.error ? ` · ${item.error}` : ""}`;
+      row.append(label, detail);
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+  }
+  pythonRunResults.appendChild(box);
+}
+
+function updateLineNumbers() {
+  const count = Math.max(1, pythonEditor.value.split("\n").length);
+  pythonLineNumbers.textContent = Array.from({ length: count }, (_, index) => index + 1).join("\n");
+}
+
+function handleEditorKeydown(event) {
+  if (event.key === "Tab") {
+    event.preventDefault();
+    insertAtCursor(pythonEditor, "    ");
+    updateLineNumbers();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
+    event.preventDefault();
+    showSnippetMenu();
+  }
+}
+
+function showSnippetMenu() {
+  snippetMenu.replaceChildren();
+  PYTHON_SNIPPETS.forEach((snippet) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = snippet.label;
+    button.addEventListener("click", () => {
+      insertAtCursor(pythonEditor, snippet.code);
+      hideSnippetMenu();
+      updateLineNumbers();
+      pythonEditor.focus();
+    });
+    snippetMenu.appendChild(button);
+  });
+  snippetMenu.hidden = false;
+}
+
+function hideSnippetMenu() {
+  snippetMenu.hidden = true;
+}
+
+function insertAtCursor(textarea, text) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  textarea.value = `${textarea.value.slice(0, start)}${text}${textarea.value.slice(end)}`;
+  textarea.selectionStart = textarea.selectionEnd = start + text.length;
+}
+
+function showPracticePanel(panelId) {
+  document.querySelectorAll(".practice-subtab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.practicePanel === panelId);
+  });
+  document.querySelectorAll(".practice-subpanel").forEach((panel) => {
+    const active = panel.id === panelId;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+}
+
+// ── Learning Hub: Courses / System Design ──────────────────────
+async function loadCourses() {
+  try {
+    const res = await fetch("/api/learning/courses");
+    state.courses = await res.json();
+    renderCourses();
+  } catch {
+    renderLearningError(coursesList, "Courses are unavailable.");
+  }
+}
+
+function renderCourses() {
+  coursesList.replaceChildren();
+  (state.courses?.items || []).forEach((item) => {
+    coursesList.appendChild(makeLearningItemCard(item, "course"));
+  });
+}
+
+async function createNewCourse() {
+  const res = await fetch("/api/learning/courses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "New Course",
+      track: "Custom",
+      status: "Not Started",
+      progress: 0,
+      modules: [],
+      resources: [],
+    }),
+  });
+  const item = await res.json();
+  if (!state.courses) state.courses = { items: [] };
+  state.courses.items.unshift(item);
+  renderCourses();
+}
+
+async function loadSystemDesign() {
+  try {
+    const res = await fetch("/api/learning/system-design");
+    state.systemDesign = await res.json();
+    renderSystemDesign();
+  } catch {
+    renderLearningError(systemDesignList, "System design topics are unavailable.");
+  }
+}
+
+function renderSystemDesign() {
+  systemDesignList.replaceChildren();
+  (state.systemDesign?.topics || []).forEach((topic) => {
+    systemDesignList.appendChild(makeLearningItemCard(topic, "systemDesign"));
+  });
+}
+
+async function createNewSystemDesignTopic() {
+  const res = await fetch("/api/learning/system-design", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "New System Design Topic",
+      status: "Not Started",
+      confidence: 1,
+      prompts: [],
+      checklist: ["Requirements", "APIs", "Data model", "Scale", "Tradeoffs"],
+    }),
+  });
+  const topic = await res.json();
+  if (!state.systemDesign) state.systemDesign = { topics: [] };
+  state.systemDesign.topics.unshift(topic);
+  renderSystemDesign();
+}
+
+function makeLearningItemCard(item, type) {
+  const card = document.createElement("article");
+  card.className = "learning-item-card";
+  card.dataset.id = item.id;
+
+  const title = makeLabeledInput("Title", item.title || "");
+  const status = makeLabeledSelect("Status", ["Not Started", "In Progress", "Done"], item.status || "Not Started");
+  const progress = makeLabeledInput(type === "course" ? "Progress" : "Confidence", type === "course" ? item.progress || 0 : item.confidence || 1, "number");
+  progress.input.min = type === "course" ? "0" : "1";
+  progress.input.max = type === "course" ? "100" : "5";
+  progress.input.step = "1";
+
+  const header = document.createElement("div");
+  header.className = "learning-item-header";
+  const heading = document.createElement("div");
+  const eyebrow = document.createElement("span");
+  eyebrow.textContent = type === "course" ? (item.track || "Course") : "System Design";
+  const h3 = document.createElement("h3");
+  h3.textContent = item.title || "Untitled";
+  heading.append(eyebrow, h3);
+  const save = document.createElement("button");
+  save.className = "btn-primary";
+  save.type = "button";
+  save.textContent = "Save";
+  header.append(heading, save);
+
+  const grid = document.createElement("div");
+  grid.className = "learning-item-grid";
+  grid.append(title.wrap);
+  if (type === "course") {
+    const track = makeLabeledInput("Track", item.track || "");
+    grid.append(track.wrap);
+    card._trackInput = track.input;
+  }
+  grid.append(status.wrap, progress.wrap);
+
+  const modules = makeLabeledTextarea(type === "course" ? "Modules" : "Prompts", (type === "course" ? item.modules : item.prompts || []).join("\n"));
+  const resources = makeLabeledTextarea(type === "course" ? "Resources" : "Checklist", (type === "course" ? item.resources : item.checklist || []).join("\n"));
+  const notes = makeLabeledTextarea("Notes", item.notes || "");
+  const dates = document.createElement("div");
+  dates.className = "learning-date-row";
+  const last = makeLabeledInput(type === "course" ? "Last studied" : "Last practiced", isoToLocalDateTimeInput(type === "course" ? item.lastStudiedAt : item.lastPracticedAt), "datetime-local");
+  const next = makeLabeledInput("Next review", item.nextReviewAt || "", "date");
+  dates.append(last.wrap, next.wrap);
+
+  card.append(header, grid, modules.wrap, resources.wrap, notes.wrap, dates);
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    const payload = type === "course"
+      ? {
+          title: title.input.value,
+          track: card._trackInput.value,
+          status: status.input.value,
+          progress: Number(progress.input.value) || 0,
+          modules: linesToList(modules.input.value),
+          resources: linesToList(resources.input.value),
+          notes: notes.input.value,
+          lastStudiedAt: localDateTimeInputToIso(last.input.value),
+          nextReviewAt: next.input.value,
+        }
+      : {
+          title: title.input.value,
+          status: status.input.value,
+          confidence: Number(progress.input.value) || 1,
+          prompts: linesToList(modules.input.value),
+          checklist: linesToList(resources.input.value),
+          notes: notes.input.value,
+          lastPracticedAt: localDateTimeInputToIso(last.input.value),
+          nextReviewAt: next.input.value,
+        };
+    const url = type === "course"
+      ? `/api/learning/courses/${encodeURIComponent(item.id)}`
+      : `/api/learning/system-design/${encodeURIComponent(item.id)}`;
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const updated = await res.json();
+    Object.assign(item, updated);
+    h3.textContent = updated.title;
+    save.disabled = false;
+  });
+  return card;
+}
+
+function makeLabeledInput(label, value, type = "text") {
+  const wrap = document.createElement("label");
+  wrap.className = "learning-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const input = document.createElement("input");
+  input.className = "learning-input";
+  input.type = type;
+  input.value = value;
+  wrap.append(span, input);
+  return { wrap, input };
+}
+
+function makeLabeledSelect(label, options, value) {
+  const wrap = document.createElement("label");
+  wrap.className = "learning-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const input = document.createElement("select");
+  input.className = "learning-input";
+  options.forEach((option) => {
+    const optionEl = document.createElement("option");
+    optionEl.textContent = option;
+    input.appendChild(optionEl);
+  });
+  input.value = value;
+  wrap.append(span, input);
+  return { wrap, input };
+}
+
+function makeLabeledTextarea(label, value) {
+  const wrap = document.createElement("label");
+  wrap.className = "learning-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const input = document.createElement("textarea");
+  input.className = "learning-textarea";
+  input.rows = 4;
+  input.value = value;
+  wrap.append(span, input);
+  return { wrap, input };
+}
+
+function linesToList(value) {
+  return String(value || "").split(/\n+/).map((line) => line.trim()).filter(Boolean);
+}
+
+function renderLearningError(container, message) {
+  container.replaceChildren();
+  const error = document.createElement("p");
+  error.className = "learning-empty-list";
+  error.textContent = message;
+  container.appendChild(error);
 }
 
 // ── Utils ──────────────────────────────────────────────────────

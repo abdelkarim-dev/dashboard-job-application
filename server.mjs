@@ -1,6 +1,8 @@
 import http from "node:http";
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { readFile, writeFile, mkdir, stat, mkdtemp, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -10,6 +12,10 @@ const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
 const dataFile = path.join(dataDir, "applications.json");
 const profileFile = path.join(dataDir, "profile.json");
+const practiceFile = path.join(dataDir, "practice.json");
+const coursesFile = path.join(dataDir, "courses.json");
+const systemDesignFile = path.join(dataDir, "system-design.json");
+const googleCalendarTokenFile = path.join(dataDir, "google-calendar-token.json");
 const port = Number(process.env.PORT || process.argv[2] || 8787);
 const ollamaUrl = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 const openAiCompatibleUrl = process.env.LOCAL_AI_URL || "http://127.0.0.1:1234";
@@ -22,6 +28,7 @@ const roleCategoryBatchSize = Number.isFinite(configuredRoleCategoryBatchSize) &
   ? Math.floor(configuredRoleCategoryBatchSize)
   : 10;
 const PIPELINE_STATUSES = ["Applied", "Interview", "Offer", "Rejected"];
+const LEARNING_REVIEW_INTERVALS = [1, 3, 7, 14, 30, 60];
 const ROLE_CATEGORY_OPTIONS = [
   "Backend Engineering",
   "Platform Engineering",
@@ -175,6 +182,743 @@ async function saveProfile(profile) {
     if (error.code !== "ENOENT") throw error;
   }
   await writeFile(profileFile, `${JSON.stringify({ ...existing, ...profile }, null, 2)}\n`, "utf8");
+}
+
+async function readJsonFile(filePath, fallback) {
+  try {
+    const text = await readFile(filePath, "utf8");
+    return JSON.parse(text);
+  } catch (error) {
+    if (error.code === "ENOENT") return cloneJson(fallback);
+    throw error;
+  }
+}
+
+async function writeJsonFile(filePath, value) {
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+const seededAt = "2026-05-24T00:00:00.000Z";
+
+const defaultPracticeProblems = [
+  {
+    id: "lc-two-sum",
+    title: "Two Sum",
+    slug: "two-sum",
+    url: "https://leetcode.com/problems/two-sum/",
+    difficulty: "Easy",
+    tags: ["Array", "Hash Table"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "twoSum",
+    description: "",
+    examples: "",
+    constraints: "",
+    notes: "",
+    customTests: [
+      { name: "basic pair", args: [[2, 7, 11, 15], 9], expected: [0, 1] },
+      { name: "same value pair", args: [[3, 3], 6], expected: [0, 1] },
+    ],
+    draft: "class Solution:\n    def twoSum(self, nums, target):\n        seen = {}\n        for index, value in enumerate(nums):\n            need = target - value\n            if need in seen:\n                return [seen[need], index]\n            seen[value] = index\n        return []\n",
+  },
+  {
+    id: "lc-valid-parentheses",
+    title: "Valid Parentheses",
+    slug: "valid-parentheses",
+    url: "https://leetcode.com/problems/valid-parentheses/",
+    difficulty: "Easy",
+    tags: ["String", "Stack"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "isValid",
+    customTests: [
+      { name: "balanced mixed", args: ["()[]{}"], expected: true },
+      { name: "crossed pair", args: ["(]"], expected: false },
+    ],
+    draft: "class Solution:\n    def isValid(self, s):\n        pairs = {')': '(', ']': '[', '}': '{'}\n        stack = []\n        for char in s:\n            if char in pairs.values():\n                stack.append(char)\n            elif not stack or stack.pop() != pairs.get(char):\n                return False\n        return not stack\n",
+  },
+  {
+    id: "lc-merge-intervals",
+    title: "Merge Intervals",
+    slug: "merge-intervals",
+    url: "https://leetcode.com/problems/merge-intervals/",
+    difficulty: "Medium",
+    tags: ["Array", "Sorting"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "merge",
+    customTests: [
+      { name: "overlap", args: [[[1, 3], [2, 6], [8, 10], [15, 18]]], expected: [[1, 6], [8, 10], [15, 18]] },
+    ],
+    draft: "class Solution:\n    def merge(self, intervals):\n        intervals.sort(key=lambda item: item[0])\n        merged = []\n        for start, end in intervals:\n            if not merged or start > merged[-1][1]:\n                merged.append([start, end])\n            else:\n                merged[-1][1] = max(merged[-1][1], end)\n        return merged\n",
+  },
+  {
+    id: "lc-number-of-islands",
+    title: "Number of Islands",
+    slug: "number-of-islands",
+    url: "https://leetcode.com/problems/number-of-islands/",
+    difficulty: "Medium",
+    tags: ["Array", "Depth-First Search", "Breadth-First Search", "Matrix"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "numIslands",
+    customTests: [
+      { name: "single island", args: [[["1", "1", "0"], ["0", "1", "0"], ["0", "0", "1"]]], expected: 2 },
+    ],
+    draft: "class Solution:\n    def numIslands(self, grid):\n        rows = len(grid)\n        cols = len(grid[0]) if rows else 0\n        seen = set()\n\n        def dfs(r, c):\n            if r < 0 or c < 0 or r >= rows or c >= cols:\n                return\n            if grid[r][c] != '1' or (r, c) in seen:\n                return\n            seen.add((r, c))\n            dfs(r + 1, c)\n            dfs(r - 1, c)\n            dfs(r, c + 1)\n            dfs(r, c - 1)\n\n        count = 0\n        for r in range(rows):\n            for c in range(cols):\n                if grid[r][c] == '1' and (r, c) not in seen:\n                    count += 1\n                    dfs(r, c)\n        return count\n",
+  },
+  {
+    id: "lc-lru-cache",
+    title: "LRU Cache",
+    slug: "lru-cache",
+    url: "https://leetcode.com/problems/lru-cache/",
+    difficulty: "Medium",
+    tags: ["Hash Table", "Linked List", "Design"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "",
+    customTests: [],
+    draft: "class LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n\n    def get(self, key):\n        return -1\n\n    def put(self, key, value):\n        pass\n",
+  },
+  {
+    id: "lc-koko-eating-bananas",
+    title: "Koko Eating Bananas",
+    slug: "koko-eating-bananas",
+    url: "https://leetcode.com/problems/koko-eating-bananas/",
+    difficulty: "Medium",
+    tags: ["Array", "Binary Search"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "minEatingSpeed",
+    customTests: [
+      { name: "small piles", args: [[3, 6, 7, 11], 8], expected: 4 },
+    ],
+    draft: "class Solution:\n    def minEatingSpeed(self, piles, h):\n        left, right = 1, max(piles)\n        while left < right:\n            mid = (left + right) // 2\n            hours = sum((pile + mid - 1) // mid for pile in piles)\n            if hours <= h:\n                right = mid\n            else:\n                left = mid + 1\n        return left\n",
+  },
+  {
+    id: "lc-binary-tree-level-order-traversal",
+    title: "Binary Tree Level Order Traversal",
+    slug: "binary-tree-level-order-traversal",
+    url: "https://leetcode.com/problems/binary-tree-level-order-traversal/",
+    difficulty: "Medium",
+    tags: ["Tree", "Breadth-First Search", "Binary Tree"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "levelOrder",
+    customTests: [],
+    draft: "class Solution:\n    def levelOrder(self, root):\n        return []\n",
+  },
+  {
+    id: "lc-course-schedule",
+    title: "Course Schedule",
+    slug: "course-schedule",
+    url: "https://leetcode.com/problems/course-schedule/",
+    difficulty: "Medium",
+    tags: ["Depth-First Search", "Breadth-First Search", "Graph", "Topological Sort"],
+    paidOnly: false,
+    acceptance: null,
+    syncedAt: seededAt,
+    methodName: "canFinish",
+    customTests: [
+      { name: "cycle", args: [2, [[1, 0], [0, 1]]], expected: false },
+      { name: "simple chain", args: [2, [[1, 0]]], expected: true },
+    ],
+    draft: "class Solution:\n    def canFinish(self, numCourses, prerequisites):\n        graph = {course: [] for course in range(numCourses)}\n        for course, prereq in prerequisites:\n            graph[course].append(prereq)\n        visiting = set()\n        visited = set()\n\n        def has_cycle(course):\n            if course in visiting:\n                return True\n            if course in visited:\n                return False\n            visiting.add(course)\n            for prereq in graph[course]:\n                if has_cycle(prereq):\n                    return True\n            visiting.remove(course)\n            visited.add(course)\n            return False\n\n        return not any(has_cycle(course) for course in range(numCourses))\n",
+  },
+];
+
+const defaultPracticeStore = {
+  version: 1,
+  settings: {
+    timezone: "America/Vancouver",
+    dailyReviewTime: "20:00",
+    reviewMinutes: 45,
+  },
+  problems: defaultPracticeProblems,
+};
+
+const defaultCoursesStore = {
+  version: 1,
+  items: [
+    {
+      id: "course-dsa-patterns",
+      title: "DSA Patterns",
+      track: "Algorithms",
+      status: "Not Started",
+      progress: 0,
+      modules: ["Two pointers", "Sliding window", "Binary search", "BFS/DFS", "Graphs", "Dynamic programming"],
+      resources: ["NeetCode roadmap", "Blind 75", "LeetCode pattern notes"],
+      notes: "",
+      lastStudiedAt: "",
+      nextReviewAt: "",
+    },
+    {
+      id: "course-python-interview-prep",
+      title: "Python Interview Prep",
+      track: "Language",
+      status: "Not Started",
+      progress: 0,
+      modules: ["Collections", "Heapq", "Itertools", "Typing", "Testing snippets", "Runtime tradeoffs"],
+      resources: ["Python docs", "Personal snippet bank"],
+      notes: "",
+      lastStudiedAt: "",
+      nextReviewAt: "",
+    },
+    {
+      id: "course-backend-platform-prep",
+      title: "Backend / Platform Prep",
+      track: "Backend",
+      status: "Not Started",
+      progress: 0,
+      modules: ["APIs", "PostgreSQL", "AWS serverless", "CI/CD", "Reliability", "Incident response"],
+      resources: ["Architecture notes", "AWS Well-Architected", "PostgreSQL docs"],
+      notes: "",
+      lastStudiedAt: "",
+      nextReviewAt: "",
+    },
+    {
+      id: "course-system-design-fundamentals",
+      title: "System Design Fundamentals",
+      track: "System Design",
+      status: "Not Started",
+      progress: 0,
+      modules: ["Capacity estimates", "APIs", "Data model", "Caching", "Queues", "Observability"],
+      resources: ["Design prompt checklist", "Personal diagrams"],
+      notes: "",
+      lastStudiedAt: "",
+      nextReviewAt: "",
+    },
+    {
+      id: "course-advanced-system-design",
+      title: "Advanced System Design",
+      track: "System Design",
+      status: "Not Started",
+      progress: 0,
+      modules: ["Multi-region", "Consistency", "Sharding", "Search", "Realtime systems", "Incident strategy"],
+      resources: ["Company engineering blogs", "Personal postmortem notes"],
+      notes: "",
+      lastStudiedAt: "",
+      nextReviewAt: "",
+    },
+    {
+      id: "course-behavioral-strategy",
+      title: "Behavioral Strategy",
+      track: "Interviewing",
+      status: "Not Started",
+      progress: 0,
+      modules: ["Leadership stories", "Conflict", "Execution", "Technical ownership", "Remote collaboration"],
+      resources: ["STAR story bank", "Recruiter screen notes"],
+      notes: "",
+      lastStudiedAt: "",
+      nextReviewAt: "",
+    },
+  ],
+};
+
+const defaultSystemDesignStore = {
+  version: 1,
+  topics: [
+    "APIs",
+    "Caching",
+    "Queues",
+    "Databases",
+    "Scaling",
+    "Consistency",
+    "Observability",
+    "Rate Limiting",
+    "Authentication",
+    "Search",
+    "Chat",
+    "Feeds",
+    "Payments",
+    "Multi-region",
+    "Incidents",
+  ].map((title) => ({
+    id: `sd-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    title,
+    status: "Not Started",
+    confidence: 1,
+    prompts: [],
+    checklist: ["Requirements", "APIs", "Data model", "Scale", "Failure modes", "Tradeoffs"],
+    notes: "",
+    diagramLinks: "",
+    practiceHistory: [],
+    lastPracticedAt: "",
+    nextReviewAt: "",
+  })),
+};
+
+async function loadPracticeStore() {
+  return normalizePracticeStore(await readJsonFile(practiceFile, defaultPracticeStore));
+}
+
+async function savePracticeStore(store) {
+  const normalized = normalizePracticeStore(store);
+  await writeJsonFile(practiceFile, normalized);
+  return normalized;
+}
+
+async function loadCoursesStore() {
+  return normalizeCourseStore(await readJsonFile(coursesFile, defaultCoursesStore));
+}
+
+async function saveCoursesStore(store) {
+  const normalized = normalizeCourseStore(store);
+  await writeJsonFile(coursesFile, normalized);
+  return normalized;
+}
+
+async function loadSystemDesignStore() {
+  return normalizeSystemDesignStore(await readJsonFile(systemDesignFile, defaultSystemDesignStore));
+}
+
+async function saveSystemDesignStore(store) {
+  const normalized = normalizeSystemDesignStore(store);
+  await writeJsonFile(systemDesignFile, normalized);
+  return normalized;
+}
+
+function normalizePracticeStore(input = {}) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const settings = {
+    ...defaultPracticeStore.settings,
+    ...(source.settings && typeof source.settings === "object" && !Array.isArray(source.settings) ? source.settings : {}),
+  };
+  const rawProblems = Array.isArray(source.problems) ? source.problems : defaultPracticeProblems;
+  const seen = new Set();
+  const problems = rawProblems
+    .map((problem) => normalizePracticeProblem(problem))
+    .filter((problem) => {
+      if (seen.has(problem.id)) return false;
+      seen.add(problem.id);
+      return true;
+    });
+  return { version: 1, settings, problems };
+}
+
+function normalizePracticeProblem(input = {}, existing = {}) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const base = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
+  const title = clean(source.title ?? base.title) || "Untitled Problem";
+  const slug = clean(source.slug ?? base.slug) || slugify(title);
+  const customTests = Array.isArray(source.customTests)
+    ? source.customTests
+    : (Array.isArray(source.tests) ? source.tests : (Array.isArray(base.customTests) ? base.customTests : []));
+  const attempts = Array.isArray(source.attempts) ? source.attempts : (Array.isArray(base.attempts) ? base.attempts : []);
+  const sessions = Array.isArray(source.sessions) ? source.sessions : (Array.isArray(base.sessions) ? base.sessions : []);
+  const history = Array.isArray(source.history) ? source.history : (Array.isArray(base.history) ? base.history : []);
+  const reviewLevel = clampInt(source.reviewLevel ?? base.reviewLevel ?? 0, 0, LEARNING_REVIEW_INTERVALS.length - 1);
+  const solveCount = Math.max(0, Number(source.solveCount ?? base.solveCount ?? 0) || 0);
+  const lastSolvedAt = cleanTimestamp(source.lastSolvedAt) || cleanTimestamp(base.lastSolvedAt);
+  const nextReviewAt = cleanStageDate(source.nextReviewAt) || cleanStageDate(base.nextReviewAt);
+  return {
+    id: clean(source.id ?? base.id) || `problem-${slug}-${Date.now()}`,
+    title,
+    slug,
+    url: clean(source.url ?? base.url),
+    difficulty: choice(source.difficulty ?? base.difficulty, ["Easy", "Medium", "Hard"], "Medium"),
+    tags: stringList(source.tags ?? base.tags),
+    paidOnly: Boolean(source.paidOnly ?? base.paidOnly ?? false),
+    acceptance: normalizeOptionalNumber(source.acceptance ?? base.acceptance),
+    syncedAt: cleanTimestamp(source.syncedAt) || cleanTimestamp(base.syncedAt) || new Date().toISOString(),
+    methodName: clean(source.methodName ?? base.methodName),
+    description: String(source.description ?? base.description ?? ""),
+    examples: String(source.examples ?? base.examples ?? ""),
+    constraints: String(source.constraints ?? base.constraints ?? ""),
+    notes: String(source.notes ?? base.notes ?? ""),
+    customTests: customTests.map(normalizePracticeTest).filter(Boolean),
+    draft: String(source.draft ?? source.codeDraft ?? base.draft ?? base.codeDraft ?? ""),
+    solved: Boolean((source.solved ?? base.solved ?? (solveCount > 0)) || lastSolvedAt),
+    solveCount,
+    reviewLevel,
+    lastSolvedAt,
+    nextReviewAt,
+    attempts: attempts.map(normalizeAttempt).filter(Boolean),
+    sessions: sessions.map(normalizeSession).filter(Boolean),
+    history: history.map(normalizeHistoryItem).filter(Boolean),
+    createdAt: cleanTimestamp(source.createdAt) || cleanTimestamp(base.createdAt) || new Date().toISOString(),
+    updatedAt: cleanTimestamp(source.updatedAt) || cleanTimestamp(base.updatedAt) || new Date().toISOString(),
+  };
+}
+
+function normalizePracticeTest(test) {
+  if (!test || typeof test !== "object" || Array.isArray(test)) return null;
+  return {
+    name: clean(test.name) || "test",
+    args: Array.isArray(test.args) ? test.args : [],
+    kwargs: test.kwargs && typeof test.kwargs === "object" && !Array.isArray(test.kwargs) ? test.kwargs : {},
+    expected: test.expected,
+  };
+}
+
+function normalizeAttempt(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const createdAt = cleanTimestamp(input.createdAt) || new Date().toISOString();
+  return {
+    id: clean(input.id) || `attempt-${Date.parse(createdAt) || Date.now()}`,
+    createdAt,
+    source: clean(input.source) || "manual",
+    passed: Boolean(input.passed),
+    passedTests: Math.max(0, Number(input.passedTests) || 0),
+    totalTests: Math.max(0, Number(input.totalTests) || 0),
+    timeSpentMinutes: Math.max(0, Number(input.timeSpentMinutes) || 0),
+    hintsUsed: Math.max(0, Number(input.hintsUsed) || 0),
+    confidence: clampInt(input.confidence ?? 1, 1, 5),
+    notes: clean(input.notes),
+    stdout: String(input.stdout || ""),
+    stderr: String(input.stderr || ""),
+    error: clean(input.error),
+  };
+}
+
+function normalizeSession(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const endedAt = cleanTimestamp(input.endedAt) || cleanTimestamp(input.createdAt) || new Date().toISOString();
+  return {
+    id: clean(input.id) || `session-${Date.parse(endedAt) || Date.now()}`,
+    startedAt: cleanTimestamp(input.startedAt) || endedAt,
+    endedAt,
+    timeSpentMinutes: Math.max(0, Number(input.timeSpentMinutes) || 0),
+    focus: clean(input.focus) || "practice",
+  };
+}
+
+function normalizeHistoryItem(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  return {
+    at: cleanTimestamp(input.at) || new Date().toISOString(),
+    type: clean(input.type) || "note",
+    note: clean(input.note),
+  };
+}
+
+function normalizeCourseStore(input = {}) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const items = (Array.isArray(source.items) ? source.items : defaultCoursesStore.items)
+    .map(normalizeCourseItem)
+    .filter(Boolean);
+  return { version: 1, items };
+}
+
+function normalizeCourseItem(input = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const title = clean(input.title) || "Untitled Course";
+  return {
+    id: clean(input.id) || `course-${slugify(title)}-${Date.now()}`,
+    title,
+    track: clean(input.track) || "General",
+    status: choice(input.status, ["Not Started", "In Progress", "Done"], "Not Started"),
+    progress: clampInt(input.progress ?? 0, 0, 100),
+    modules: stringList(input.modules),
+    resources: stringList(input.resources),
+    notes: String(input.notes || ""),
+    lastStudiedAt: cleanTimestamp(input.lastStudiedAt) || "",
+    nextReviewAt: cleanStageDate(input.nextReviewAt) || "",
+  };
+}
+
+function normalizeSystemDesignStore(input = {}) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const topics = (Array.isArray(source.topics) ? source.topics : defaultSystemDesignStore.topics)
+    .map(normalizeSystemDesignTopic)
+    .filter(Boolean);
+  return { version: 1, topics };
+}
+
+function normalizeSystemDesignTopic(input = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const title = clean(input.title) || "Untitled Topic";
+  const history = Array.isArray(input.practiceHistory) ? input.practiceHistory : [];
+  return {
+    id: clean(input.id) || `sd-${slugify(title)}-${Date.now()}`,
+    title,
+    status: choice(input.status, ["Not Started", "In Progress", "Done"], "Not Started"),
+    confidence: clampInt(input.confidence ?? 1, 1, 5),
+    prompts: stringList(input.prompts),
+    checklist: stringList(input.checklist),
+    notes: String(input.notes || ""),
+    diagramLinks: String(input.diagramLinks || ""),
+    practiceHistory: history.map(normalizeHistoryItem).filter(Boolean),
+    lastPracticedAt: cleanTimestamp(input.lastPracticedAt) || "",
+    nextReviewAt: cleanStageDate(input.nextReviewAt) || "",
+  };
+}
+
+function mergeSeededPracticeProblems(store, now = new Date().toISOString()) {
+  const existingById = new Map(store.problems.map((problem) => [problem.id, problem]));
+  const existingBySlug = new Map(store.problems.map((problem) => [problem.slug, problem]));
+  let added = 0;
+  defaultPracticeProblems.forEach((seedProblem) => {
+    if (existingById.has(seedProblem.id) || existingBySlug.has(seedProblem.slug)) return;
+    store.problems.push(normalizePracticeProblem({ ...seedProblem, syncedAt: now }));
+    added += 1;
+  });
+  return { store: normalizePracticeStore(store), added };
+}
+
+function recordProblemAttempt(problem, attemptInput = {}, now = new Date().toISOString()) {
+  const next = normalizePracticeProblem(problem);
+  const timeSpentMinutes = Math.max(0, Number(attemptInput.timeSpentMinutes) || 0);
+  const attempt = normalizeAttempt({
+    id: `attempt-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    createdAt: now,
+    ...attemptInput,
+    timeSpentMinutes,
+  });
+  next.attempts = [attempt, ...next.attempts].slice(0, 200);
+  if (timeSpentMinutes > 0) {
+    next.sessions = [
+      normalizeSession({
+        id: `session-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        startedAt: cleanTimestamp(attemptInput.startedAt) || now,
+        endedAt: now,
+        timeSpentMinutes,
+        focus: attemptInput.focus || "practice",
+      }),
+      ...next.sessions,
+    ].slice(0, 300);
+  }
+  if (attemptInput.draft !== undefined || attemptInput.codeDraft !== undefined) {
+    next.draft = String(attemptInput.draft ?? attemptInput.codeDraft ?? "");
+  }
+  next.updatedAt = now;
+  return next;
+}
+
+function markProblemSolved(problem, input = {}, now = new Date().toISOString()) {
+  let next = recordProblemAttempt(problem, { ...input, passed: true, source: input.source || "manual" }, now);
+  const currentLevel = clampInt(problem.reviewLevel ?? 0, 0, LEARNING_REVIEW_INTERVALS.length - 1);
+  next.solved = true;
+  next.solveCount = Math.max(0, Number(problem.solveCount) || 0) + 1;
+  next.lastSolvedAt = now;
+  next.nextReviewAt = nextReviewDate(now, currentLevel);
+  next.reviewLevel = Math.min(currentLevel + 1, LEARNING_REVIEW_INTERVALS.length - 1);
+  next.history = [
+    normalizeHistoryItem({ at: now, type: "solved", note: input.reflection || input.notes || "" }),
+    ...next.history,
+  ].slice(0, 200);
+  next.updatedAt = now;
+  return next;
+}
+
+function markProblemFailed(problem, input = {}, now = new Date().toISOString()) {
+  let next = recordProblemAttempt(problem, { ...input, passed: false, source: input.source || "manual" }, now);
+  next.reviewLevel = 0;
+  next.nextReviewAt = nextReviewDate(now, 0);
+  next.history = [
+    normalizeHistoryItem({ at: now, type: "failed", note: input.reflection || input.notes || "" }),
+    ...next.history,
+  ].slice(0, 200);
+  next.updatedAt = now;
+  return next;
+}
+
+function nextReviewDate(reference = new Date(), reviewLevel = 0) {
+  const date = reference instanceof Date ? new Date(reference) : new Date(reference);
+  if (!Number.isFinite(date.getTime())) return "";
+  const index = clampInt(reviewLevel, 0, LEARNING_REVIEW_INTERVALS.length - 1);
+  date.setDate(date.getDate() + LEARNING_REVIEW_INTERVALS[index]);
+  return getLocalDateString(date);
+}
+
+function getDueProblems(store, today = getLocalDateString(new Date())) {
+  const normalized = normalizePracticeStore(store);
+  const date = cleanStageDate(today) || getLocalDateString(new Date());
+  return normalized.problems
+    .filter((problem) => problem.nextReviewAt && problem.nextReviewAt <= date)
+    .sort((a, b) => a.nextReviewAt.localeCompare(b.nextReviewAt) || a.title.localeCompare(b.title));
+}
+
+function buildPracticeStats(store, today = getLocalDateString(new Date())) {
+  const normalized = normalizePracticeStore(store);
+  const due = getDueProblems(normalized, today);
+  const solved = normalized.problems.filter((problem) => problem.solveCount > 0).length;
+  const focusMinutes = normalized.problems.reduce((sum, problem) => (
+    sum + problem.sessions.reduce((sessionSum, session) => sessionSum + (Number(session.timeSpentMinutes) || 0), 0)
+  ), 0);
+  const solveDates = new Set();
+  const weakTags = new Map();
+  normalized.problems.forEach((problem) => {
+    problem.history.forEach((item) => {
+      if (item.type === "solved" || item.type === "failed") {
+        const date = getLocalDateString(new Date(item.at));
+        if (date) solveDates.add(date);
+      }
+      if (item.type === "failed") {
+        problem.tags.forEach((tag) => weakTags.set(tag, (weakTags.get(tag) || 0) + 1));
+      }
+    });
+    problem.attempts.forEach((attempt) => {
+      if (!attempt.passed) {
+        problem.tags.forEach((tag) => weakTags.set(tag, (weakTags.get(tag) || 0) + 1));
+      }
+    });
+  });
+
+  let streak = 0;
+  const cursor = new Date(`${today}T12:00:00`);
+  while (Number.isFinite(cursor.getTime())) {
+    const date = getLocalDateString(cursor);
+    if (!solveDates.has(date)) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return {
+    totalProblems: normalized.problems.length,
+    solved,
+    dueToday: due.length,
+    focusMinutes,
+    streak,
+    weakTags: [...weakTags.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+      .slice(0, 8),
+  };
+}
+
+function buildCalendarReviewEventPayload(store, date = getLocalDateString(new Date()), settings = {}) {
+  const normalized = normalizePracticeStore(store);
+  const due = getDueProblems(normalized, date);
+  const timezone = settings.timezone || normalized.settings.timezone || "America/Vancouver";
+  const reviewTime = settings.dailyReviewTime || normalized.settings.dailyReviewTime || "20:00";
+  const minutes = Math.max(15, Number(settings.reviewMinutes || normalized.settings.reviewMinutes || 45));
+  const start = new Date(`${date}T${reviewTime}:00`);
+  const end = new Date(start);
+  end.setMinutes(end.getMinutes() + minutes);
+  const lines = due.length
+    ? due.map((problem, index) => `${index + 1}. ${problem.title}${problem.url ? ` - ${problem.url}` : ""}`)
+    : ["No due problems. Use the block for a fresh problem or reflection."];
+  return {
+    summary: "LeetCode Review",
+    description: `Due review queue for ${date}:\n${lines.join("\n")}`,
+    start: { dateTime: stripTimezone(start), timeZone: timezone },
+    end: { dateTime: stripTimezone(end), timeZone: timezone },
+    dueProblemIds: due.map((problem) => problem.id),
+  };
+}
+
+async function runPythonProblem(problemInput, codeInput = "", options = {}) {
+  const problem = normalizePracticeProblem(problemInput);
+  const code = String(codeInput || problem.draft || "");
+  const timeoutMs = Math.max(500, Number(options.timeoutMs) || 3000);
+  const tests = problem.customTests || [];
+  if (!code.trim()) return { ok: false, error: "No Python code to run.", passed: 0, total: tests.length, results: [] };
+  if (!problem.methodName) return { ok: false, error: "Set a method name before running tests.", passed: 0, total: tests.length, results: [] };
+  if (!tests.length) return { ok: false, error: "Add at least one custom test first.", passed: 0, total: 0, results: [] };
+
+  const tempDir = await mkdtemp(path.join(tmpdir(), "job-hunt-practice-"));
+  const solutionFile = path.join(tempDir, "solution.py");
+  const runnerFile = path.join(tempDir, "runner.py");
+  const testsFile = path.join(tempDir, "tests.json");
+  await writeFile(solutionFile, code, "utf8");
+  await writeFile(testsFile, JSON.stringify(tests), "utf8");
+  await writeFile(runnerFile, buildPythonHarness(problem.methodName), "utf8");
+
+  try {
+    const result = await runProcess("python3", [runnerFile], { cwd: tempDir, timeoutMs });
+    const parsed = parseRunnerPayload(result.stdout);
+    if (!parsed) {
+      return {
+        ok: false,
+        error: result.timedOut ? "Python timed out." : "The Python runner did not return a result.",
+        stdout: result.stdout,
+        stderr: result.stderr,
+        passed: 0,
+        total: tests.length,
+        results: [],
+      };
+    }
+    return {
+      ok: !result.timedOut && !parsed.error,
+      error: result.timedOut ? "Python timed out." : (parsed.error || ""),
+      passed: parsed.passed || 0,
+      total: parsed.total || tests.length,
+      results: parsed.results || [],
+      stdout: stripRunnerPayload(result.stdout),
+      stderr: result.stderr,
+    };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function buildPythonHarness(methodName) {
+  return `import json\nimport traceback\n\npayload = {"results": [], "passed": 0, "total": 0, "error": ""}\ntry:\n    with open("tests.json", "r", encoding="utf-8") as fh:\n        tests = json.load(fh)\n    payload["total"] = len(tests)\n    from solution import Solution\n    solution = Solution()\n    method = getattr(solution, ${JSON.stringify(methodName)})\n    for index, test in enumerate(tests):\n        args = test.get("args", [])\n        kwargs = test.get("kwargs", {})\n        expected = test.get("expected")\n        name = test.get("name") or f"test {index + 1}"\n        try:\n            actual = method(*args, **kwargs)\n            passed = actual == expected\n            if passed:\n                payload["passed"] += 1\n            payload["results"].append({"name": name, "passed": passed, "expected": expected, "actual": actual})\n        except Exception as exc:\n            payload["results"].append({"name": name, "passed": False, "expected": expected, "actual": None, "error": traceback.format_exc(limit=4)})\nexcept Exception:\n    payload["error"] = traceback.format_exc(limit=6)\nprint("__JH_RESULT__" + json.dumps(payload, default=str))\n`;
+}
+
+function runProcess(command, args, { cwd, timeoutMs }) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      resolve({ code: 1, stdout, stderr: stderr || String(error), timedOut });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      resolve({ code, stdout, stderr, timedOut });
+    });
+  });
+}
+
+function parseRunnerPayload(stdout = "") {
+  const line = String(stdout).split(/\r?\n/).findLast((item) => item.startsWith("__JH_RESULT__"));
+  if (!line) return null;
+  try {
+    return JSON.parse(line.slice("__JH_RESULT__".length));
+  } catch {
+    return null;
+  }
+}
+
+function stripRunnerPayload(stdout = "") {
+  return String(stdout)
+    .split(/\r?\n/)
+    .filter((line) => !line.startsWith("__JH_RESULT__"))
+    .join("\n")
+    .trim();
+}
+
+function stripTimezone(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}:${ss}`;
+}
+
+function slugify(value) {
+  return clean(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "item";
+}
+
+function clampInt(value, min, max) {
+  const num = Math.round(Number(value));
+  if (!Number.isFinite(num)) return min;
+  return Math.max(min, Math.min(max, num));
+}
+
+function normalizeOptionalNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 }
 
 function normalizeApplication(input, existing = {}) {
@@ -1389,12 +2133,13 @@ function clampScore(value) {
 }
 
 function choice(value, allowed, fallback) {
-  return allowed.includes(value) ? value : fallback;
+  const raw = clean(value);
+  return allowed.find((item) => item.toLowerCase() === raw.toLowerCase()) || fallback;
 }
 
 function stringList(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map(clean).filter(Boolean).slice(0, 8);
+  const items = Array.isArray(value) ? value : String(value || "").split(/[\n,;]+/);
+  return items.map(clean).filter(Boolean).slice(0, 24);
 }
 
 function gemmaStatus(result) {
@@ -1450,6 +2195,275 @@ async function handleApi(req, res, url) {
       : [app, ...applications];
     await saveApplications(next);
     return sendJson(res, duplicate ? 200 : 201, app);
+  }
+
+  if (url.pathname === "/api/practice" && req.method === "GET") {
+    const store = await loadPracticeStore();
+    return sendJson(res, 200, {
+      ...store,
+      stats: buildPracticeStats(store),
+      due: getDueProblems(store),
+    });
+  }
+
+  if (url.pathname === "/api/practice/problems" && req.method === "GET") {
+    const store = await loadPracticeStore();
+    return sendJson(res, 200, store.problems);
+  }
+
+  if (url.pathname === "/api/practice/problems" && req.method === "POST") {
+    const input = await readBody(req);
+    const store = await loadPracticeStore();
+    const problem = normalizePracticeProblem(input);
+    const withoutDuplicate = store.problems.filter((item) => item.id !== problem.id && item.slug !== problem.slug);
+    store.problems = [problem, ...withoutDuplicate];
+    await savePracticeStore(store);
+    return sendJson(res, 201, problem);
+  }
+
+  if (url.pathname === "/api/practice/reviews/due" && req.method === "GET") {
+    const store = await loadPracticeStore();
+    const date = cleanStageDate(url.searchParams.get("date")) || getLocalDateString(new Date());
+    return sendJson(res, 200, getDueProblems(store, date));
+  }
+
+  if (url.pathname === "/api/practice/stats" && req.method === "GET") {
+    const store = await loadPracticeStore();
+    const date = cleanStageDate(url.searchParams.get("date")) || getLocalDateString(new Date());
+    return sendJson(res, 200, buildPracticeStats(store, date));
+  }
+
+  if (url.pathname === "/api/practice/sync-leetcode-bank" && req.method === "POST") {
+    const store = await loadPracticeStore();
+    const merged = mergeSeededPracticeProblems(store);
+    await savePracticeStore(merged.store);
+    return sendJson(res, 200, {
+      ok: true,
+      added: merged.added,
+      totalProblems: merged.store.problems.length,
+      syncedAt: new Date().toISOString(),
+    });
+  }
+
+  const practiceProblemMatch = url.pathname.match(/^\/api\/practice\/problems\/([^/]+)(?:\/(run|attempts|mark-solved|mark-failed))?$/);
+  if (practiceProblemMatch) {
+    const id = decodeURIComponent(practiceProblemMatch[1]);
+    const action = practiceProblemMatch[2] || "";
+    const store = await loadPracticeStore();
+    const index = store.problems.findIndex((problem) => problem.id === id);
+    if (index < 0) return sendJson(res, 404, { error: "Problem not found" });
+    const existing = store.problems[index];
+
+    if (!action && req.method === "GET") {
+      return sendJson(res, 200, existing);
+    }
+
+    if (!action && req.method === "PUT") {
+      const input = await readBody(req);
+      const updated = normalizePracticeProblem({ ...input, id }, existing);
+      store.problems[index] = updated;
+      await savePracticeStore(store);
+      return sendJson(res, 200, updated);
+    }
+
+    if (!action && req.method === "DELETE") {
+      store.problems.splice(index, 1);
+      await savePracticeStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (action === "run" && req.method === "POST") {
+      const input = await readBody(req);
+      const code = String(input.code ?? existing.draft ?? "");
+      const runnable = normalizePracticeProblem({
+        ...existing,
+        draft: code,
+        customTests: Array.isArray(input.customTests) ? input.customTests : existing.customTests,
+        methodName: input.methodName ?? existing.methodName,
+      });
+      const result = await runPythonProblem(runnable, code);
+      const updated = recordProblemAttempt(runnable, {
+        source: "runner",
+        passed: result.ok && result.total > 0 && result.passed === result.total,
+        passedTests: result.passed || 0,
+        totalTests: result.total || 0,
+        timeSpentMinutes: input.timeSpentMinutes || 0,
+        hintsUsed: input.hintsUsed || 0,
+        confidence: input.confidence || 1,
+        notes: input.notes || result.error || "",
+        stdout: result.stdout || "",
+        stderr: result.stderr || "",
+        error: result.error || "",
+        draft: code,
+      });
+      store.problems[index] = updated;
+      await savePracticeStore(store);
+      return sendJson(res, 200, { ...result, problem: updated });
+    }
+
+    if (action === "attempts" && req.method === "POST") {
+      const input = await readBody(req);
+      const updated = recordProblemAttempt(existing, input);
+      store.problems[index] = updated;
+      await savePracticeStore(store);
+      return sendJson(res, 201, updated);
+    }
+
+    if (action === "mark-solved" && req.method === "POST") {
+      const input = await readBody(req);
+      const base = input.draft !== undefined ? normalizePracticeProblem({ ...existing, draft: input.draft }) : existing;
+      const updated = markProblemSolved(base, input);
+      store.problems[index] = updated;
+      await savePracticeStore(store);
+      return sendJson(res, 200, updated);
+    }
+
+    if (action === "mark-failed" && req.method === "POST") {
+      const input = await readBody(req);
+      const base = input.draft !== undefined ? normalizePracticeProblem({ ...existing, draft: input.draft }) : existing;
+      const updated = markProblemFailed(base, input);
+      store.problems[index] = updated;
+      await savePracticeStore(store);
+      return sendJson(res, 200, updated);
+    }
+  }
+
+  if (url.pathname === "/api/learning/courses" && req.method === "GET") {
+    return sendJson(res, 200, await loadCoursesStore());
+  }
+
+  if (url.pathname === "/api/learning/courses" && req.method === "POST") {
+    const input = await readBody(req);
+    const store = await loadCoursesStore();
+    const item = normalizeCourseItem(input);
+    store.items = [item, ...store.items.filter((existing) => existing.id !== item.id)];
+    await saveCoursesStore(store);
+    return sendJson(res, 201, item);
+  }
+
+  const courseMatch = url.pathname.match(/^\/api\/learning\/courses\/([^/]+)$/);
+  if (courseMatch) {
+    const id = decodeURIComponent(courseMatch[1]);
+    const store = await loadCoursesStore();
+    const index = store.items.findIndex((item) => item.id === id);
+    if (index < 0) return sendJson(res, 404, { error: "Course not found" });
+    if (req.method === "PUT") {
+      const input = await readBody(req);
+      const updated = normalizeCourseItem({ ...store.items[index], ...input, id });
+      store.items[index] = updated;
+      await saveCoursesStore(store);
+      return sendJson(res, 200, updated);
+    }
+    if (req.method === "DELETE") {
+      store.items.splice(index, 1);
+      await saveCoursesStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  if (url.pathname === "/api/learning/system-design" && req.method === "GET") {
+    return sendJson(res, 200, await loadSystemDesignStore());
+  }
+
+  if (url.pathname === "/api/learning/system-design" && req.method === "POST") {
+    const input = await readBody(req);
+    const store = await loadSystemDesignStore();
+    const topic = normalizeSystemDesignTopic(input);
+    store.topics = [topic, ...store.topics.filter((existing) => existing.id !== topic.id)];
+    await saveSystemDesignStore(store);
+    return sendJson(res, 201, topic);
+  }
+
+  const systemDesignMatch = url.pathname.match(/^\/api\/learning\/system-design\/([^/]+)$/);
+  if (systemDesignMatch) {
+    const id = decodeURIComponent(systemDesignMatch[1]);
+    const store = await loadSystemDesignStore();
+    const index = store.topics.findIndex((topic) => topic.id === id);
+    if (index < 0) return sendJson(res, 404, { error: "System design topic not found" });
+    if (req.method === "PUT") {
+      const input = await readBody(req);
+      const updated = normalizeSystemDesignTopic({ ...store.topics[index], ...input, id });
+      store.topics[index] = updated;
+      await saveSystemDesignStore(store);
+      return sendJson(res, 200, updated);
+    }
+    if (req.method === "DELETE") {
+      store.topics.splice(index, 1);
+      await saveSystemDesignStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  if (url.pathname === "/api/calendar/status" && req.method === "GET") {
+    let hasLocalToken = false;
+    try {
+      await readFile(googleCalendarTokenFile, "utf8");
+      hasLocalToken = true;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    return sendJson(res, 200, {
+      configured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      hasLocalToken,
+      fallback: "in-app reminders",
+    });
+  }
+
+  if (url.pathname === "/api/calendar/auth-url" && req.method === "GET") {
+    const clientId = process.env.GOOGLE_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+    if (!clientId || !clientSecret) {
+      return sendJson(res, 200, {
+        configured: false,
+        error: "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable Google Calendar OAuth.",
+      });
+    }
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://127.0.0.1:${port}/api/calendar/oauth/callback`;
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      access_type: "offline",
+      prompt: "consent",
+      scope: "https://www.googleapis.com/auth/calendar.events",
+    });
+    return sendJson(res, 200, {
+      configured: true,
+      url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+      redirectUri,
+    });
+  }
+
+  if (url.pathname === "/api/calendar/oauth/callback" && req.method === "GET") {
+    const code = clean(url.searchParams.get("code"));
+    if (!code) return sendJson(res, 400, { error: "Missing OAuth code." });
+    await writeJsonFile(googleCalendarTokenFile, {
+      code,
+      savedAt: new Date().toISOString(),
+      note: "Local-only placeholder. Exchange this code for tokens before enabling live Calendar writes.",
+    });
+    return sendJson(res, 200, {
+      ok: true,
+      message: "OAuth code saved locally. Live token exchange is intentionally left disabled until credentials are configured.",
+    });
+  }
+
+  if (url.pathname === "/api/calendar/sync-reviews" && req.method === "POST") {
+    const input = await readBody(req);
+    const store = await loadPracticeStore();
+    const date = cleanStageDate(input.date) || getLocalDateString(new Date());
+    const payload = buildCalendarReviewEventPayload(store, date, input.settings || {});
+    const status = {
+      configured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    };
+    return sendJson(res, 200, {
+      ok: true,
+      configured: false,
+      fallback: status.configured
+        ? "Calendar credentials detected, but live writes are disabled in this local-only v1. Review the payload before enabling."
+        : "Google Calendar credentials are missing, so the in-app due queue remains the reminder.",
+      payload,
+    });
   }
 
   if (url.pathname === "/api/extract-ai" && req.method === "POST") {
@@ -1580,12 +2594,24 @@ function startServer() {
 }
 
 export {
+  buildCalendarReviewEventPayload,
+  buildPracticeStats,
   getLocalDateString,
+  getDueProblems,
   getStageDate,
   getStageTimestamp,
+  markProblemFailed,
+  markProblemSolved,
   migrateApplications,
   normalizeApplication,
+  normalizeCourseStore,
+  normalizePracticeProblem,
+  normalizePracticeStore,
   normalizeRoleCategory,
+  normalizeSystemDesignStore,
+  nextReviewDate,
+  recordProblemAttempt,
+  runPythonProblem,
   simplifyStatus,
   startServer,
   toCsv,
