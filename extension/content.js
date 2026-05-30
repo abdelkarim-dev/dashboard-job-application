@@ -41,6 +41,9 @@ let isJobPageCache = null;
 let lastCachedUrl = "";
 let submitTrackerLastDetectedAt = 0;
 let submitTrackerLastTrackedAt = 0;
+// URLs tracked this page session — prevents repeat "application saved" toasts when
+// a multi-step ATS form fires multiple submit-like events for the same application.
+const trackedAppUrls = new Set();
 let dragFloatingActionsState = null;
 
 // ── API Proxy helper ───────────────────────────────────────────
@@ -84,6 +87,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     ensureCopilotPanel(message.profile);
     expandWidget();
     autofillWebForm(message.profile, { useAi: true });
+    return false;
+  }
+  // Received from background.js when an application was just saved via the
+  // extension "+" form. Relay to the dashboard React app via window.postMessage
+  // so the drawer opens for the newly-created application.
+  if (message?.type === "OPEN_APP_DRAWER") {
+    window.postMessage({ type: "JH_OPEN_DRAWER", appId: message.appId }, "*");
+    sendResponse({ ok: true });
     return false;
   }
   if (message?.type === "TOGGLE_TOOLBAR") {
@@ -451,9 +462,15 @@ async function trackJobApplication(trigger = "submit") {
           : { status: result.evaluationError ? "error" : "pending", label: "Gemma evaluation", detail: result.evaluationError || "Not returned by local Gemma." },
       ]);
 
-      showToast(status === 200
-        ? "↻ Updated this application and queued evaluation."
-        : "✅ Application tracked and evaluated in Job Hunt Cockpit!");
+      // Show toast only once per URL per page session to prevent spam on multi-step
+      // forms where each "Next" click looks like a submit and triggers a 200 update.
+      const alreadyToasted = jobData.sourceUrl && trackedAppUrls.has(jobData.sourceUrl);
+      if (!alreadyToasted) {
+        if (jobData.sourceUrl) trackedAppUrls.add(jobData.sourceUrl);
+        showToast(status === 200
+          ? "↻ Updated this application in Job Hunt Cockpit."
+          : "✅ Application tracked in Job Hunt Cockpit!");
+      }
       updateSubmitListenerStatus(`tracked via ${trigger}`);
     } else {
       throw new Error(result.error || "Background tracker failed.");
@@ -1689,7 +1706,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (!profile) return;
   ensureCopilotPanel(profile);
   expandWidget();
-  attachFormSubmitTracker("scan/prefill clicked");
+  attachFormSubmitTracker("scan/prefill clicked", { silent: true });
   showCopilotPanel("autofill");
 
   const summaryEl = document.getElementById("jh-autofill-summary");
@@ -2394,11 +2411,27 @@ function injectWebCopilot(profile) {
     }
   });
 
-  // Prefill Button Handler
+  // Prefill Button Handler — also silently syncs the application to the dashboard
+  // so it appears without the user having to submit or manually click "+".
   prefillBtn.addEventListener("click", () => {
     showCopilotPanel("autofill");
 
-    // Run autofill. This also attaches the submit listener for every entry point.
+    // Auto-save to dashboard in parallel with filling the form. Uses the same
+    // dedupe key (sourceUrl) as the submit-tracker path, so if the user later
+    // submits the ATS form the update is silent (no duplicate toast).
+    const now = new Date();
+    const appliedAt = now.toISOString();
+    const fillJobData = extractJob();
+    fillJobData.dateApplied = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    fillJobData.appliedAt = appliedAt;
+    fillJobData.stageDateTimes = { Applied: appliedAt };
+    fillJobData.status = "Applied";
+    trackApplicationViaBackground(fillJobData, { trigger: "fill form", runEvaluation: false })
+      .then((res) => {
+        if (res.ok && fillJobData.sourceUrl) trackedAppUrls.add(fillJobData.sourceUrl);
+      })
+      .catch(() => {});
+
     autofillWebForm(profile, { useAi: true });
   });
 
@@ -2546,6 +2579,11 @@ function injectWebCopilot(profile) {
           ? (status === 200 ? "↻ Updated — saved for later (not marked applied)." : "🔖 Saved for later in Job Hunt Cockpit.")
           : (status === 200 ? "↻ Updated the existing entry for this job in your tracker." : "✅ New application saved to Job Hunt Cockpit!")
       );
+      // Open or focus the dashboard and show the newly saved application's drawer.
+      chrome.runtime.sendMessage({
+        type: "OPEN_DASHBOARD",
+        appId: result.app?.id || "",
+      }).catch(() => {});
       widget.classList.add("minimized");
     } catch (err) {
       updateWorkflowSteps("track", [
@@ -2771,6 +2809,9 @@ async function typeIntoField(element, text) {
   await typeHumanLike(element, text);
 }
 
+let toastHideTimer = null;
+let toastShowTimer = null;
+
 function showToast(message) {
   let toast = document.querySelector("#jh-copilot-toast");
   if (!toast) {
@@ -2803,19 +2844,28 @@ function showToast(message) {
     document.body.appendChild(toast);
   }
 
-  toast.innerHTML = `
-    <span style="color: #FFB300; font-size: 16px; font-weight: bold;">⚡</span>
-    <span>${message}</span>
-  `;
+  toast.replaceChildren();
+  const icon = document.createElement("span");
+  icon.style.cssText = "color: #FFB300; font-size: 16px; font-weight: bold;";
+  icon.textContent = "⚡";
+  const text = document.createElement("span");
+  text.textContent = message;
+  toast.appendChild(icon);
+  toast.appendChild(text);
+
+  // Clear any pending show/hide timers from a previous call so rapid successive
+  // toasts don't cancel each other prematurely.
+  clearTimeout(toastShowTimer);
+  clearTimeout(toastHideTimer);
 
   // Trigger Slide In
-  setTimeout(() => {
+  toastShowTimer = setTimeout(() => {
     toast.style.transform = "translateX(-50%) translateY(0)";
     toast.style.opacity = "1";
   }, 10);
 
   // Auto Hide after 3.2s
-  setTimeout(() => {
+  toastHideTimer = setTimeout(() => {
     toast.style.transform = "translateX(-50%) translateY(100px)";
     toast.style.opacity = "0";
   }, 3200);

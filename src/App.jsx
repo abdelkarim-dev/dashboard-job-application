@@ -38,6 +38,8 @@ export default function App() {
   const [applications, setApplications] = useState([]);
   const [boardGrouping, setBoardGrouping] = useState("company");
   const [funnelFilter, setFunnelFilter] = useState("");
+  // App ID to auto-open in the drawer — set from ?openApp= URL param or postMessage
+  const [pendingOpenAppId, setPendingOpenAppId] = useState(null);
   // Detail Drawer state shared between Board and Analytics
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerAppId, setDrawerAppId] = useState(null);
@@ -143,13 +145,45 @@ export default function App() {
     return () => clearInterval(id);
   }, [reminders, applications]);
 
+  // Open the dashboard drawer for a specific app when directed from the extension.
+  // Two entry points: ?openApp=<id> query param (new tab) or JH_OPEN_DRAWER
+  // postMessage (existing tab focused by background.js).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openAppId = params.get("openApp");
+    if (openAppId) {
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+      setPendingOpenAppId(openAppId);
+    }
+
+    const handleMsg = (event) => {
+      if (event.data?.type === "JH_OPEN_DRAWER" && event.data?.appId) {
+        setPendingOpenAppId(event.data.appId);
+        setActiveTab("board");
+      }
+    };
+    window.addEventListener("message", handleMsg);
+    return () => window.removeEventListener("message", handleMsg);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingOpenAppId || applications.length === 0) return;
+    const app = applications.find((a) => a.id === pendingOpenAppId);
+    if (app) {
+      setActiveTab("board");
+      setDrawerAppId(pendingOpenAppId);
+      setDrawerOpen(true);
+      setPendingOpenAppId(null);
+    }
+  }, [pendingOpenAppId, applications]);
+
   useEffect(() => {
     // Explicitly enforce premium pitch-black dark theme on load
     document.documentElement.setAttribute("data-theme", "dark");
     localStorage.setItem("theme", "dark");
 
     fetchApplications();
-    
+
     // Set up quiet periodic syncing
     const interval = setInterval(fetchApplicationsQuietly, 10000);
 

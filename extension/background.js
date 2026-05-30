@@ -186,6 +186,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     applyBadge(sender.tab.id, sender.tab.url || msg.url);
   }
 
+  // Sent by the extension "+" form after saving an application. Opens or focuses
+  // the dashboard and tells it to open the drawer for the saved application.
+  if (msg?.type === "OPEN_DASHBOARD") {
+    const appId = msg.appId || "";
+    chrome.tabs.query({ url: "http://127.0.0.1:8787/*" }, (tabs) => {
+      if (tabs.length > 0) {
+        const tab = tabs[0];
+        chrome.tabs.update(tab.id, { active: true });
+        chrome.windows.update(tab.windowId, { focused: true });
+        if (appId) {
+          // Relay to the page via content.js so the React drawer opens without
+          // a full reload (avoids disrupting an in-progress edit session).
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tab.id, { type: "OPEN_APP_DRAWER", appId }).catch(() => {});
+          }, 250);
+        }
+      } else {
+        const url = appId
+          ? `http://127.0.0.1:8787/?openApp=${encodeURIComponent(appId)}#/board`
+          : "http://127.0.0.1:8787/#/board";
+        chrome.tabs.create({ url });
+      }
+    });
+    return;
+  }
+
   if (msg?.type === "TRACK_APPLICATION") {
     trackApplicationFromBackground(msg, sender)
       .then((result) => sendResponse(result))

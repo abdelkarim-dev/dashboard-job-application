@@ -58,6 +58,8 @@ export async function initDatabase() {
   // board "Next actions" tracker and the CSV export. Both clear with "".
   ensureColumn("applications", "nextAction", "TEXT");
   ensureColumn("applications", "nextActionAt", "TEXT");
+  ensureColumn("applications", "level", "TEXT");
+  ensureColumn("applications", "source", "TEXT");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS profile (
@@ -384,6 +386,8 @@ export async function sqlLoadApplications() {
     priority: r.priority || "Medium",
     nextAction: r.nextAction || "",
     nextActionAt: r.nextActionAt || "",
+    level: r.level || "",
+    source: r.source || "Manual",
     stageDates: JSON.parse(r.stageDates || "{}"),
     stageDateTimes: JSON.parse(r.stageDateTimes || "{}"),
     evaluation: JSON.parse(r.evaluation || "null"),
@@ -396,8 +400,8 @@ export async function sqlSaveApplications(apps) {
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO applications (
       id, company, role, status, dateApplied, appliedAt, rejectedAt, location,
-      salary, equity, oaDeadline, oaCompletedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      salary, equity, oaDeadline, oaCompletedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, level, source, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec("BEGIN TRANSACTION");
@@ -428,6 +432,8 @@ export async function sqlSaveApplications(apps) {
         JSON.stringify(app.stageDateTimes || {}),
         JSON.stringify(app.evaluation || null),
         JSON.stringify(app.attachments || []),
+        app.level || "",
+        app.source || "Manual",
         new Date().toISOString()
       );
     }

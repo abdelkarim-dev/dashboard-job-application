@@ -2258,6 +2258,7 @@ function toCsv(applications) {
     "Days In Pipeline",
     "Days Since Update",
     "Active",
+    "Description",
   ];
   const now = Date.now();
   const rows = applications.map((app) => {
@@ -2302,6 +2303,7 @@ function toCsv(applications) {
       csvDayCount(appliedRef, closedMs),
       csvDayCount(app.updatedAt, now),
       isRejected ? "No" : "Yes",
+      app.description || "",
     ];
   });
   return [headers, ...rows]
