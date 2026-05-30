@@ -7,8 +7,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Capture job",
-    "default_popup": "popup.html"
+    "default_title": "Toggle Job Hunt Copilot Toolbar"
   },
   "permissions": ["activeTab", "scripting", "tabs"],
   "host_permissions": ["<all_urls>", "http://127.0.0.1:8787/*"],

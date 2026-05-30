@@ -43,6 +43,34 @@ test("normalizeApplication stores precise applied timestamps", () => {
   assert.equal(app.stageDates.Applied, "2026-05-21");
 });
 
+test("normalizeApplication preserves stored Gemma evaluation metadata", () => {
+  const app = normalizeApplication({
+    company: "Example",
+    role: "Platform Engineer",
+    status: "Applied",
+    evaluation: {
+      ok: true,
+      score: 88,
+      decision: "Apply",
+      analysis: "Strong remote backend/platform fit.",
+      rawEvaluation: {
+        matchScore: 88,
+        applyOrSkip: "Apply",
+        finalDecision: "Strong remote backend/platform fit.",
+      },
+    },
+  });
+
+  assert.equal(app.evaluation.ok, true);
+  assert.equal(app.evaluation.score, 88);
+  assert.equal(app.evaluation.decision, "Apply");
+  assert.equal(app.evaluation.rawEvaluation.matchScore, 88);
+
+  const updated = normalizeApplication({ notes: "followed up" }, app);
+  assert.equal(updated.evaluation.score, 88);
+  assert.equal(updated.evaluation.decision, "Apply");
+});
+
 test("normalizeApplication records rejectedAt separately when status changes to rejected", () => {
   const existing = normalizeApplication({
     id: "app-hightouch",
@@ -115,22 +143,39 @@ test("CSV export includes full timestamp columns", () => {
   const app = normalizeApplication({
     company: "Asana",
     role: "Staff Software Engineer, API",
-    status: "Rejected",
+    status: "Online Assessment",
     appliedAt: "2026-05-20T18:30:00.000Z",
-    rejectedAt: "2026-05-22T16:30:00.000Z",
+    oaDeadline: "2026-05-22T16:30:00.000Z",
   });
   const csv = toCsv([app]);
 
   assert.match(csv, /"Applied At"/);
-  assert.match(csv, /"Rejected At"/);
+  assert.match(csv, /"Online Assessment Timestamp"/);
+  assert.match(csv, /"OA Deadline"/);
   assert.match(csv, /"2026-05-20T18:30:00.000Z"/);
   assert.match(csv, /"2026-05-22T16:30:00.000Z"/);
-  assert.equal(getStageTimestamp(app, "Rejected"), "2026-05-22T16:30:00.000Z");
+  assert.equal(app.status, "Online Assessment");
+  assert.equal(getStageTimestamp(app, "Online Assessment"), app.stageDateTimes["Online Assessment"]);
   assert.equal(getStageDate(app, "Applied"), "2026-05-20");
 });
 
+test("CSV export handles legacy string skills", () => {
+  const csv = toCsv([
+    {
+      company: "Legacy Co",
+      role: "Backend Engineer",
+      status: "Applied",
+      skills: "Python, TypeScript; PostgreSQL",
+    },
+  ]);
+
+  assert.match(csv, /"Python; TypeScript; PostgreSQL"/);
+});
+
 test("simplifyStatus keeps dashboard status vocabulary small", () => {
-  assert.equal(simplifyStatus("Recruiter Screen"), "Interview");
+  assert.equal(simplifyStatus("OA"), "Online Assessment");
+  assert.equal(simplifyStatus("Recruiter Screen"), "Recruiter Screen");
+  assert.equal(simplifyStatus("technical interview"), "Interview");
   assert.equal(simplifyStatus("withdrawn"), "Rejected");
   assert.equal(simplifyStatus("pending"), "Applied");
 });
@@ -151,7 +196,7 @@ test("practice problem normalization preserves local metadata and tests", () => 
   assert.equal(problem.customTests[0].name, "basic");
 });
 
-test("seeded practice problems keep solutions hidden behind starter code", () => {
+test("seeded practice problems preserve user drafts and solution code", () => {
   const legacySeed = normalizePracticeProblem({
     id: "lc-two-sum",
     title: "Two Sum",
@@ -162,8 +207,10 @@ test("seeded practice problems keep solutions hidden behind starter code", () =>
 
   assert.match(legacySeed.starterCode, /pass/);
   assert.match(legacySeed.solutionCode, /seen =/);
-  assert.equal(legacySeed.draft, legacySeed.starterCode);
-  assert.equal(legacySeed.userStarted, false);
+  assert.ok(legacySeed.customTests.some((test) => test.name === "negative values"));
+  // Verify that correct drafts are fully preserved as intended by our fix
+  assert.equal(legacySeed.draft, "class Solution:\n    def twoSum(self, nums, target):\n        seen = {}\n        for index, value in enumerate(nums):\n            need = target - value d\n            if need in seen:\n                return [seen[need], index]\n            seen[value] = index\n        return []\n");
+  assert.equal(legacySeed.userStarted, true);
 
   const revealedSeed = normalizePracticeProblem({
     ...legacySeed,
@@ -190,8 +237,6 @@ test("markProblemSolved records attempts, sessions, solve count, and next review
 
   const solved = markProblemSolved(problem, {
     timeSpentMinutes: 35,
-    hintsUsed: 1,
-    confidence: 4,
     reflection: "Found the invariant.",
   }, "2026-05-24T17:00:00.000Z");
 
@@ -214,7 +259,6 @@ test("failed practice attempts reset review level and keep weak-tag signal", () 
 
   const failed = markProblemFailed(problem, {
     timeSpentMinutes: 20,
-    confidence: 2,
     reflection: "Missed cycle case.",
   }, "2026-05-24T17:00:00.000Z");
   const store = normalizePracticeStore({ problems: [failed] });
@@ -248,7 +292,6 @@ test("recordProblemAttempt tracks focus time without marking solved", () => {
     passedTests: 1,
     totalTests: 2,
     timeSpentMinutes: 15,
-    confidence: 2,
   }, "2026-05-24T17:00:00.000Z");
 
   assert.equal(attempted.solveCount, 0);
@@ -305,6 +348,86 @@ test("Python runner reports syntax errors", async () => {
   assert.match(result.error, /SyntaxError/);
 });
 
+test("Python runner supports tree fixtures and serialized output", async () => {
+  const problem = normalizePracticeProblem({
+    title: "Invert Binary Tree",
+    methodName: "invertTree",
+    customTests: [
+      {
+        name: "mirror",
+        args: [[4, 2, 7, 1, 3, 6, 9]],
+        argTypes: ["tree"],
+        expected: [4, 7, 2, 9, 6, 3, 1],
+        expectedType: "tree",
+      },
+    ],
+  });
+  const result = await runPythonProblem(problem, "class Solution:\n    def invertTree(self, root):\n        if not root:\n            return None\n        root.left, root.right = self.invertTree(root.right), self.invertTree(root.left)\n        return root\n");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.passed, 1);
+  assert.deepEqual(result.results[0].args, [[4, 2, 7, 1, 3, 6, 9]]);
+  assert.deepEqual(result.results[0].actual, [4, 7, 2, 9, 6, 3, 1]);
+});
+
+test("Python runner accepts validator-style LeetCode equivalent answers", async () => {
+  const problem = normalizePracticeProblem({
+    id: "lc-two-sum",
+    title: "Two Sum",
+    methodName: "twoSum",
+    customTests: [
+      { name: "multiple valid pairs", args: [[1, 5, 9, 2, 8], 10], expected: [3, 4] },
+    ],
+  });
+  const result = await runPythonProblem(problem, "class Solution:\n    def twoSum(self, nums, target):\n        return [0, 2]\n");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.passed, result.total);
+  assert.match(result.results[0].expected, /Any two distinct indices/);
+});
+
+test("Python runner supports operation-style design fixtures", async () => {
+  const problem = normalizePracticeProblem({
+    title: "LRU Cache",
+    methodName: "",
+    customTests: [
+      {
+        name: "eviction",
+        className: "LRUCache",
+        operations: ["LRUCache", "put", "put", "get", "put", "get"],
+        operationArgs: [[2], [1, 1], [2, 2], [1], [3, 3], [2]],
+        expected: [null, null, null, 1, null, -1],
+      },
+    ],
+  });
+  const code = [
+    "from collections import OrderedDict",
+    "",
+    "class LRUCache:",
+    "    def __init__(self, capacity):",
+    "        self.capacity = capacity",
+    "        self.cache = OrderedDict()",
+    "    def get(self, key):",
+    "        if key not in self.cache:",
+    "            return -1",
+    "        self.cache.move_to_end(key)",
+    "        return self.cache[key]",
+    "    def put(self, key, value):",
+    "        if key in self.cache:",
+    "            self.cache.move_to_end(key)",
+    "        self.cache[key] = value",
+    "        if len(self.cache) > self.capacity:",
+    "            self.cache.popitem(last=False)",
+    "",
+  ].join("\n");
+  const result = await runPythonProblem(problem, code);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.passed, 1);
+  assert.deepEqual(result.results[0].actual, [null, null, null, 1, null, -1]);
+  assert.deepEqual(result.results[0].operations.slice(0, 2), ["LRUCache", "put"]);
+});
+
 test("Python runner times out runaway code", async () => {
   const problem = normalizePracticeProblem({
     title: "Loop",
@@ -344,7 +467,46 @@ test("course and system design stores clamp progress fields", () => {
 
   assert.equal(courses.items[0].status, "Not Started");
   assert.equal(courses.items[0].progress, 100);
-  assert.deepEqual(courses.items[0].modules, ["A", "B"]);
+  assert.deepEqual(courses.items[0].modules, [
+    { name: "A", completed: false },
+    { name: "B", completed: false }
+  ]);
   assert.equal(systemDesign.topics[0].confidence, 5);
   assert.deepEqual(systemDesign.topics[0].prompts, ["Design cache"]);
+});
+
+test("normalizeApplication persists OA completion independently of pipeline stage", () => {
+  const oaCompletedAt = "2026-05-25T18:00:00.000Z";
+  const app = normalizeApplication({
+    company: "Stripe",
+    role: "Backend Engineer",
+    status: "Online Assessment",
+    oaDeadline: "2026-05-26T23:59:00.000Z",
+    oaCompletedAt,
+  });
+  // Submitted while still in the OA stage (awaiting results) — both are kept.
+  assert.equal(app.status, "Online Assessment");
+  assert.equal(app.oaCompletedAt, oaCompletedAt);
+  assert.equal(app.oaDeadline, "2026-05-26T23:59:00.000Z");
+
+  // An explicit empty string clears completion (the drawer "un-submit").
+  const reopened = normalizeApplication({ id: app.id, oaCompletedAt: "" }, app);
+  assert.equal(reopened.oaCompletedAt, "");
+  // Omitting the field entirely preserves the existing value.
+  const untouched = normalizeApplication({ id: app.id, notes: "ping" }, app);
+  assert.equal(untouched.oaCompletedAt, oaCompletedAt);
+});
+
+test("normalizeApplication validates and persists priority", () => {
+  const high = normalizeApplication({ company: "Datadog", role: "SRE", priority: "High" });
+  assert.equal(high.priority, "High");
+  // Unknown values fall back to Medium rather than being dropped.
+  const bogus = normalizeApplication({ company: "Datadog", role: "SRE", priority: "Urgent" });
+  assert.equal(bogus.priority, "Medium");
+  // Default when unspecified.
+  const def = normalizeApplication({ company: "Datadog", role: "SRE" });
+  assert.equal(def.priority, "Medium");
+  // Existing value is preserved across an unrelated edit.
+  const edited = normalizeApplication({ id: high.id, notes: "x" }, high);
+  assert.equal(edited.priority, "High");
 });

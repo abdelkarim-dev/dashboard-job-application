@@ -1,11 +1,20 @@
 # Job Hunt Cockpit
 
-A local job-search tracker with a Chrome extension that captures the current job page into the app.
+A local job-search tracker with a Chrome extension that captures the current job page into the app. The dashboard is a Vite + React app; the backend is a small Node server backed by SQLite.
 
 ## Run the local app
 
+Install dependencies once:
+
 ```bash
-node server.mjs
+npm install
+```
+
+Production-style run (serves the built dashboard from `dist/` on port 8787):
+
+```bash
+npm run build
+npm start
 ```
 
 Then open:
@@ -14,10 +23,16 @@ Then open:
 http://127.0.0.1:8787
 ```
 
-The app stores applications in:
+Development (server on 8787 + Vite dev server on 5173 with hot reload, API proxied):
+
+```bash
+npm run dev
+```
+
+The app stores its data locally in SQLite:
 
 ```text
-data/applications.json
+data/cockpit.db
 ```
 
 ## Load the Chrome extension
@@ -30,6 +45,8 @@ data/applications.json
 ```text
 job-hunt-cockpit/extension
 ```
+
+After editing `extension/*.js`, return to `chrome://extensions` and click the reload icon on the card so the new code takes effect.
 
 ## Capture a job
 

@@ -1,9 +1,20 @@
 const API = "http://127.0.0.1:8787/api/applications";
+const EVALUATE_API = "http://127.0.0.1:8787/api/evaluate-job";
 
-let trackedUrls = new Set();
+// sourceUrl -> { applied: boolean, status: string }. A job is "applied" once it
+// has an appliedAt/dateApplied (or has moved past the Applied stage); otherwise
+// it's merely "saved" (captured for later but not yet submitted).
+let trackedByUrl = new Map();
 let lastFetch = 0;
 // Tabs where content.js flagged a likely job posting. Cleared on tab close.
 const jobPageTabs = new Set();
+
+// "Applied" mirrors the dashboard's own definition (metrics.mjs / Board.jsx):
+// a record counts as applied once it has an applied timestamp. A tracked record
+// without one is merely saved/captured for later.
+function isApplied(app) {
+  return Boolean(app.appliedAt || (app.stageDateTimes && app.stageDateTimes.Applied) || app.dateApplied);
+}
 
 async function refreshTrackedUrls() {
   const now = Date.now();
@@ -12,46 +23,131 @@ async function refreshTrackedUrls() {
     const res = await fetch(API);
     if (!res.ok) return;
     const apps = await res.json();
-    trackedUrls = new Set(apps.map((a) => a.sourceUrl).filter(Boolean));
+    const map = new Map();
+    for (const a of apps) {
+      if (!a.sourceUrl) continue;
+      map.set(a.sourceUrl, { applied: isApplied(a), status: a.status || "" });
+    }
+    trackedByUrl = map;
     lastFetch = now;
   } catch {
     // tracker server offline — keep last known state
   }
 }
 
+function setBadge(tabId, text, bg, title) {
+  chrome.action.setBadgeText({ text, tabId });
+  if (bg) chrome.action.setBadgeBackgroundColor({ color: bg, tabId });
+  if (bg && chrome.action.setBadgeTextColor) {
+    chrome.action.setBadgeTextColor({ color: "#FFFFFF", tabId });
+  }
+  chrome.action.setTitle({ title, tabId });
+}
+
 async function applyBadge(tabId, url) {
   await refreshTrackedUrls();
 
   if (!url || !url.startsWith("http")) {
-    chrome.action.setBadgeText({ text: "", tabId });
-    chrome.action.setTitle({ title: "Capture job", tabId });
+    setBadge(tabId, "", null, "Capture job");
     return;
   }
 
-  if (trackedUrls.has(url)) {
-    // Already tracked — bold green badge, can be seen at a glance.
-    chrome.action.setBadgeText({ text: "SAVED", tabId });
-    chrome.action.setBadgeBackgroundColor({ color: "#006A62", tabId });
-    if (chrome.action.setBadgeTextColor) {
-      chrome.action.setBadgeTextColor({ color: "#FFFFFF", tabId });
+  const tracked = trackedByUrl.get(url);
+  if (tracked) {
+    if (tracked.applied) {
+      // Application submitted — green "DONE" so you know not to re-apply.
+      setBadge(tabId, "✓", "#006A62", `Applied — ${tracked.status || "in tracker"}. Click to update.`);
+    } else {
+      // Captured for later but not yet applied — blue "SAVED" to nudge you back.
+      setBadge(tabId, "SAVED", "#1565C0", "Saved, not yet applied — click to apply & track.");
     }
-    chrome.action.setTitle({ title: "✓ Already in tracker — click to update", tabId });
     return;
   }
 
   if (jobPageTabs.has(tabId)) {
-    // Looks like a job posting we haven't saved — amber dot to invite a click.
-    chrome.action.setBadgeText({ text: "JOB", tabId });
-    chrome.action.setBadgeBackgroundColor({ color: "#E65100", tabId });
-    if (chrome.action.setBadgeTextColor) {
-      chrome.action.setBadgeTextColor({ color: "#FFFFFF", tabId });
-    }
-    chrome.action.setTitle({ title: "Job posting detected — click to evaluate & save", tabId });
+    // Looks like a job posting we haven't captured — amber to invite a click.
+    setBadge(tabId, "JOB", "#E65100", "Job posting detected — click to evaluate & save.");
     return;
   }
 
-  chrome.action.setBadgeText({ text: "", tabId });
-  chrome.action.setTitle({ title: "Capture job", tabId });
+  setBadge(tabId, "", null, "Capture job");
+}
+
+async function postJson(url, body, method = "POST") {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    // keep data null for non-JSON responses
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || `HTTP ${res.status}`);
+  }
+  return { status: res.status, data };
+}
+
+function normalizeStoredEvaluation(result) {
+  const evaluation = result?.evaluation || {};
+  const score = Number(evaluation.matchScore ?? result?.score ?? 0);
+  const safeScore = Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
+  const decision = evaluation.applyOrSkip || result?.decision || "Maybe";
+  return {
+    ok: true,
+    score: safeScore,
+    decision,
+    analysis: evaluation.finalDecision || "",
+    explanation: evaluation.finalDecision || "",
+    provider: result?.provider || "",
+    model: result?.model || "",
+    evaluatedAt: new Date().toISOString(),
+    rawEvaluation: evaluation,
+  };
+}
+
+async function trackApplicationFromBackground(msg, sender) {
+  const jobData = msg.jobData || {};
+  const saved = await postJson(API, jobData, "POST");
+  let app = saved.data;
+  let storedEvaluation = null;
+  let evaluationError = "";
+
+  if (msg.runEvaluation !== false) {
+    try {
+      const evaluationPayload = {
+        ...app,
+        pageText: jobData.pageText || app.pageText || app.description || jobData.description || "",
+        description: jobData.description || app.description || "",
+        rulesGuess: jobData,
+      };
+      const evalResult = await postJson(EVALUATE_API, evaluationPayload, "POST");
+      if (evalResult.data?.ok && evalResult.data?.evaluation) {
+        storedEvaluation = normalizeStoredEvaluation(evalResult.data);
+        const update = await postJson(`${API}/${encodeURIComponent(app.id)}`, { ...app, evaluation: storedEvaluation }, "PUT");
+        app = update.data;
+      } else {
+        evaluationError = evalResult.data?.error || "Gemma did not return an evaluation.";
+      }
+    } catch (err) {
+      evaluationError = err.message || "Gemma evaluation failed.";
+    }
+  }
+
+  lastFetch = 0;
+  if (sender?.tab?.id && sender.tab.url) applyBadge(sender.tab.id, sender.tab.url);
+
+  return {
+    ok: true,
+    status: saved.status,
+    app,
+    evaluationSaved: Boolean(storedEvaluation),
+    evaluation: storedEvaluation,
+    evaluationError,
+  };
 }
 
 // Badge when tab finishes loading
@@ -90,6 +186,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     applyBadge(sender.tab.id, sender.tab.url || msg.url);
   }
 
+  if (msg?.type === "TRACK_APPLICATION") {
+    trackApplicationFromBackground(msg, sender)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: err.message || "Tracker request failed." }));
+    return true;
+  }
+
   // ── API Proxy for content scripts ────────────────────────────
   // Content scripts run in the page's origin context. On HTTPS pages,
   // direct fetch() to http://127.0.0.1 is blocked by mixed-content policy.
@@ -118,16 +221,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, status: res.status, error: data?.error || `HTTP ${res.status}` });
           return;
         }
-        sendResponse({ ok: true, data });
+        sendResponse({ ok: true, status: res.status, data });
       })
       .catch((err) => {
         clearTimeout(timeoutId);
         if (err.name === "AbortError") {
-          sendResponse({ ok: false, error: "Request timed out after 30 seconds" });
+          sendResponse({ ok: false, error: "Request timed out after 120 seconds" });
         } else {
           sendResponse({ ok: false, error: err.message || "Network error" });
         }
       });
     return true; // keep sendResponse channel open for async reply
+  }
+});
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id || !tab.url || !tab.url.startsWith("http")) return;
+  
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_TOOLBAR" });
+  } catch (err) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content.js"]
+      });
+      setTimeout(() => {
+        chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_TOOLBAR" }).catch(() => {});
+      }, 150);
+    } catch (injectErr) {
+      console.error("Failed to inject content script on action click:", injectErr);
+    }
   }
 });

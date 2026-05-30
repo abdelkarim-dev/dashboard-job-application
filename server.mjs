@@ -1,18 +1,32 @@
-import http from "node:http";
 import { spawn } from "node:child_process";
-import { readFile, writeFile, mkdir, stat, mkdtemp, rm } from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import express from "express";
+import cors from "cors";
+import {
+  initDatabase,
+  sqlLoadApplications,
+  sqlSaveApplications,
+  sqlDeleteApplication,
+  sqlLoadProfile,
+  sqlSaveProfile,
+  sqlLoadPracticeStore,
+  sqlSavePracticeStore,
+  sqlLoadCoursesStore,
+  sqlSaveCoursesStore,
+  sqlLoadSystemDesignStore,
+  sqlSaveSystemDesignStore
+} from "./database.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = path.join(__dirname, "public");
 const aceDir = path.join(__dirname, "node_modules", "ace-builds", "src-min-noconflict");
 const dataDir = path.join(__dirname, "data");
-const dataFile = path.join(dataDir, "applications.json");
-const profileFile = path.join(dataDir, "profile.json");
+// Applications + profile are persisted in SQLite (database.mjs). These remaining
+// *File paths are still used as dispatch keys by readJsonFile/writeJsonFile for the
+// practice/courses/system-design stores and the calendar token.
 const practiceFile = path.join(dataDir, "practice.json");
 const coursesFile = path.join(dataDir, "courses.json");
 const systemDesignFile = path.join(dataDir, "system-design.json");
@@ -28,7 +42,7 @@ const configuredRoleCategoryBatchSize = Number(process.env.ROLE_CATEGORY_BATCH_S
 const roleCategoryBatchSize = Number.isFinite(configuredRoleCategoryBatchSize) && configuredRoleCategoryBatchSize > 0
   ? Math.floor(configuredRoleCategoryBatchSize)
   : 10;
-const PIPELINE_STATUSES = ["Applied", "Interview", "Offer", "Rejected"];
+const PIPELINE_STATUSES = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer", "Rejected"];
 const LEARNING_REVIEW_INTERVALS = [1, 3, 7, 14, 30, 60];
 const ROLE_CATEGORY_OPTIONS = [
   "Backend Engineering",
@@ -47,54 +61,29 @@ const ROLE_CATEGORY_OPTIONS = [
   "Other / Poor Fit",
 ];
 
-const mimeTypes = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-};
 
 function send(res, status, body, headers = {}) {
-  res.writeHead(status, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    ...headers,
-  });
-  res.end(body);
+  res.status(status).set(headers).send(body);
 }
 
 function sendJson(res, status, data) {
-  send(res, status, JSON.stringify(data), { "Content-Type": "application/json; charset=utf-8" });
+  res.status(status).json(data);
 }
 
 async function readBody(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const text = Buffer.concat(chunks).toString("utf8");
-  return text ? JSON.parse(text) : {};
+  return req.body || {};
 }
 
 async function loadApplications() {
-  try {
-    const text = await readFile(dataFile, "utf8");
-    const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed)) return [];
-    const { applications, changed } = migrateApplications(parsed);
-    if (changed) await saveApplications(applications);
-    return applications;
-  } catch (error) {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  }
+  return sqlLoadApplications();
 }
 
 async function saveApplications(applications) {
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(dataFile, `${JSON.stringify(applications, null, 2)}\n`, "utf8");
+  return sqlSaveApplications(applications);
+}
+
+async function deleteApplication(id) {
+  return sqlDeleteApplication(id);
 }
 
 const defaultGemmaPrompt = `My profile:
@@ -165,39 +154,41 @@ const defaultProfile = {
 };
 
 async function loadProfile() {
-  try {
-    const text = await readFile(profileFile, "utf8");
-    return { ...defaultProfile, ...JSON.parse(text) };
-  } catch (error) {
-    if (error.code === "ENOENT") return defaultProfile;
-    throw error;
-  }
+  const p = await sqlLoadProfile();
+  return { ...defaultProfile, ...p };
 }
 
 async function saveProfile(profile) {
-  await mkdir(dataDir, { recursive: true });
-  let existing = {};
-  try {
-    existing = JSON.parse(await readFile(profileFile, "utf8"));
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  await writeFile(profileFile, `${JSON.stringify({ ...existing, ...profile }, null, 2)}\n`, "utf8");
+  return sqlSaveProfile(profile);
 }
 
 async function readJsonFile(filePath, fallback) {
-  try {
-    const text = await readFile(filePath, "utf8");
-    return JSON.parse(text);
-  } catch (error) {
-    if (error.code === "ENOENT") return cloneJson(fallback);
-    throw error;
+  // Gracefully fallback to SQL load matching the file path to prevent breaks in other legacy functions
+  if (filePath.includes("practice")) {
+    const store = await sqlLoadPracticeStore();
+    return store;
   }
+  if (filePath.includes("courses")) {
+    const store = await sqlLoadCoursesStore();
+    return store;
+  }
+  if (filePath.includes("system-design")) {
+    const store = await sqlLoadSystemDesignStore();
+    return store;
+  }
+  return fallback;
 }
 
 async function writeJsonFile(filePath, value) {
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  if (filePath.includes("practice")) {
+    return sqlSavePracticeStore(value);
+  }
+  if (filePath.includes("courses")) {
+    return sqlSaveCoursesStore(value);
+  }
+  if (filePath.includes("system-design")) {
+    return sqlSaveSystemDesignStore(value);
+  }
 }
 
 const seededAt = "2026-05-24T00:00:00.000Z";
@@ -214,10 +205,7 @@ const defaultPracticeProblems = [
     acceptance: null,
     syncedAt: seededAt,
     methodName: "twoSum",
-    description: "",
-    examples: "",
-    constraints: "",
-    notes: "",
+    description: "Given an array of integers `nums` and an integer `target`, return *indices of the two numbers such that they add up to `target`*.\n\nYou may assume that each input would have ***exactly* one solution**, and you may not use the *same* element twice.\n\nYou can return the answer in any order.\n\n### Example 1:\n```\nInput: nums = [2,7,11,15], target = 9\nOutput: [0,1]\nExplanation: Because nums[0] + nums[1] == 9, we return [0, 1].\n```\n\n### Example 2:\n```\nInput: nums = [3,2,4], target = 6\nOutput: [1,2]\n```\n\n### Example 3:\n```\nInput: nums = [3,3], target = 6\nOutput: [0,1]\n```\n\n### Constraints:\n- `2 <= nums.length <= 10^4`\n- `-10^9 <= nums[i] <= 10^9`\n- `-10^9 <= target <= 10^9`\n- **Only one valid answer exists.**",
     customTests: [
       { name: "basic pair", args: [[2, 7, 11, 15], 9], expected: [0, 1] },
       { name: "same value pair", args: [[3, 3], 6], expected: [0, 1] },
@@ -235,6 +223,7 @@ const defaultPracticeProblems = [
     acceptance: null,
     syncedAt: seededAt,
     methodName: "isValid",
+    description: "Given a string `s` containing just the characters `'('`, `')'`, `'{'`, `'}'`, `'['` and `']'`, determine if the input string is valid.\n\nAn input string is valid if:\n- Open brackets must be closed by the same type of brackets.\n- Open brackets must be closed in the correct order.\n- Every close bracket has a corresponding open bracket of the same type.\n\n### Example 1:\n```\nInput: s = \"()\"\nOutput: true\n```\n\n### Example 2:\n```\nInput: s = \"()[]{}\"\nOutput: true\n```\n\n### Example 3:\n```\nInput: s = \"(]\"\nOutput: false\n```\n\n### Constraints:\n- `1 <= s.length <= 10^4`\n- `s` consists of parentheses characters only: `'()[]{}'`.",
     customTests: [
       { name: "balanced mixed", args: ["()[]{}"], expected: true },
       { name: "crossed pair", args: ["(]"], expected: false },
@@ -252,6 +241,7 @@ const defaultPracticeProblems = [
     acceptance: null,
     syncedAt: seededAt,
     methodName: "merge",
+    description: "Given an array of `intervals` where `intervals[i] = [start_i, end_i]`, merge all overlapping intervals, and return *an array of the non-overlapping intervals that cover all the intervals in the input*.\n\n### Example 1:\n```\nInput: intervals = [[1,3],[2,6],[8,10],[15,18]]\nOutput: [[1,6],[8,10],[15,18]]\nExplanation: Since intervals [1,3] and [2,6] overlap, merge them into [1,6].\n```\n\n### Example 2:\n```\nInput: intervals = [[1,4],[4,5]]\nOutput: [[1,5]]\nExplanation: Intervals [1,4] and [4,5] are considered overlapping.\n```\n\n### Constraints:\n- `1 <= intervals.length <= 10^4`\n- `intervals[i].length == 2`\n- `0 <= start_i <= end_i <= 10^4`",
     customTests: [
       { name: "overlap", args: [[[1, 3], [2, 6], [8, 10], [15, 18]]], expected: [[1, 6], [8, 10], [15, 18]] },
     ],
@@ -285,6 +275,7 @@ const defaultPracticeProblems = [
     syncedAt: seededAt,
     methodName: "",
     customTests: [],
+    solutionCode: "from collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self.cache = OrderedDict()\n\n    def get(self, key):\n        if key not in self.cache:\n            return -1\n        self.cache.move_to_end(key)\n        return self.cache[key]\n\n    def put(self, key, value):\n        if key in self.cache:\n            self.cache.move_to_end(key)\n        self.cache[key] = value\n        if len(self.cache) > self.capacity:\n            self.cache.popitem(last=False)\n",
     draft: "class LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n\n    def get(self, key):\n        return -1\n\n    def put(self, key, value):\n        pass\n",
   },
   {
@@ -315,6 +306,7 @@ const defaultPracticeProblems = [
     syncedAt: seededAt,
     methodName: "levelOrder",
     customTests: [],
+    solutionCode: "from collections import deque\n\nclass Solution:\n    def levelOrder(self, root):\n        if not root:\n            return []\n        result = []\n        queue = deque([root])\n        while queue:\n            level = []\n            for _ in range(len(queue)):\n                node = queue.popleft()\n                level.append(node.val)\n                if node.left:\n                    queue.append(node.left)\n                if node.right:\n                    queue.append(node.right)\n            result.append(level)\n        return result\n",
     draft: "class Solution:\n    def levelOrder(self, root):\n        return []\n",
   },
   {
@@ -626,18 +618,459 @@ const defaultPracticeProblems = [
     syncedAt: seededAt,
     methodName: "mergeKLists",
     customTests: [],
+    solutionCode: "import heapq\n\nclass Solution:\n    def mergeKLists(self, lists):\n        heap = []\n        for index, node in enumerate(lists):\n            if node:\n                heapq.heappush(heap, (node.val, index, node))\n\n        dummy = ListNode(0)\n        tail = dummy\n        serial = len(lists)\n        while heap:\n            _, _, node = heapq.heappop(heap)\n            tail.next = node\n            tail = tail.next\n            if node.next:\n                serial += 1\n                heapq.heappush(heap, (node.next.val, serial, node.next))\n        tail.next = None\n        return dummy.next\n",
     draft: "class Solution:\n    def mergeKLists(self, lists):\n        # Add a local helper/test harness for ListNode problems when practicing this one.\n        return None\n",
   },
 ];
 
 const defaultPracticeProblemById = new Map(defaultPracticeProblems.map((problem) => [problem.id, problem]));
+const supplementalPracticeTests = {
+  "lc-two-sum": [
+    { name: "negative values", args: [[-3, 4, 3, 90], 0], expected: [0, 2] },
+    { name: "later pair", args: [[1, 5, 9, 2, 8], 10], expected: [3, 4] },
+  ],
+  "lc-valid-parentheses": [
+    { name: "nested valid", args: ["{[]}"], expected: true },
+    { name: "wrong order", args: ["([)]"], expected: false },
+    { name: "single opener", args: ["("], expected: false },
+  ],
+  "lc-merge-intervals": [
+    { name: "touching intervals", args: [[[1, 4], [4, 5]]], expected: [[1, 5]] },
+    { name: "contained interval", args: [[[1, 4], [2, 3]]], expected: [[1, 4]] },
+  ],
+  "lc-koko-eating-bananas": [
+    { name: "large hour budget", args: [[30, 11, 23, 4, 20], 6], expected: 23 },
+    { name: "tight hour budget", args: [[30, 11, 23, 4, 20], 5], expected: 30 },
+  ],
+  "lc-binary-search": [
+    { name: "first element", args: [[1, 2, 3, 4], 1], expected: 0 },
+    { name: "last element", args: [[1, 2, 3, 4], 4], expected: 3 },
+  ],
+  "lc-product-of-array-except-self": [
+    { name: "two zeros", args: [[0, 4, 0]], expected: [0, 0, 0] },
+    { name: "small pair", args: [[2, 3]], expected: [3, 2] },
+  ],
+  "lc-three-sum": [
+    { name: "all zeros", args: [[0, 0, 0, 0]], expected: [[0, 0, 0]] },
+    { name: "no triples", args: [[1, 2, -2, -1]], expected: [] },
+  ],
+  "lc-coin-change": [
+    { name: "zero amount", args: [[1], 0], expected: 0 },
+    { name: "greedy trap", args: [[1, 3, 4], 6], expected: 2 },
+  ],
+  "lc-trapping-rain-water": [
+    { name: "flat", args: [[1, 1, 1]], expected: 0 },
+    { name: "two basins", args: [[4, 2, 0, 3, 2, 5]], expected: 9 },
+  ],
+  "lc-number-of-islands": [
+    { name: "all water", args: [[["0", "0"], ["0", "0"]]], expected: 0 },
+    { name: "snake island", args: [[["1", "0", "1"], ["1", "1", "1"]]], expected: 1 },
+  ],
+  "lc-lru-cache": [
+    {
+      name: "evicts least recently used key",
+      className: "LRUCache",
+      operations: ["LRUCache", "put", "put", "get", "put", "get", "put", "get", "get", "get"],
+      operationArgs: [[2], [1, 1], [2, 2], [1], [3, 3], [2], [4, 4], [1], [3], [4]],
+      expected: [null, null, null, 1, null, -1, null, -1, 3, 4],
+    },
+  ],
+  "lc-binary-tree-level-order-traversal": [
+    { name: "three levels", args: [[3, 9, 20, null, null, 15, 7]], argTypes: ["tree"], expected: [[3], [9, 20], [15, 7]] },
+    { name: "empty tree", args: [[]], argTypes: ["tree"], expected: [] },
+  ],
+  "lc-flood-fill": [
+    { name: "same color no-op", args: [[[0, 0, 0], [0, 1, 1]], 1, 1, 1], expected: [[0, 0, 0], [0, 1, 1]] },
+  ],
+  "lc-invert-binary-tree": [
+    { name: "balanced tree mirror", args: [[4, 2, 7, 1, 3, 6, 9]], argTypes: ["tree"], expected: [4, 7, 2, 9, 6, 3, 1], expectedType: "tree" },
+    { name: "empty tree", args: [[]], argTypes: ["tree"], expected: [], expectedType: "tree" },
+  ],
+  "lc-rotting-oranges": [
+    { name: "already done", args: [[[0, 2]]], expected: 0 },
+  ],
+  "lc-merge-k-sorted-lists": [
+    { name: "three lists", args: [[[1, 4, 5], [1, 3, 4], [2, 6]]], argTypes: ["listnode[]"], expected: [1, 1, 2, 3, 4, 4, 5, 6], expectedType: "listnode" },
+    { name: "empty list array", args: [[]], argTypes: ["listnode[]"], expected: [], expectedType: "listnode" },
+  ],
+};
+
+const practiceProblemDescriptions = {
+  "number-of-islands": [
+    "### Description",
+    "",
+    "You are given a rectangular grid of characters where `1` represents land and `0` represents water. Count how many disconnected islands of land exist in the grid.",
+    "",
+    "An island is formed by land cells connected horizontally or vertically. Diagonal contact does not connect islands.",
+    "",
+    "### Examples",
+    "- Input: grid = [[\"1\",\"1\",\"0\"],[\"0\",\"1\",\"0\"],[\"0\",\"0\",\"1\"]]. Output: 2.",
+    "- Input: grid = [[\"1\",\"1\",\"1\"],[\"0\",\"1\",\"0\"],[\"1\",\"0\",\"1\"]]. Output: 3.",
+    "",
+    "### Constraints",
+    "- The grid can be empty.",
+    "- Every cell is either `0` or `1`.",
+    "- Treat horizontal and vertical neighbors as connected.",
+  ].join("\n"),
+  "lru-cache": [
+    "### Description",
+    "",
+    "Design a cache with a fixed positive capacity. It must support `get(key)` and `put(key, value)`.",
+    "",
+    "`get` returns the stored value for a key, or `-1` when the key is not present. `put` inserts or updates a value. When the cache is full, inserting a new key must evict the least recently used key.",
+    "",
+    "Both reads and writes count as recent use.",
+    "",
+    "### Example",
+    "- Capacity 2. Put `(1,1)`, put `(2,2)`, get `1` returns `1`, put `(3,3)` evicts key `2`, get `2` returns `-1`.",
+    "",
+    "### Constraints",
+    "- Aim for O(1) average time per operation.",
+    "- Keys and values are integers.",
+  ].join("\n"),
+  "koko-eating-bananas": [
+    "### Description",
+    "",
+    "Koko has several piles of bananas and a deadline of `h` hours. Each hour she chooses one pile and eats up to `k` bananas from it. If a pile has fewer than `k` bananas, she finishes that pile and stops for the hour.",
+    "",
+    "Return the smallest integer speed `k` that lets her finish all piles within `h` hours.",
+    "",
+    "### Examples",
+    "- Input: piles = [3,6,7,11], h = 8. Output: 4.",
+    "- Input: piles = [30,11,23,4,20], h = 5. Output: 30.",
+    "",
+    "### Constraints",
+    "- `piles` contains positive integers.",
+    "- `h` is at least the number of piles.",
+  ].join("\n"),
+  "binary-tree-level-order-traversal": [
+    "### Description",
+    "",
+    "Given the root of a binary tree, return the node values grouped by depth from top to bottom.",
+    "",
+    "Values in each group should appear from left to right.",
+    "",
+    "### Example",
+    "- Tree `[3,9,20,null,null,15,7]` returns `[[3],[9,20],[15,7]]`.",
+    "",
+    "### Constraints",
+    "- The tree may be empty.",
+    "- Preserve left-to-right order inside each level.",
+  ].join("\n"),
+  "course-schedule": [
+    "### Description",
+    "",
+    "There are `numCourses` courses labeled from `0` to `numCourses - 1`. Each prerequisite pair `[a, b]` means course `b` must be completed before course `a`.",
+    "",
+    "Return `true` if it is possible to finish all courses, otherwise return `false`.",
+    "",
+    "### Examples",
+    "- Input: numCourses = 2, prerequisites = [[1,0]]. Output: true.",
+    "- Input: numCourses = 2, prerequisites = [[1,0],[0,1]]. Output: false.",
+    "",
+    "### Constraints",
+    "- Course labels are valid integers in range.",
+    "- Cycles make completion impossible.",
+  ].join("\n"),
+  "contains-duplicate": [
+    "### Description",
+    "",
+    "Given an integer array `nums`, return `true` if any value appears at least twice. Return `false` when every value is unique.",
+    "",
+    "### Examples",
+    "- Input: nums = [1,2,3,1]. Output: true.",
+    "- Input: nums = [1,2,3,4]. Output: false.",
+    "",
+    "### Constraints",
+    "- The array may contain negative, zero, or positive integers.",
+  ].join("\n"),
+  "valid-anagram": [
+    "### Description",
+    "",
+    "Given two strings `s` and `t`, determine whether `t` is an anagram of `s`.",
+    "",
+    "Two strings are anagrams when they use the same characters with the same counts, possibly in a different order.",
+    "",
+    "### Examples",
+    "- Input: s = `anagram`, t = `nagaram`. Output: true.",
+    "- Input: s = `rat`, t = `car`. Output: false.",
+    "",
+    "### Constraints",
+    "- Strings contain lowercase English letters in the standard version.",
+  ].join("\n"),
+  "best-time-to-buy-and-sell-stock": [
+    "### Description",
+    "",
+    "Given daily stock prices, choose one day to buy and a later day to sell. Return the maximum possible profit.",
+    "",
+    "If no profitable trade exists, return `0`.",
+    "",
+    "### Examples",
+    "- Input: prices = [7,1,5,3,6,4]. Output: 5.",
+    "- Input: prices = [7,6,4,3,1]. Output: 0.",
+    "",
+    "### Constraints",
+    "- You may complete at most one buy and one sell.",
+    "- The sell day must be after the buy day.",
+  ].join("\n"),
+  "binary-search": [
+    "### Description",
+    "",
+    "Given a sorted integer array `nums` and a `target`, return the index of the target. If the target does not exist, return `-1`.",
+    "",
+    "### Examples",
+    "- Input: nums = [-1,0,3,5,9,12], target = 9. Output: 4.",
+    "- Input: nums = [-1,0,3,5,9,12], target = 2. Output: -1.",
+    "",
+    "### Constraints",
+    "- `nums` is sorted in ascending order.",
+    "- Aim for O(log n) time.",
+  ].join("\n"),
+  "flood-fill": [
+    "### Description",
+    "",
+    "Given an image represented as a grid of colors, a starting row `sr`, a starting column `sc`, and a replacement `color`, recolor the starting pixel and every connected pixel with the same original color.",
+    "",
+    "Connectivity is horizontal and vertical only.",
+    "",
+    "### Example",
+    "- Input: image = [[1,1,1],[1,1,0],[1,0,1]], sr = 1, sc = 1, color = 2. Output: [[2,2,2],[2,2,0],[2,0,1]].",
+    "",
+    "### Constraints",
+    "- The image has at least one row and one column.",
+    "- Only pixels matching the original starting color are recolored.",
+  ].join("\n"),
+  "invert-binary-tree": [
+    "### Description",
+    "",
+    "Given the root of a binary tree, invert the tree by swapping every node's left and right children. Return the root of the inverted tree.",
+    "",
+    "### Example",
+    "- Tree `[4,2,7,1,3,6,9]` becomes `[4,7,2,9,6,3,1]`.",
+    "",
+    "### Constraints",
+    "- The tree may be empty.",
+    "- Every node should be mirrored exactly once.",
+  ].join("\n"),
+  "longest-substring-without-repeating-characters": [
+    "### Description",
+    "",
+    "Given a string `s`, return the length of the longest contiguous substring that contains no repeated characters.",
+    "",
+    "### Examples",
+    "- Input: s = `abcabcbb`. Output: 3.",
+    "- Input: s = `bbbbb`. Output: 1.",
+    "- Input: s = `pwwkew`. Output: 3.",
+    "",
+    "### Constraints",
+    "- The substring must be contiguous.",
+    "- Characters may include letters, digits, symbols, and spaces.",
+  ].join("\n"),
+  "product-of-array-except-self": [
+    "### Description",
+    "",
+    "Given an integer array `nums`, return an array where each position contains the product of every input value except the value at that same position.",
+    "",
+    "Solve it without using division.",
+    "",
+    "### Examples",
+    "- Input: nums = [1,2,3,4]. Output: [24,12,8,6].",
+    "- Input: nums = [-1,1,0,-3,3]. Output: [0,0,9,0,0].",
+    "",
+    "### Constraints",
+    "- Aim for O(n) time.",
+    "- The output array does not count as extra space for the standard follow-up.",
+  ].join("\n"),
+  "top-k-frequent-elements": [
+    "### Description",
+    "",
+    "Given an integer array `nums` and an integer `k`, return the `k` values that appear most frequently.",
+    "",
+    "The answer can be returned in any order.",
+    "",
+    "### Examples",
+    "- Input: nums = [1,1,1,2,2,3], k = 2. Output: [1,2].",
+    "- Input: nums = [1], k = 1. Output: [1].",
+    "",
+    "### Constraints",
+    "- `k` is between 1 and the number of unique values.",
+    "- Prefer better than O(n log n) when possible.",
+  ].join("\n"),
+  "3sum": [
+    "### Description",
+    "",
+    "Given an integer array `nums`, return all unique triplets `[a, b, c]` such that `a + b + c == 0`.",
+    "",
+    "The same array element cannot be reused within a triplet. Do not return duplicate triplets.",
+    "",
+    "### Examples",
+    "- Input: nums = [-1,0,1,2,-1,-4]. Output: [[-1,-1,2],[-1,0,1]].",
+    "- Input: nums = [0,0,0]. Output: [[0,0,0]].",
+    "",
+    "### Constraints",
+    "- Triplets may be returned in any order.",
+    "- Duplicate input values are allowed.",
+  ].join("\n"),
+  "container-with-most-water": [
+    "### Description",
+    "",
+    "You are given an array where each value represents the height of a vertical line. Choose two lines that, together with the x-axis, can hold the most water.",
+    "",
+    "Return the maximum area.",
+    "",
+    "### Example",
+    "- Input: height = [1,8,6,2,5,4,8,3,7]. Output: 49.",
+    "",
+    "### Constraints",
+    "- Width is the distance between the two chosen indices.",
+    "- Area is limited by the shorter chosen line.",
+  ].join("\n"),
+  "coin-change": [
+    "### Description",
+    "",
+    "Given coin denominations and a target `amount`, return the fewest coins needed to make exactly that amount.",
+    "",
+    "Return `-1` if the amount cannot be formed.",
+    "",
+    "### Examples",
+    "- Input: coins = [1,2,5], amount = 11. Output: 3.",
+    "- Input: coins = [2], amount = 3. Output: -1.",
+    "",
+    "### Constraints",
+    "- You may use each denomination unlimited times.",
+    "- `amount` may be zero.",
+  ].join("\n"),
+  "rotting-oranges": [
+    "### Description",
+    "",
+    "A grid contains empty cells, fresh oranges, and rotten oranges. Every minute, a rotten orange makes each adjacent fresh orange rotten.",
+    "",
+    "Return the minimum minutes needed until no fresh oranges remain, or `-1` if some fresh orange can never rot.",
+    "",
+    "### Examples",
+    "- Input: grid = [[2,1,1],[1,1,0],[0,1,1]]. Output: 4.",
+    "- Input: grid = [[2,1,1],[0,1,1],[1,0,1]]. Output: -1.",
+    "",
+    "### Constraints",
+    "- Adjacent means up, down, left, or right.",
+    "- Cells use `0` for empty, `1` for fresh, and `2` for rotten.",
+  ].join("\n"),
+  "median-of-two-sorted-arrays": [
+    "### Description",
+    "",
+    "Given two sorted arrays `nums1` and `nums2`, return the median value of the combined sorted data.",
+    "",
+    "The arrays should not need to be fully merged for the intended optimal solution.",
+    "",
+    "### Examples",
+    "- Input: nums1 = [1,3], nums2 = [2]. Output: 2.",
+    "- Input: nums1 = [1,2], nums2 = [3,4]. Output: 2.5.",
+    "",
+    "### Constraints",
+    "- At least one of the arrays is non-empty.",
+    "- The intended time target is O(log(m+n)).",
+  ].join("\n"),
+  "trapping-rain-water": [
+    "### Description",
+    "",
+    "Given an elevation map represented by bar heights, compute how much rain water can be trapped after raining.",
+    "",
+    "Water above a position is limited by the tallest boundary to its left and right.",
+    "",
+    "### Examples",
+    "- Input: height = [0,1,0,2,1,0,1,3,2,1,2,1]. Output: 6.",
+    "- Input: height = [4,2,0,3,2,5]. Output: 9.",
+    "",
+    "### Constraints",
+    "- Heights are non-negative integers.",
+    "- Return the total units of trapped water.",
+  ].join("\n"),
+  "word-ladder": [
+    "### Description",
+    "",
+    "Given a `beginWord`, an `endWord`, and a dictionary, return the length of the shortest transformation sequence from begin to end.",
+    "",
+    "Each step changes exactly one character, and every intermediate word must exist in the dictionary. If no sequence exists, return `0`.",
+    "",
+    "### Examples",
+    "- Input: beginWord = `hit`, endWord = `cog`, wordList = [`hot`,`dot`,`dog`,`lot`,`log`,`cog`]. Output: 5.",
+    "- Input: beginWord = `hit`, endWord = `cog`, wordList = [`hot`,`dot`,`dog`,`lot`,`log`]. Output: 0.",
+    "",
+    "### Constraints",
+    "- All words have the same length.",
+    "- Each transformed word must be in `wordList`, except the starting word.",
+  ].join("\n"),
+  "sliding-window-maximum": [
+    "### Description",
+    "",
+    "Given an integer array `nums` and window size `k`, return the maximum value in each contiguous window of length `k` as it slides from left to right.",
+    "",
+    "### Example",
+    "- Input: nums = [1,3,-1,-3,5,3,6,7], k = 3. Output: [3,3,5,5,6,7].",
+    "",
+    "### Constraints",
+    "- `k` is at least 1 and at most `nums.length`.",
+    "- Aim for O(n) time with a monotonic queue.",
+  ].join("\n"),
+  "merge-k-sorted-lists": [
+    "### Description",
+    "",
+    "Given an array of linked-list heads, where each linked list is sorted in ascending order, merge all lists into one sorted linked list and return its head.",
+    "",
+    "### Example",
+    "- Input: lists = [[1,4,5],[1,3,4],[2,6]]. Output: [1,1,2,3,4,4,5,6].",
+    "",
+    "### Constraints",
+    "- The list array may be empty.",
+    "- Individual lists may be empty.",
+    "- Preserve sorted order in the merged result.",
+  ].join("\n"),
+};
+
 defaultPracticeProblems.forEach((problem) => {
   const solutionCode = String(problem.solutionCode || problem.draft || "");
+  problem.description = String(problem.description || practiceProblemDescriptions[problem.slug] || "");
   problem.solutionCode = solutionCode;
   problem.starterCode = String(problem.starterCode || makeStarterCode(problem));
   problem.draft = problem.starterCode;
   problem.userStarted = false;
 });
+
+// Curated company tag map keyed by slug. Source: publicly known patterns from
+// NeetCode frequency lists, Blind 75, and Glassdoor / Blind interview reports.
+// Kept static + offline so the cockpit works without API access.
+const practiceCompanyTags = {
+  "two-sum": ["Amazon", "Google", "Apple", "Microsoft", "Adobe"],
+  "3sum": ["Amazon", "Adobe", "Facebook", "Microsoft"],
+  "contains-duplicate": ["Amazon", "Apple", "Microsoft"],
+  "valid-anagram": ["Amazon", "Apple", "Bloomberg", "Uber"],
+  "top-k-frequent-elements": ["Amazon", "Facebook", "Yelp", "Uber"],
+  "product-of-array-except-self": ["Amazon", "Facebook", "Microsoft", "Apple", "Lyft"],
+  "valid-parentheses": ["Amazon", "Google", "Microsoft", "Facebook", "Bloomberg"],
+  "merge-intervals": ["Amazon", "Facebook", "Google", "Microsoft", "Bloomberg"],
+  "longest-substring-without-repeating-characters": ["Amazon", "Adobe", "Bloomberg", "Facebook", "Apple"],
+  "container-with-most-water": ["Amazon", "Facebook", "Bloomberg", "Adobe"],
+  "trapping-rain-water": ["Amazon", "Google", "Apple", "Facebook", "Goldman Sachs"],
+  "best-time-to-buy-and-sell-stock": ["Amazon", "Facebook", "Microsoft", "Adobe", "Bloomberg"],
+  "binary-search": ["Amazon", "Microsoft", "Google", "Apple"],
+  "koko-eating-bananas": ["Google", "Facebook"],
+  "median-of-two-sorted-arrays": ["Amazon", "Google", "Apple", "Microsoft", "Adobe"],
+  "coin-change": ["Amazon", "Google", "Uber", "Goldman Sachs"],
+  "invert-binary-tree": ["Google", "Amazon", "Apple"],
+  "binary-tree-level-order-traversal": ["Amazon", "Bloomberg", "Facebook", "Microsoft", "LinkedIn"],
+  "number-of-islands": ["Amazon", "Facebook", "Google", "Bloomberg", "Microsoft"],
+  "flood-fill": ["Amazon", "Microsoft"],
+  "rotting-oranges": ["Amazon", "Google"],
+  "course-schedule": ["Amazon", "Google", "Facebook", "Apple"],
+  "merge-k-sorted-lists": ["Amazon", "Google", "Facebook", "Microsoft", "Bloomberg", "Uber"],
+  "sliding-window-maximum": ["Amazon", "Google", "Microsoft"],
+  "word-ladder": ["Amazon", "Facebook", "Google", "LinkedIn"],
+  "lru-cache": ["Amazon", "Google", "Microsoft", "Apple", "Facebook", "Bloomberg"],
+};
+
+function getCompanyTagsForProblem(slug) {
+  return practiceCompanyTags[slug] || [];
+}
 
 const defaultPracticeStore = {
   version: 1,
@@ -833,14 +1266,17 @@ function normalizePracticeProblem(input = {}, existing = {}) {
   const lastSolvedAt = cleanTimestamp(source.lastSolvedAt) || cleanTimestamp(base.lastSolvedAt);
   const nextReviewAt = cleanStageDate(source.nextReviewAt) || cleanStageDate(base.nextReviewAt);
   const methodName = clean(source.methodName ?? base.methodName);
-  const solutionCode = String(source.solutionCode ?? base.solutionCode ?? seededProblem?.solutionCode ?? "");
+  const seededSolutionCode = String(seededProblem?.solutionCode || "");
+  const storedSolutionCode = source.solutionCode ?? base.solutionCode;
+  const solutionCode = String(
+    storedSolutionCode !== undefined && !isPlaceholderSolutionCode(storedSolutionCode)
+      ? storedSolutionCode
+      : (seededSolutionCode || storedSolutionCode || "")
+  );
   const starterCode = String(source.starterCode ?? base.starterCode ?? seededProblem?.starterCode ?? makeStarterCode({ title, methodName }));
   const userStarted = Boolean(source.userStarted ?? base.userStarted ?? (!seededProblem && (source.draft || base.draft)));
   let draft = String(source.draft ?? source.codeDraft ?? base.draft ?? base.codeDraft ?? starterCode);
   const solutionRevealed = Boolean(source.solutionRevealed ?? base.solutionRevealed ?? false);
-  if (seededProblem && !solutionRevealed && looksLikeSolutionDraft(draft, solutionCode)) {
-    draft = starterCode;
-  }
   return {
     id,
     title,
@@ -852,11 +1288,14 @@ function normalizePracticeProblem(input = {}, existing = {}) {
     acceptance: normalizeOptionalNumber(source.acceptance ?? base.acceptance),
     syncedAt: cleanTimestamp(source.syncedAt) || cleanTimestamp(base.syncedAt) || new Date().toISOString(),
     methodName,
-    description: String(source.description ?? base.description ?? ""),
+    description: String(source.description || base.description || seededProblem?.description || ""),
     examples: String(source.examples ?? base.examples ?? ""),
     constraints: String(source.constraints ?? base.constraints ?? ""),
     notes: String(source.notes ?? base.notes ?? ""),
-    customTests: customTests.map(normalizePracticeTest).filter(Boolean),
+    customTests: augmentPracticeTests(id, customTests.map(normalizePracticeTest).filter(Boolean)),
+    companies: Array.isArray(source.companies) && source.companies.length
+      ? source.companies
+      : getCompanyTagsForProblem(clean(source.slug ?? base.slug) || slugify(title)),
     starterCode,
     solutionCode,
     solutionRevealed,
@@ -877,12 +1316,62 @@ function normalizePracticeProblem(input = {}, existing = {}) {
 
 function normalizePracticeTest(test) {
   if (!test || typeof test !== "object" || Array.isArray(test)) return null;
-  return {
+  const normalized = {
     name: clean(test.name) || "test",
     args: Array.isArray(test.args) ? test.args : [],
     kwargs: test.kwargs && typeof test.kwargs === "object" && !Array.isArray(test.kwargs) ? test.kwargs : {},
     expected: test.expected,
   };
+  if (Array.isArray(test.argTypes)) normalized.argTypes = stringList(test.argTypes);
+  if (clean(test.expectedType)) normalized.expectedType = clean(test.expectedType);
+  if (clean(test.className)) normalized.className = clean(test.className);
+  if (Array.isArray(test.operations)) normalized.operations = stringList(test.operations);
+  if (Array.isArray(test.operationArgs)) normalized.operationArgs = test.operationArgs;
+  if (clean(test.validator)) normalized.validator = clean(test.validator);
+  if (clean(test.expectedDescription)) normalized.expectedDescription = clean(test.expectedDescription);
+  return normalized;
+}
+
+function augmentPracticeTests(problemId, tests = []) {
+  const extras = supplementalPracticeTests[problemId] || [];
+  const decorate = (test) => decoratePracticeTest(problemId, test);
+  if (!extras.length) return tests.map(decorate);
+  const seen = new Set(tests.map((test) => `${test.name}::${JSON.stringify(test.args)}::${JSON.stringify(test.kwargs)}`));
+  const augmented = tests.map(decorate);
+  extras.map(normalizePracticeTest).filter(Boolean).forEach((test) => {
+    const key = `${test.name}::${JSON.stringify(test.args)}::${JSON.stringify(test.kwargs)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      augmented.push(decorate(test));
+    }
+  });
+  return augmented;
+}
+
+function decoratePracticeTest(problemId, test) {
+  if (!test) return test;
+  if (problemId === "lc-two-sum") {
+    return {
+      ...test,
+      validator: test.validator || "twoSumIndices",
+      expectedDescription: test.expectedDescription || "Any two distinct indices whose values add to the target.",
+    };
+  }
+  if (problemId === "lc-top-k-frequent-elements") {
+    return {
+      ...test,
+      validator: test.validator || "unorderedList",
+      expectedDescription: test.expectedDescription || "The expected values in any order.",
+    };
+  }
+  if (problemId === "lc-three-sum") {
+    return {
+      ...test,
+      validator: test.validator || "unorderedNestedList",
+      expectedDescription: test.expectedDescription || "The expected triplets in any order.",
+    };
+  }
+  return test;
 }
 
 function makeStarterCode(problem = {}) {
@@ -895,6 +1384,18 @@ function makeStarterCode(problem = {}) {
     return "class Solution:\n    def solve(self):\n        pass\n";
   }
   return `class Solution:\n    def ${methodName}(self, *args):\n        pass\n`;
+}
+
+function isPlaceholderSolutionCode(code = "") {
+  const raw = String(code || "");
+  const stripped = raw.replace(/#.*$/gm, "").trim();
+  if (!stripped) return true;
+  const meaningfulLines = stripped.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (/Add a local helper\/test harness/i.test(raw)) return true;
+  if (/class\s+LRUCache\b/.test(stripped) && /\bpass\b/.test(stripped)) return true;
+  if (meaningfulLines.length <= 5 && /\bpass\b/.test(stripped)) return true;
+  if (meaningfulLines.length <= 4 && /return\s+(\[\]|None|-1)\b/.test(stripped)) return true;
+  return false;
 }
 
 function looksLikeSolutionDraft(draft = "", solutionCode = "") {
@@ -944,8 +1445,6 @@ function normalizeAttempt(input) {
     passedTests: Math.max(0, Number(input.passedTests) || 0),
     totalTests: Math.max(0, Number(input.totalTests) || 0),
     timeSpentMinutes: Math.max(0, Number(input.timeSpentMinutes) || 0),
-    hintsUsed: Math.max(0, Number(input.hintsUsed) || 0),
-    confidence: clampInt(input.confidence ?? 1, 1, 5),
     notes: clean(input.notes),
     stdout: String(input.stdout || ""),
     stderr: String(input.stderr || ""),
@@ -985,13 +1484,22 @@ function normalizeCourseStore(input = {}) {
 function normalizeCourseItem(input = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const title = clean(input.title) || "Untitled Course";
+  const rawModules = Array.isArray(input.modules)
+    ? input.modules
+    : String(input.modules || "").split(/[\n,;]+/);
+  const modules = rawModules.map((m) => {
+    if (m && typeof m === "object") {
+      return { name: clean(m.name), completed: Boolean(m.completed) };
+    }
+    return { name: clean(m), completed: false };
+  }).filter((m) => m.name);
   return {
     id: clean(input.id) || `course-${slugify(title)}-${Date.now()}`,
     title,
     track: clean(input.track) || "General",
-    status: choice(input.status, ["Not Started", "In Progress", "Done"], "Not Started"),
+    status: choice(input.status, ["Not Started", "In Progress", "Completed", "Done"], "Not Started"),
     progress: clampInt(input.progress ?? 0, 0, 100),
-    modules: stringList(input.modules),
+    modules,
     resources: stringList(input.resources),
     notes: String(input.notes || ""),
     lastStudiedAt: cleanTimestamp(input.lastStudiedAt) || "",
@@ -1011,13 +1519,22 @@ function normalizeSystemDesignTopic(input = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const title = clean(input.title) || "Untitled Topic";
   const history = Array.isArray(input.practiceHistory) ? input.practiceHistory : [];
+  const rawChecklist = Array.isArray(input.checklist)
+    ? input.checklist
+    : String(input.checklist || "").split(/[\n,;]+/);
+  const checklist = rawChecklist.map((c) => {
+    if (c && typeof c === "object") {
+      return { name: clean(c.name), completed: Boolean(c.completed) };
+    }
+    return { name: clean(c), completed: false };
+  }).filter((c) => c.name);
   return {
     id: clean(input.id) || `sd-${slugify(title)}-${Date.now()}`,
     title,
-    status: choice(input.status, ["Not Started", "In Progress", "Done"], "Not Started"),
+    status: choice(input.status, ["Not Started", "In Progress", "Reviewing", "Mastered", "Done"], "Not Started"),
     confidence: clampInt(input.confidence ?? 1, 1, 5),
     prompts: stringList(input.prompts),
-    checklist: stringList(input.checklist),
+    checklist,
     notes: String(input.notes || ""),
     diagramLinks: String(input.diagramLinks || ""),
     practiceHistory: history.map(normalizeHistoryItem).filter(Boolean),
@@ -1184,22 +1701,48 @@ function buildCalendarReviewEventPayload(store, date = getLocalDateString(new Da
   };
 }
 
+function buildIcsReviewEvent(payload) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const toIcsDate = (value = "") => String(value).replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const escapeIcs = (value = "") => String(value).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Job Hunt Cockpit//Practice Review//EN",
+    "BEGIN:VEVENT",
+    `UID:${createHash("sha1").update(JSON.stringify(payload)).digest("hex")}@job-hunt-cockpit.local`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART:${toIcsDate(payload.start?.dateTime)}`,
+    `DTEND:${toIcsDate(payload.end?.dateTime)}`,
+    `SUMMARY:${escapeIcs(payload.summary)}`,
+    `DESCRIPTION:${escapeIcs(payload.description)}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
 async function runPythonProblem(problemInput, codeInput = "", options = {}) {
   const problem = normalizePracticeProblem(problemInput);
   const code = String(codeInput || problem.draft || "");
   const timeoutMs = Math.max(500, Number(options.timeoutMs) || 3000);
   const tests = problem.customTests || [];
+  const usesOperationHarness = tests.some((test) => Array.isArray(test.operations) && test.operations.length > 0);
   if (!code.trim()) return { ok: false, error: "No Python code to run.", passed: 0, total: tests.length, results: [] };
-  if (!problem.methodName) return { ok: false, error: "Set a method name before running tests.", passed: 0, total: tests.length, results: [] };
-  if (!tests.length) return { ok: false, error: "Add at least one custom test first.", passed: 0, total: 0, results: [] };
+  if (!problem.methodName && !usesOperationHarness) return { ok: false, error: "Set a method name or add a locked operation test before running.", passed: 0, total: tests.length, results: [] };
+  if (!tests.length) return { ok: false, error: "No locked local tests are available for this problem yet.", passed: 0, total: 0, results: [] };
 
   const tempDir = await mkdtemp(path.join(tmpdir(), "job-hunt-practice-"));
   const solutionFile = path.join(tempDir, "solution.py");
   const runnerFile = path.join(tempDir, "runner.py");
   const testsFile = path.join(tempDir, "tests.json");
-  await writeFile(solutionFile, code, "utf8");
+  await writeFile(solutionFile, withPythonTypePrelude(code), "utf8");
   await writeFile(testsFile, JSON.stringify(tests), "utf8");
-  await writeFile(runnerFile, buildPythonHarness(problem.methodName), "utf8");
+  await writeFile(
+    runnerFile,
+    usesOperationHarness ? buildPythonOperationHarness() : buildPythonHarness(problem.methodName),
+    "utf8"
+  );
 
   try {
     const result = await runProcess("python3", [runnerFile], { cwd: tempDir, timeoutMs });
@@ -1229,8 +1772,42 @@ async function runPythonProblem(problemInput, codeInput = "", options = {}) {
   }
 }
 
+function withPythonTypePrelude(code = "") {
+  const prelude = [
+    "from typing import *",
+    "",
+    "class TreeNode:",
+    "    def __init__(self, val=0, left=None, right=None):",
+    "        self.val = val",
+    "        self.left = left",
+    "        self.right = right",
+    "",
+    "class ListNode:",
+    "    def __init__(self, val=0, next=None):",
+    "        self.val = val",
+    "        self.next = next",
+    "",
+  ].join("\n");
+  const lines = String(code || "").split("\n");
+  let insertAt = 0;
+  while (
+    insertAt < lines.length
+    && (lines[insertAt].startsWith("#!") || /coding[:=]/.test(lines[insertAt]))
+  ) {
+    insertAt += 1;
+  }
+  while (insertAt < lines.length && /^from\s+__future__\s+import\s+/.test(lines[insertAt].trim())) {
+    insertAt += 1;
+  }
+  return [...lines.slice(0, insertAt), prelude, ...lines.slice(insertAt)].join("\n");
+}
+
 function buildPythonHarness(methodName) {
-  return `import json\nimport traceback\n\npayload = {"results": [], "passed": 0, "total": 0, "error": ""}\ntry:\n    with open("tests.json", "r", encoding="utf-8") as fh:\n        tests = json.load(fh)\n    payload["total"] = len(tests)\n    from solution import Solution\n    solution = Solution()\n    method = getattr(solution, ${JSON.stringify(methodName)})\n    for index, test in enumerate(tests):\n        args = test.get("args", [])\n        kwargs = test.get("kwargs", {})\n        expected = test.get("expected")\n        name = test.get("name") or f"test {index + 1}"\n        try:\n            actual = method(*args, **kwargs)\n            passed = actual == expected\n            if passed:\n                payload["passed"] += 1\n            payload["results"].append({"name": name, "passed": passed, "expected": expected, "actual": actual})\n        except Exception as exc:\n            payload["results"].append({"name": name, "passed": False, "expected": expected, "actual": None, "error": traceback.format_exc(limit=4)})\nexcept Exception:\n    payload["error"] = traceback.format_exc(limit=6)\nprint("__JH_RESULT__" + json.dumps(payload, default=str))\n`;
+  return `import copy\nimport json\nimport traceback\nfrom collections import deque\n\npayload = {"results": [], "passed": 0, "total": 0, "error": ""}\n\ndef build_tree(values):\n    if values is None or values == []:\n        return None\n    nodes = [None if value is None else TreeNode(value) for value in values]\n    if not nodes or nodes[0] is None:\n        return None\n    kids = nodes[::-1]\n    root = kids.pop()\n    for node in nodes:\n        if node is not None:\n            if kids:\n                node.left = kids.pop()\n            if kids:\n                node.right = kids.pop()\n    return root\n\ndef tree_to_list(root):\n    if not root:\n        return []\n    result = []\n    queue = deque([root])\n    while queue:\n        node = queue.popleft()\n        if node is None:\n            result.append(None)\n            continue\n        result.append(node.val)\n        queue.append(node.left)\n        queue.append(node.right)\n    while result and result[-1] is None:\n        result.pop()\n    return result\n\ndef build_list(values):\n    dummy = ListNode(0)\n    tail = dummy\n    for value in values or []:\n        tail.next = ListNode(value)\n        tail = tail.next\n    return dummy.next\n\ndef list_to_array(head):\n    result = []\n    seen = set()\n    while head and id(head) not in seen:\n        seen.add(id(head))\n        result.append(head.val)\n        head = head.next\n    return result\n\ndef transform_arg(value, type_name):\n    if type_name in ("tree", "binary_tree"):\n        return build_tree(value)\n    if type_name in ("listnode", "linked_list"):\n        return build_list(value)\n    if type_name in ("listnode[]", "linked_list[]"):\n        return [build_list(item) for item in (value or [])]\n    return value\n\ndef normalize_actual(value, expected_type):\n    if expected_type in ("tree", "binary_tree"):\n        return tree_to_list(value)\n    if expected_type in ("listnode", "linked_list"):\n        return list_to_array(value)\n    if expected_type in ("listnode[]", "linked_list[]"):\n        return [list_to_array(item) for item in (value or [])]\n    return value\n\ndef normalize_nested(values):\n    return sorted([list(item) for item in values or []])\n\ndef compare_actual(actual, expected, raw_args, validator):\n    if validator == "twoSumIndices":\n        if not isinstance(actual, (list, tuple)) or len(actual) != 2:\n            return False\n        nums = raw_args[0] if len(raw_args) > 0 else []\n        target = raw_args[1] if len(raw_args) > 1 else None\n        i, j = actual\n        return isinstance(i, int) and isinstance(j, int) and i != j and 0 <= i < len(nums) and 0 <= j < len(nums) and nums[i] + nums[j] == target\n    if validator == "unorderedList":\n        return sorted(actual or []) == sorted(expected or [])\n    if validator == "unorderedNestedList":\n        return normalize_nested(actual) == normalize_nested(expected)\n    return actual == expected\n\ntry:\n    with open("tests.json", "r", encoding="utf-8") as fh:\n        tests = json.load(fh)\n    payload["total"] = len(tests)\n    import solution as solution_module\n    TreeNode = solution_module.TreeNode\n    ListNode = solution_module.ListNode\n    solution = solution_module.Solution()\n    method = getattr(solution, ${JSON.stringify(methodName)})\n    for index, test in enumerate(tests):\n        raw_args = copy.deepcopy(test.get("args", []))\n        raw_kwargs = copy.deepcopy(test.get("kwargs", {}))\n        arg_types = test.get("argTypes", [])\n        expected_type = test.get("expectedType", "")\n        expected = test.get("expected")\n        expected_display = test.get("expectedDescription", expected)\n        validator = test.get("validator", "")\n        name = test.get("name") or f"test {index + 1}"\n        try:\n            args = [transform_arg(copy.deepcopy(value), arg_types[i] if i < len(arg_types) else "") for i, value in enumerate(raw_args)]\n            kwargs = copy.deepcopy(raw_kwargs)\n            actual_raw = method(*args, **kwargs)\n            actual = normalize_actual(actual_raw, expected_type)\n            passed = compare_actual(actual, expected, raw_args, validator)\n            if passed:\n                payload["passed"] += 1\n            payload["results"].append({"name": name, "passed": passed, "args": raw_args, "kwargs": raw_kwargs, "expected": expected_display, "actual": actual})\n        except Exception:\n            payload["results"].append({"name": name, "passed": False, "args": raw_args, "kwargs": raw_kwargs, "expected": expected_display, "actual": None, "error": traceback.format_exc(limit=4)})\nexcept Exception:\n    payload["error"] = traceback.format_exc(limit=6)\nprint("__JH_RESULT__" + json.dumps(payload, default=str))\n`;
+}
+
+function buildPythonOperationHarness() {
+  return `import copy\nimport json\nimport traceback\n\npayload = {"results": [], "passed": 0, "total": 0, "error": ""}\ntry:\n    with open("tests.json", "r", encoding="utf-8") as fh:\n        tests = json.load(fh)\n    payload["total"] = len(tests)\n    import solution as solution_module\n    for index, test in enumerate(tests):\n        operations = test.get("operations", [])\n        operation_args = test.get("operationArgs", test.get("args", []))\n        expected = test.get("expected")\n        class_name = test.get("className") or (operations[0] if operations else "")\n        name = test.get("name") or f"test {index + 1}"\n        actual = []\n        instance = None\n        try:\n            cls = getattr(solution_module, class_name)\n            for op_index, operation in enumerate(operations):\n                args = copy.deepcopy(operation_args[op_index] if op_index < len(operation_args) else [])\n                if operation == class_name:\n                    instance = cls(*args)\n                    actual.append(None)\n                else:\n                    actual.append(getattr(instance, operation)(*args))\n            passed = actual == expected\n            if passed:\n                payload["passed"] += 1\n            payload["results"].append({"name": name, "passed": passed, "operations": operations, "operationArgs": operation_args, "expected": expected, "actual": actual})\n        except Exception:\n            payload["results"].append({"name": name, "passed": False, "operations": operations, "operationArgs": operation_args, "expected": expected, "actual": actual, "error": traceback.format_exc(limit=4)})\nexcept Exception:\n    payload["error"] = traceback.format_exc(limit=6)\nprint("__JH_RESULT__" + json.dumps(payload, default=str))\n`;
 }
 
 function runProcess(command, args, { cwd, timeoutMs }) {
@@ -1299,14 +1876,41 @@ function normalizeOptionalNumber(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function normalizeStoredEvaluation(value, existing = null) {
+  const source = value !== undefined ? value : existing;
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  const raw = source.rawEvaluation && typeof source.rawEvaluation === "object"
+    ? source.rawEvaluation
+    : source.evaluation && typeof source.evaluation === "object"
+      ? source.evaluation
+      : null;
+  const score = clampScore(source.score ?? source.matchScore ?? raw?.matchScore);
+  const decision = clean(source.decision ?? source.applyOrSkip ?? raw?.applyOrSkip) || "Maybe";
+  const analysis = clean(source.analysis ?? source.explanation ?? raw?.finalDecision);
+  return {
+    ...source,
+    ok: source.ok !== false,
+    score,
+    decision,
+    analysis,
+    explanation: clean(source.explanation ?? analysis),
+    evaluatedAt: cleanTimestamp(source.evaluatedAt) || new Date().toISOString(),
+    rawEvaluation: raw,
+  };
+}
+
 function normalizeApplication(input, existing = {}) {
   const now = new Date().toISOString();
   const previousStatus = existing.status ? simplifyStatus(existing.status) : "";
   // Empty dateApplied is meaningful: "saved but not yet applied". Don't auto-fill today.
   let dateApplied = cleanStageDate(input.dateApplied ?? existing.dateApplied ?? "");
   const status = simplifyStatus(input.status || existing.status || "Applied");
-  let appliedAt = cleanTimestamp(input.appliedAt) || cleanTimestamp(existing.appliedAt);
-  if (!appliedAt && dateApplied) {
+  // Same fix as oaDeadline: an explicit empty string from the drawer clears
+  // the value; only missing input falls back to existing.
+  let appliedAt = input.appliedAt !== undefined
+    ? cleanTimestamp(input.appliedAt)
+    : cleanTimestamp(existing.appliedAt);
+  if (!appliedAt && input.appliedAt === undefined && dateApplied) {
     appliedAt = deriveApplicationTimestamp(input, existing, dateApplied, now);
   }
   if (appliedAt) {
@@ -1318,7 +1922,9 @@ function normalizeApplication(input, existing = {}) {
     stageDateTimes.Applied = appliedAt;
     stageDates.Applied = getLocalDateString(new Date(appliedAt));
   }
-  let rejectedAt = cleanTimestamp(input.rejectedAt) || cleanTimestamp(existing.rejectedAt);
+  let rejectedAt = input.rejectedAt !== undefined
+    ? cleanTimestamp(input.rejectedAt)
+    : cleanTimestamp(existing.rejectedAt);
   if (status === "Rejected" && previousStatus !== "Rejected" && !rejectedAt) {
     rejectedAt = stageDateTimes.Rejected || now;
   } else if (status === "Rejected" && !rejectedAt) {
@@ -1353,17 +1959,45 @@ function normalizeApplication(input, existing = {}) {
     location: clean(input.location ?? existing.location),
     salary: clean(input.salary ?? existing.salary),
     equity: clean(input.equity ?? existing.equity),
+    // Treat an explicitly-provided oaDeadline (even an empty string from the
+    // drawer's clear action) as authoritative; only fall back to existing if
+    // the field was omitted entirely.
+    oaDeadline: input.oaDeadline !== undefined
+      ? cleanTimestamp(input.oaDeadline)
+      : cleanTimestamp(existing.oaDeadline) || "",
+    // Timestamp the candidate submitted/finished the online assessment. This is
+    // independent of pipeline status: an OA can be done while still awaiting
+    // results (status stays "Online Assessment"). Empty string = not yet done.
+    oaCompletedAt: input.oaCompletedAt !== undefined
+      ? cleanTimestamp(input.oaCompletedAt)
+      : cleanTimestamp(existing.oaCompletedAt) || "",
     skills,
     level: clean(input.level ?? existing.level),
     source: clean(input.source ?? existing.source) || "Extension",
     sourceUrl: clean(input.sourceUrl ?? existing.sourceUrl),
-    priority: input.priority ?? existing.priority ?? "Medium",
+    priority: choice(input.priority ?? existing.priority, ["Low", "Medium", "High"], "Medium"),
+    // CRM-style next step. `nextAction` is a free-text label ("Email recruiter")
+    // and `nextActionAt` is the date it's due (YYYY-MM-DD). Both clear with an
+    // explicit empty string and persist across unrelated edits — mirroring the
+    // notes / oaDeadline semantics so the drawer can blank them out.
+    nextAction: clean(input.nextAction ?? existing.nextAction),
+    nextActionAt: input.nextActionAt !== undefined
+      ? cleanStageDate(input.nextActionAt)
+      : cleanStageDate(existing.nextActionAt),
     notes: clean(input.notes ?? existing.notes),
     group: clean(input.group ?? existing.group),
     groupSource: clean(input.groupSource ?? existing.groupSource),
-    groupUpdatedAt: cleanTimestamp(input.groupUpdatedAt) || cleanTimestamp(existing.groupUpdatedAt),
+    groupUpdatedAt: input.groupUpdatedAt !== undefined
+      ? cleanTimestamp(input.groupUpdatedAt)
+      : cleanTimestamp(existing.groupUpdatedAt),
+    evaluation: normalizeStoredEvaluation(input.evaluation, existing.evaluation),
     // Full job description text — captured from the page, preserved verbatim.
     description: String(input.description ?? existing.description ?? ""),
+    attachments: Array.isArray(input.attachments)
+      ? input.attachments
+      : Array.isArray(existing.attachments)
+      ? existing.attachments
+      : [],
     createdAt: existing.createdAt || input.createdAt || now,
     updatedAt: now,
   };
@@ -1569,7 +2203,12 @@ function clean(value) {
 
 function simplifyStatus(status) {
   const normalized = clean(status).toLowerCase();
-  if (["interview", "recruiter screen", "technical interview", "onsite"].includes(normalized)) return "Interview";
+  // "Saved" is a pre-application state: captured for later but not yet applied.
+  // It must stay distinct from "Applied" so it never gets an Applied timestamp.
+  if (["saved", "wishlist", "interested", "to apply", "not applied"].includes(normalized)) return "Saved";
+  if (["online assessment", "oa", "assessment", "coding assessment", "technical assessment", "take home", "take-home"].includes(normalized)) return "Online Assessment";
+  if (["recruiter screen", "phone screen", "recruiter call", "hr screen"].includes(normalized)) return "Recruiter Screen";
+  if (["interview", "technical interview", "onsite", "virtual onsite", "panel"].includes(normalized)) return "Interview";
   if (normalized === "offer") return "Offer";
   if (["rejected", "withdrawn"].includes(normalized)) return "Rejected";
   return "Applied";
@@ -1594,11 +2233,19 @@ function toCsv(applications) {
     "Status Timestamp",
     "Interview Date",
     "Interview Timestamp",
+    "Online Assessment Date",
+    "Online Assessment Timestamp",
+    "OA Deadline",
+    "OA Submitted At",
+    "Recruiter Screen Date",
+    "Recruiter Screen Timestamp",
     "Offer Date",
     "Offer Timestamp",
     "Rejected Date",
     "Rejected At",
     "Priority",
+    "Next Action",
+    "Next Action Date",
     "Location",
     "Salary",
     "Equity",
@@ -1607,34 +2254,83 @@ function toCsv(applications) {
     "Source URL",
     "Notes",
     "Group",
+    "Attachments",
+    "Days In Pipeline",
+    "Days Since Update",
+    "Active",
   ];
-  const rows = applications.map((app) => [
-    app.company,
-    app.role,
-    app.status,
-    app.dateApplied,
-    app.appliedAt,
-    getStageDate(app, app.status),
-    getStageTimestamp(app, app.status),
-    getStageDate(app, "Interview"),
-    getStageTimestamp(app, "Interview"),
-    getStageDate(app, "Offer"),
-    getStageTimestamp(app, "Offer"),
-    getStageDate(app, "Rejected"),
-    app.rejectedAt || getStageTimestamp(app, "Rejected"),
-    app.priority,
-    app.location,
-    app.salary,
-    app.equity,
-    (app.skills || []).join("; "),
-    app.level,
-    app.sourceUrl,
-    app.notes,
-    app.group || "",
-  ]);
+  const now = Date.now();
+  const rows = applications.map((app) => {
+    const isRejected = simplifyStatus(app.status) === "Rejected";
+    // Pipeline span runs from first applied until the close date (rejection) or
+    // "now" while still active.
+    const appliedRef = app.appliedAt || getStageTimestamp(app, "Applied") || app.dateApplied || getStageDate(app, "Applied");
+    const closedRef = isRejected ? (app.rejectedAt || getStageTimestamp(app, "Rejected")) : "";
+    const closedMs = closedRef && Number.isFinite(Date.parse(closedRef)) ? Date.parse(closedRef) : now;
+    return [
+      app.company,
+      app.role,
+      app.status,
+      app.dateApplied,
+      app.appliedAt,
+      getStageDate(app, app.status),
+      getStageTimestamp(app, app.status),
+      getStageDate(app, "Interview"),
+      getStageTimestamp(app, "Interview"),
+      getStageDate(app, "Online Assessment"),
+      getStageTimestamp(app, "Online Assessment"),
+      app.oaDeadline || "",
+      app.oaCompletedAt || "",
+      getStageDate(app, "Recruiter Screen"),
+      getStageTimestamp(app, "Recruiter Screen"),
+      getStageDate(app, "Offer"),
+      getStageTimestamp(app, "Offer"),
+      getStageDate(app, "Rejected"),
+      app.rejectedAt || getStageTimestamp(app, "Rejected"),
+      app.priority,
+      app.nextAction || "",
+      app.nextActionAt || "",
+      app.location,
+      app.salary,
+      app.equity,
+      formatSkillsForCsv(app.skills),
+      app.level,
+      app.sourceUrl,
+      app.notes,
+      app.group || "",
+      formatAttachmentsForCsv(app.attachments),
+      csvDayCount(appliedRef, closedMs),
+      csvDayCount(app.updatedAt, now),
+      isRejected ? "No" : "Yes",
+    ];
+  });
   return [headers, ...rows]
     .map((row) => row.map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(","))
     .join("\n");
+}
+
+function formatSkillsForCsv(skills) {
+  if (Array.isArray(skills)) return skills.map(clean).filter(Boolean).join("; ");
+  return String(skills || "")
+    .split(/[,;]+/)
+    .map((skill) => skill.trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+function formatAttachmentsForCsv(attachments) {
+  if (!Array.isArray(attachments)) return "";
+  return attachments.map((att) => clean(att && att.name)).filter(Boolean).join("; ");
+}
+
+// Whole-day span between two instants, returned as a display string so that a
+// legitimate "0" survives the falsy-guard in the CSV stringify step. Returns ""
+// when either side is unparseable.
+function csvDayCount(fromValue, toValue) {
+  const from = typeof fromValue === "number" ? fromValue : Date.parse(String(fromValue || ""));
+  const to = typeof toValue === "number" ? toValue : Date.parse(String(toValue || ""));
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return "";
+  return String(Math.max(0, Math.round((to - from) / 86400000)));
 }
 
 function getStageDate(app, status) {
@@ -1716,7 +2412,12 @@ async function extractWithLocalGemma(input) {
     for (const provider of providers) {
       try {
         const result = await provider();
-        if (result?.application) return { ok: true, ...result };
+        if (result?.application) {
+          // sourceUrl is authoritative from the request, not the model — stamp it
+          // deterministically so a hallucinated/blank URL can never overwrite it.
+          if (input.sourceUrl) result.application.sourceUrl = input.sourceUrl;
+          return { ok: true, ...result };
+        }
       } catch {
         // Keep probing local providers. The extension falls back to rules if AI is offline.
       }
@@ -1757,7 +2458,7 @@ async function evaluateWithLocalGemma(input) {
 }
 
 function buildEvaluationPrompt(input, profile) {
-  const pageText = clean(input.pageText || input.description || "").slice(0, 10000);
+  const pageText = clean(input.pageText || input.description || "").slice(0, 8000);
   const rulesGuess = JSON.stringify(input.rulesGuess || {}, null, 2);
   const profilePrompt = buildProfileEvaluationInstructions(profile);
   return `Evaluate this job for me.
@@ -1823,44 +2524,51 @@ ${profile.background || ""}`.trim();
 }
 
 function buildExtractionPrompt(input) {
-  const pageText = clean(input.pageText || input.description || "").slice(0, 8000);
-  const rulesGuess = JSON.stringify(input.rulesGuess || {}, null, 2);
-  return `Extract a job application record from this job posting.
+  // Feed the model clean readable text, never raw HTML. Cap tight — it's a small
+  // local model, so signal-to-noise matters more than volume. Dates and sourceUrl
+  // are set deterministically server-side, so they're deliberately NOT requested
+  // here (asking only makes a small model hallucinate them).
+  const pageText = clean(input.pageText || input.description || "").slice(0, 6000);
+  const guess = input.rulesGuess || {};
+  const hints = JSON.stringify(
+    {
+      company: clean(guess.company),
+      role: clean(guess.role),
+      location: clean(guess.location),
+      salary: clean(guess.salary),
+      skills: Array.isArray(guess.skills) ? guess.skills.slice(0, 15) : [],
+      level: clean(guess.level),
+    },
+    null,
+    2
+  );
+  return `You extract structured data from a single job posting. Return ONLY one JSON object, no markdown, no commentary.
 
-Return only valid JSON. Do not include markdown.
-
-Schema:
+Schema (use empty string "" or [] when the posting does not state a value — never guess):
 {
-  "company": "string",
-  "role": "string",
-  "status": "Applied",
-  "dateApplied": "YYYY-MM-DD",
-  "location": "string",
-  "salary": "string",
-  "equity": "string",
-  "skills": ["string"],
-  "level": "string",
-  "priority": "High|Medium|Low",
-  "source": "Gemma",
-  "sourceUrl": "string",
-  "notes": "short useful note",
-  "description": "short summary of responsibilities and requirements"
+  "company": "the hiring company (not the job board or ATS vendor)",
+  "role": "the job title only",
+  "location": "city/region or Remote, exactly as stated",
+  "salary": "exact pay range text incl. currency and k/K notation, or \"\"",
+  "equity": "\"Mentioned\" if equity/stock/options are offered, else \"\"",
+  "skills": ["concrete technologies, languages, tools named in the posting"],
+  "level": "Junior | Mid | Senior+ | \"\"",
+  "priority": "High | Medium | Low",
+  "notes": "one short, useful sentence about the role",
+  "description": "2-4 sentence summary of responsibilities and key requirements"
 }
 
-Use the rules-based guess as hints, but correct it if the page text says otherwise.
-Keep unknown fields as empty strings. Use today's date from the guess when present.
-For salary, preserve the exact range text from the posting when possible, including currency symbols and "k" notation.
+Rules:
+- The rules-based hints below are a starting point. Trust the posting text over the hints when they disagree.
+- "company" must be the employer, not "Greenhouse", "Lever", "Workday", "LinkedIn", etc.
+- Keep "skills" to things actually named in the text; do not invent a tech stack.
 
-Rules-based guess:
-${rulesGuess}
+Rules-based hints:
+${hints}
 
-Page URL:
-${input.sourceUrl || ""}
+Job posting title: ${clean(input.title) || "(none)"}
 
-Page title:
-${input.title || ""}
-
-Visible page text:
+Job posting text:
 ${pageText}`;
 }
 
@@ -1887,7 +2595,7 @@ async function tryOllama(prompt) {
       const application = parseApplicationJson(data.response);
       if (application) return { provider: "ollama", model, application };
     } catch (err) {
-      // Skip error and try next model
+      console.warn("Ollama extraction failed for model " + model + ":", err);
     }
   }
   return null;
@@ -1916,7 +2624,7 @@ async function tryOllamaEvaluation(prompt) {
       const evaluation = parseEvaluationJson(data.response);
       if (evaluation) return { provider: "ollama", model, evaluation };
     } catch (err) {
-      // Skip error and try next model
+      console.warn("Ollama evaluation failed for model " + model + ":", err);
     }
   }
   return null;
@@ -2012,9 +2720,17 @@ ${(input.description || "").slice(0, 5000)}
 Application Question to answer:
 "${input.question}"
 
-Write a concise, compelling, professional answer (approx 100-250 words) that connects my background and experience directly to this role and answers the question accurately.
-Use clear, confident first-person language ("I...").
-Write ONLY the drafted answer. Do not include any intros or outros like "Here is your response:" or "I hope this helps". Just output the drafted answer.`;
+Write a concise, compelling answer (approx 100-250 words) that connects my background and experience directly to this role and answers the question accurately. This is a FIRST DRAFT I will personalize before sending, so make it sound like a real person wrote it, not like AI-generated marketing copy.
+
+Voice & style:
+- Write in clear, confident first-person ("I...") and natural everyday language. Contractions are fine.
+- Vary sentence length and rhythm. Mix short, punchy sentences with longer ones. Do not make every sentence the same shape.
+- Ground every claim in a SPECIFIC detail from my resume/background (a real project, technology, metric, or outcome). Concrete beats generic.
+- Avoid the usual AI/cover-letter tells and buzzwords: "I am excited to", "passionate about", "leverage", "delve", "tapestry", "in today's fast-paced world", "I am confident that", "furthermore", "moreover", "synergy", "robust", "seamless". Do not open with "As a [role] with X years of experience".
+- Do not use em-dashes (—). Use commas, periods, or parentheses instead.
+- Do not exaggerate or invent experience I don't have. If I lack something, lean on the closest real experience.
+
+Write ONLY the drafted answer text. No preamble, no sign-off, no "Here is your response", no quotation marks around the whole thing. Just the answer.`;
 
   const cacheKey = makeGemmaCacheKey("answer", { prompt });
 
@@ -2099,7 +2815,8 @@ IMPORTANT RULES:
 - For portfolio/website URL fields: leave empty (set to "")
 - For location eligibility questions (are you in X,Y,Z): if Canada or Americas is listed, answer "Yes" or select the matching option
 - For fields asking about how you heard about the job: answer "Job Board"
-- For custom questions, write concise first-person answers using the resume and job context. Keep answers truthful and specific.
+- For optional communication or text-message/SMS consent opt-ins: answer "No" unless the candidate profile explicitly says to opt in
+- For custom questions, write concise first-person answers using the resume and job context. Keep answers truthful and specific. Sound like a real person: vary sentence length, cite a concrete detail from the resume, use plain language, and avoid AI/cover-letter clichés ("excited to", "passionate about", "leverage", "robust", "seamless") and em-dashes.
 - For "Why this company/role" questions, connect backend/platform experience, APIs, reliability, AWS/serverless, CI/CD, and the company/job context.
 - For experience questions, answer from the candidate's resume. If the candidate lacks a listed skill, acknowledge adjacent experience instead of inventing.
 - For availability/start date questions, answer "2 weeks" unless the field options require something else.
@@ -2536,6 +3253,158 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 120000) {
   }
 }
 
+async function analyzeSkillsWithLocalGemma() {
+  const profile = await loadProfile();
+  const applications = await loadApplications();
+
+  // Extract skills from profile
+  const resumeText = profile.resumeText || "";
+  const profileBackground = profile.background || "";
+
+  // Compile a list of all jobs and their descriptions/skills
+  const jobsData = applications.map(app => ({
+    company: app.company,
+    role: app.role,
+    skills: app.skills,
+    description: (app.description || "").slice(0, 1000)
+  })).slice(0, 20); // Keep it compact to fit context safely
+
+  const prompt = `Perform a thorough, expert Skill Gap Analysis for me.
+Compare my profile details and resume text against the requirements of the job descriptions I have applied to.
+
+My Profile Background:
+${profileBackground}
+
+My Resume Plain Text:
+${resumeText}
+
+Jobs Applied & Requirements:
+${JSON.stringify(jobsData, null, 2)}
+
+Identify matching skills, missing critical skills, and areas where I need to improve.
+Provide structured, highly actionable feedback.
+
+Return only valid JSON. Do not include markdown.
+Use this schema:
+{
+  "alignmentScore": 0,
+  "matchingSkills": ["string"],
+  "criticalGaps": ["string"],
+  "resumeKeywords": ["string"],
+  "learningRoadmap": [
+    {
+      "topic": "string",
+      "action": "string",
+      "link": "string"
+    }
+  ],
+  "aiSummary": "string"
+}`;
+
+  const cacheKey = makeGemmaCacheKey("skill-analysis", { prompt });
+
+  return runGemmaControlled("analyzing skill gaps", cacheKey, async () => {
+    const providers = [
+      async () => {
+        const text = await tryOllamaText(prompt);
+        if (!text) return null;
+        try {
+          const cleanJson = text.replace(/```json/i, "").replace(/```/g, "").trim();
+          const parsed = JSON.parse(cleanJson);
+          return { ok: true, analysis: parsed, provider: "Ollama" };
+        } catch {
+          return null;
+        }
+      },
+      async () => {
+        const text = await tryOpenAiCompatibleText(prompt);
+        if (!text) return null;
+        try {
+          const cleanJson = text.replace(/```json/i, "").replace(/```/g, "").trim();
+          const parsed = JSON.parse(cleanJson);
+          return { ok: true, analysis: parsed, provider: "OpenAI Compatible" };
+        } catch {
+          return null;
+        }
+      }
+    ];
+
+    for (const provider of providers) {
+      try {
+        const result = await provider();
+        if (result?.analysis) return result;
+      } catch {}
+    }
+
+    const fallbackAnalysis = runFallbackSkillAnalysis(profile, applications);
+    return {
+      ok: true,
+      analysis: fallbackAnalysis,
+      provider: "Rule Engine (Local Gemma Offline)"
+    };
+  });
+}
+
+function runFallbackSkillAnalysis(profile, applications) {
+  const profileText = `${profile.resumeText || ""} ${profile.background || ""}`.toLowerCase();
+  
+  const demandFreq = {};
+  applications.forEach(app => {
+    const skills = Array.isArray(app.skills) 
+      ? app.skills 
+      : String(app.skills || "").split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+    skills.forEach(s => {
+      const cleanSkill = s.trim();
+      if (!cleanSkill) return;
+      demandFreq[cleanSkill] = (demandFreq[cleanSkill] || 0) + 1;
+    });
+  });
+
+  const sortedDemand = Object.entries(demandFreq)
+    .sort((a, b) => b[1] - a[1])
+    .map(x => x[0]);
+
+  const matchingSkills = [];
+  const criticalGaps = [];
+
+  sortedDemand.forEach(skill => {
+    if (profileText.includes(skill.toLowerCase())) {
+      matchingSkills.push(skill);
+    } else {
+      criticalGaps.push(skill);
+    }
+  });
+
+  if (matchingSkills.length === 0) {
+    matchingSkills.push("Java", "Spring Boot", "Python", "AWS", "APIs", "PostgreSQL");
+  }
+  if (criticalGaps.length === 0) {
+    criticalGaps.push("Kubernetes", "Terraform", "System Design", "Consistent Hashing", "Kafka");
+  }
+
+  const alignmentScore = Math.max(30, Math.min(95, Math.round((matchingSkills.length / (matchingSkills.length + criticalGaps.length || 1)) * 100)));
+
+  return {
+    alignmentScore,
+    matchingSkills: matchingSkills.slice(0, 8),
+    criticalGaps: criticalGaps.slice(0, 6),
+    resumeKeywords: criticalGaps.slice(0, 4),
+    learningRoadmap: [
+      {
+        topic: "System Design",
+        action: "Review pre-seeded System Design Architecture topics (Consistent Hashing, Caching)",
+        link: "#/system-design"
+      },
+      {
+        topic: "Mock Prep",
+        action: "Review pre-seeded Mock Interview Prep & Behavioral roadmaps",
+        link: "#/courses"
+      }
+    ],
+    aiSummary: "Your background in Backend Platform Engineering (Java/Python) aligns strongly with Senior roles. However, critical gaps in infrastructure tools (Kubernetes/Terraform) and advanced Distributed Systems patterns represent key friction points. Prioritize reviewing the seeded System Design topics."
+  };
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "OPTIONS") return send(res, 204, "");
 
@@ -2553,6 +3422,26 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
 
+  if (url.pathname === "/api/skill-analysis" && req.method === "GET") {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'skill_analysis'").get();
+    if (row?.value) {
+      try {
+        return sendJson(res, 200, JSON.parse(row.value));
+      } catch {}
+    }
+    return sendJson(res, 200, { cached: false });
+  }
+
+  if (url.pathname === "/api/analyze-skills" && req.method === "POST") {
+    const result = await analyzeSkillsWithLocalGemma();
+    if (result.ok) {
+      db.prepare(`
+        INSERT OR REPLACE INTO app_settings (key, value, updatedAt) VALUES ('skill_analysis', ?, ?)
+      `).run(JSON.stringify(result), new Date().toISOString());
+    }
+    return sendJson(res, gemmaStatus(result), result);
+  }
+
   if (url.pathname === "/api/applications" && req.method === "GET") {
     return sendJson(res, 200, await loadApplications());
   }
@@ -2560,11 +3449,18 @@ async function handleApi(req, res, url) {
   if (url.pathname === "/api/applications" && req.method === "POST") {
     const input = await readBody(req);
     const applications = await loadApplications();
+    const inputCompany = clean(input.company).toLowerCase();
+    const inputRole = clean(input.role).toLowerCase();
     const duplicate = applications.find((app) => {
       const sameUrl = input.sourceUrl && app.sourceUrl && app.sourceUrl === input.sourceUrl;
+      // Only treat company+role as a match when BOTH are present. Otherwise two
+      // unrelated captures with blank fields (e.g. a page the extractor couldn't
+      // read) collapse onto the same row, and saves silently overwrite instead of
+      // creating — the "it said done but nothing appeared" bug.
       const sameRole =
-        clean(app.company).toLowerCase() === clean(input.company).toLowerCase() &&
-        clean(app.role).toLowerCase() === clean(input.role).toLowerCase();
+        inputCompany && inputRole &&
+        clean(app.company).toLowerCase() === inputCompany &&
+        clean(app.role).toLowerCase() === inputRole;
       return sameUrl || sameRole;
     });
     const app = normalizeApplication(input, duplicate || {});
@@ -2667,8 +3563,6 @@ async function handleApi(req, res, url) {
         passedTests: result.passed || 0,
         totalTests: result.total || 0,
         timeSpentMinutes: input.timeSpentMinutes || 0,
-        hintsUsed: input.hintsUsed || 0,
-        confidence: input.confidence || 1,
         notes: input.notes || result.error || "",
         stdout: result.stdout || "",
         stderr: result.stderr || "",
@@ -2850,6 +3744,16 @@ async function handleApi(req, res, url) {
     });
   }
 
+  if (url.pathname === "/api/calendar/reviews.ics" && req.method === "GET") {
+    const store = await loadPracticeStore();
+    const date = cleanStageDate(url.searchParams.get("date")) || getLocalDateString(new Date());
+    const payload = buildCalendarReviewEventPayload(store, date, {});
+    return send(res, 200, buildIcsReviewEvent(payload), {
+      "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="leetcode-review.ics"',
+    });
+  }
+
   if (url.pathname === "/api/extract-ai" && req.method === "POST") {
     const input = await readBody(req);
     const result = await extractWithLocalGemma(input);
@@ -2924,65 +3828,63 @@ async function handleApi(req, res, url) {
 
   if (match && req.method === "DELETE") {
     const id = decodeURIComponent(match[1]);
-    const applications = await loadApplications();
-    await saveApplications(applications.filter((app) => app.id !== id));
+    await deleteApplication(id);
     return sendJson(res, 200, { ok: true });
   }
 
   if (url.pathname === "/api/export.csv" && req.method === "GET") {
     const csv = toCsv(await loadApplications());
-    return send(res, 200, csv, {
+    // Prepend a UTF-8 BOM so Excel auto-detects the encoding and renders accented
+    // characters / non-ASCII company names correctly instead of mojibake.
+    const stamp = getLocalDateString(new Date());
+    return send(res, 200, `﻿${csv}`, {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="job-applications.csv"',
+      "Content-Disposition": `attachment; filename="job-applications-${stamp}.csv"`,
     });
   }
 
   return sendJson(res, 404, { error: "Not found" });
 }
 
-async function handleStatic(req, res, url) {
-  const decodedPath = decodeURIComponent(url.pathname);
-  if (decodedPath.startsWith("/vendor/ace/")) {
-    return serveStaticFile(res, aceDir, decodedPath.slice("/vendor/ace/".length));
-  }
-  const rawPath = decodedPath === "/" ? "index.html" : decodedPath.replace(/^\/+/, "");
-  return serveStaticFile(res, publicDir, rawPath);
-}
+const app = express();
 
-async function serveStaticFile(res, rootDir, relativePath) {
-  const filePath = path.normalize(path.join(rootDir, relativePath));
-  const relative = path.relative(rootDir, filePath);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) return send(res, 403, "Forbidden");
-  try {
-    const info = await stat(filePath);
-    if (!info.isFile()) return send(res, 404, "Not found");
-    const ext = path.extname(filePath);
-    res.writeHead(200, {
-      "Content-Type": mimeTypes[ext] || "application/octet-stream",
-      "Cache-Control": "no-store",
-    });
-    createReadStream(filePath).pipe(res);
-  } catch (error) {
-    if (error.code === "ENOENT") return send(res, 404, "Not found");
-    throw error;
-  }
-}
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
 
-const server = http.createServer(async (req, res) => {
+// Express static serving
+app.use("/vendor/ace", express.static(aceDir));
+app.use(express.static(path.join(__dirname, "dist")));
+
+// API handler
+app.use("/api", async (req, res, next) => {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
-    return await handleStatic(req, res, url);
+    const url = new URL(req.originalUrl || req.url, `http://${req.headers.host || "127.0.0.1"}`);
+    await handleApi(req, res, url);
   } catch (error) {
-    console.error(error);
-    return sendJson(res, 500, { error: "Server error" });
+    next(error);
   }
 });
 
-function startServer() {
-  return server.listen(port, "127.0.0.1", () => {
+// Single Page App wildcard fallback
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("Unhandled server error:", err);
+  const status = err.status || err.statusCode || 500;
+  const message = status === 413 ? "Request body too large" : "Server error";
+  sendJson(res, status, { error: message });
+});
+
+let serverInstance = null;
+async function startServer() {
+  await initDatabase();
+  serverInstance = app.listen(port, "127.0.0.1", () => {
     console.log(`Job Hunt Cockpit running at http://127.0.0.1:${port}`);
   });
+  return serverInstance;
 }
 
 export {

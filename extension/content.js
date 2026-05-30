@@ -48,7 +48,9 @@ let dragFloatingActionsState = null;
 // On HTTPS pages (Greenhouse, Lever, Workday, etc.), direct fetch()
 // to http://127.0.0.1 is blocked by mixed-content security policy.
 // This helper routes all API calls through the background service worker.
-function apiProxy(url, method = "GET", body = null) {
+// Full variant: resolves { data, status } so callers can distinguish a freshly
+// created record (HTTP 201) from an update to an existing one (HTTP 200).
+function apiRequest(url, method = "GET", body = null) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
       { type: "API_PROXY", url, method, body },
@@ -61,10 +63,16 @@ function apiProxy(url, method = "GET", body = null) {
           reject(new Error(response?.error || "API proxy request failed"));
           return;
         }
-        resolve(response.data);
+        resolve({ data: response.data, status: response.status });
       }
     );
   });
+}
+
+// Convenience wrapper for the common case where only the response body matters.
+async function apiProxy(url, method = "GET", body = null) {
+  const { data } = await apiRequest(url, method, body);
+  return data;
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -76,6 +84,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     ensureCopilotPanel(message.profile);
     expandWidget();
     autofillWebForm(message.profile, { useAi: true });
+    return false;
+  }
+  if (message?.type === "TOGGLE_TOOLBAR") {
+    const actionsBar = document.getElementById("jh-floating-actions");
+    const widget = document.getElementById("jh-copilot-widget");
+    if (actionsBar && widget) {
+      const isHidden = actionsBar.style.display === "none";
+      if (isHidden) {
+        actionsBar.style.display = "flex";
+        widget.style.display = "flex";
+        widget.classList.remove("minimized");
+      } else {
+        actionsBar.style.display = "none";
+        widget.style.display = "none";
+      }
+    } else {
+      ensureProfileLoaded().then(() => {
+        ensureCopilotPanel(localProfile);
+        const newActions = document.getElementById("jh-floating-actions");
+        const newWidget = document.getElementById("jh-copilot-widget");
+        if (newActions && newWidget) {
+          newActions.style.display = "flex";
+          newWidget.style.display = "flex";
+          newWidget.classList.remove("minimized");
+        }
+      });
+    }
+    sendResponse({ ok: true });
     return false;
   }
   return false;
@@ -95,14 +131,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 })();
 
-// Start Copilot Drawer & Inline Trigger initialization on idle.
-// Form filling and Gemma evaluation stay manual to protect laptop resources.
+// Start Copilot Drawer & Inline Trigger initialization on idle. The submit
+// listener is cheap, so attach it automatically on job pages; Gemma still only
+// runs after an explicit action or a real submit.
 (function initCopilot() {
   window.addEventListener("load", () => {
     setTimeout(async () => {
       if (looksLikeJobPosting()) {
-        await ensureProfileLoaded();
-        // Submit listener is attached only after the user clicks Scan/Prefill/Inject.
+        const loaded = await ensureProfileLoaded();
+        if (loaded) attachFormSubmitTracker("auto listener ready", { silent: true });
       }
     }, 1500); // 1.5s delay to let page settle and reactive elements finish mounting
   });
@@ -118,8 +155,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       lastCachedUrl = "";
       setTimeout(async () => {
         if (looksLikeJobPosting()) {
-          await ensureProfileLoaded();
-          // Submit listener is attached only after the user clicks Scan/Prefill/Inject.
+          const loaded = await ensureProfileLoaded();
+          if (loaded) attachFormSubmitTracker("auto listener ready", { silent: true });
         }
       }, 1500);
     }
@@ -132,9 +169,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
  */
 function looksLikeApplicationForm() {
   try {
-    const inputs = document.querySelectorAll(
+    const inputs = Array.from(document.querySelectorAll(
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]), textarea, select'
-    );
+    )).filter((el) => !isInCopilotUi(el));
     if (inputs.length < 2) return false;
 
     // Check if there are identity-type fields (name, email, phone)
@@ -162,7 +199,13 @@ function looksLikeApplicationForm() {
  * to auto-track the job application to the cockpit when the user submits.
  */
 let submitTrackerAttached = false;
-function attachFormSubmitTracker(reason = "manual") {
+const COPILOT_UI_SELECTOR = "#jh-copilot-widget, #jh-floating-actions, #jh-inline-dropdown, #jh-inline-trigger, #jh-copilot-toast";
+
+function isInCopilotUi(node) {
+  return Boolean(node?.closest?.(COPILOT_UI_SELECTOR));
+}
+
+function attachFormSubmitTracker(reason = "manual", { silent = false } = {}) {
   const wasAttached = submitTrackerAttached;
   if (!submitTrackerAttached) {
     submitTrackerAttached = true;
@@ -178,36 +221,40 @@ function attachFormSubmitTracker(reason = "manual") {
 
   updateSubmitListenerStatus(reason);
   updatePrefillButtonState();
-  if (!wasAttached) {
+  if (!wasAttached && !silent) {
     showToast("Submit listener attached. Job Hunt will track the final submit.");
   }
 }
 
 async function handleApplicationSubmit(e) {
+  if (isInCopilotUi(e.target)) return;
   // Don't prevent the actual submit — just piggyback and track
-  scheduleTrackJobApplication("native form submit", 300);
+  scheduleTrackJobApplication("native form submit", 0);
 }
 
 function handlePossibleSubmitKeydown(e) {
   if (e.key !== "Enter") return;
   const target = e.target;
+  if (isInCopilotUi(target)) return;
   if (!target || target.tagName === "TEXTAREA") return;
   const form = target.closest?.("form");
   if (form) {
-    scheduleTrackJobApplication("enter key in form", 700);
+    scheduleTrackJobApplication("enter key in form", 0);
   }
 }
 
 function handlePossibleSubmitClick(e) {
   const target = e.target;
+  if (isInCopilotUi(target)) return;
   const control = target?.closest?.(
     'button, input[type="submit"], input[type="button"], a, [role="button"], [data-automation-id], [data-testid]'
   );
   if (!control || !isSubmitLikeControl(control)) return;
-  scheduleTrackJobApplication("submit button click", 700);
+  scheduleTrackJobApplication("submit button click", 0);
 }
 
 function isSubmitLikeControl(control) {
+  if (isInCopilotUi(control)) return false;
   const text = [
     control.textContent,
     control.value,
@@ -239,7 +286,12 @@ function scheduleTrackJobApplication(trigger, delayMs) {
   updateSubmitListenerStatus(`detected ${trigger}`);
   if (now - submitTrackerLastTrackedAt < 3500) return;
   submitTrackerLastTrackedAt = now;
-  setTimeout(() => trackJobApplication(trigger), delayMs);
+  const run = () => trackJobApplication(trigger);
+  if (delayMs > 0) {
+    setTimeout(run, delayMs);
+  } else {
+    run();
+  }
 }
 
 function updateSubmitListenerStatus(reason = "") {
@@ -265,16 +317,111 @@ function updateSubmitListenerStatus(reason = "") {
 }
 
 function getSubmitListenerCounts() {
-  const forms = document.querySelectorAll("form").length;
+  const forms = Array.from(document.querySelectorAll("form")).filter((form) => !isInCopilotUi(form)).length;
   const controls = Array.from(
     document.querySelectorAll('button, input[type="submit"], input[type="button"], a, [role="button"], [data-automation-id], [data-testid]')
-  );
+  ).filter((control) => !isInCopilotUi(control));
   const buttons = controls.filter(isSubmitLikeControl).length;
   return { forms, buttons };
 }
 
+function showCopilotPanel(panelName) {
+  ensureCopilotPanel(localProfile);
+  const widget = document.getElementById("jh-copilot-widget");
+  if (widget) widget.classList.remove("minimized");
+
+  const panels = {
+    eval: document.getElementById("jh-eval-panel"),
+    autofill: document.getElementById("jh-autofill-panel"),
+    track: document.getElementById("jh-track-panel"),
+  };
+  Object.entries(panels).forEach(([name, panel]) => {
+    if (panel) panel.hidden = name !== panelName;
+  });
+}
+
+function updateWorkflowSteps(scope, steps) {
+  const summary = document.getElementById(`jh-${scope}-workflow-summary`);
+  const list = document.getElementById(`jh-${scope}-workflow-list`);
+  if (!summary || !list) return;
+
+  const activeStep = steps.find((step) => step.status === "active");
+  const latestDone = [...steps].reverse().find((step) => step.status === "done");
+  const errorStep = steps.find((step) => step.status === "error");
+  summary.textContent = errorStep?.label || activeStep?.label || latestDone?.label || "Ready";
+
+  list.replaceChildren();
+  steps.forEach((step) => {
+    const item = document.createElement("li");
+    item.className = `jh-workflow-step ${step.status || "pending"}`;
+
+    const dot = document.createElement("span");
+    dot.className = "jh-workflow-dot";
+    dot.textContent = step.status === "done" ? "✓" : step.status === "error" ? "!" : step.status === "active" ? "•" : "";
+
+    const text = document.createElement("span");
+    text.className = "jh-workflow-text";
+    const label = document.createElement("strong");
+    label.textContent = step.label;
+    text.appendChild(label);
+    if (step.detail) {
+      const detail = document.createElement("small");
+      detail.textContent = step.detail;
+      text.appendChild(detail);
+    }
+
+    item.appendChild(dot);
+    item.appendChild(text);
+    list.appendChild(item);
+  });
+}
+
+function setEvaluationLoadingText(text) {
+  const el = document.getElementById("jh-eval-loading-text");
+  if (el) el.textContent = text;
+}
+
+function hasUserFilledForm() {
+  try {
+    const mapped = findInputs();
+    const nameFields = [...(mapped.firstName || []), ...(mapped.lastName || []), ...(mapped.fullName || [])];
+    const emailFields = mapped.email || [];
+    
+    // If the page doesn't even have standard name or email inputs, let it track
+    if (nameFields.length === 0 && emailFields.length === 0) return true;
+    
+    const hasName = nameFields.some(el => el.value && el.value.trim().length > 2);
+    const hasEmail = emailFields.some(el => el.value && el.value.trim().includes("@"));
+    
+    return hasName && hasEmail;
+  } catch (e) {
+    return true;
+  }
+}
+
 async function trackJobApplication(trigger = "submit") {
   try {
+    showCopilotPanel("autofill");
+    updateWorkflowSteps("autofill", [
+      { status: "done", label: `Submit detected`, detail: trigger },
+      { status: "active", label: "Checking visible form values" },
+      { status: "pending", label: "Saving to dashboard" },
+      { status: "pending", label: "Evaluating role with Gemma" },
+    ]);
+
+    // Only bypass if manually requested via popup/widget button
+    if (trigger !== "manual button" && !hasUserFilledForm()) {
+      console.log("Submit tracker ignored: Name and email fields are currently empty or incomplete.");
+      updateSubmitListenerStatus(`ignored unfilled click (${trigger})`);
+      updateWorkflowSteps("autofill", [
+        { status: "done", label: `Submit detected`, detail: trigger },
+        { status: "error", label: "Form looked incomplete", detail: "Name/email were not readable yet, so nothing was saved." },
+        { status: "pending", label: "Saving to dashboard" },
+        { status: "pending", label: "Evaluating role with Gemma" },
+      ]);
+      return;
+    }
+
     const jobData = extractJob();
     // Set today's date as the applied date (local timezone to match dashboard's todayString)
     const now = new Date();
@@ -284,27 +431,74 @@ async function trackJobApplication(trigger = "submit") {
     jobData.stageDateTimes = { ...(jobData.stageDateTimes || {}), Applied: appliedAt };
     jobData.status = "Applied";
 
-    await apiProxy(
-      "http://127.0.0.1:8787/api/applications",
-      "POST",
-      jobData
-    );
+    updateWorkflowSteps("autofill", [
+      { status: "done", label: `Submit detected`, detail: trigger },
+      { status: "done", label: "Cleaned page text", detail: `${jobData.pageText.length} chars sent to Gemma, no raw HTML/forms.` },
+      { status: "active", label: "Saving to dashboard", detail: "Background worker will finish even if the ATS navigates." },
+      { status: "pending", label: "Evaluating role with Gemma" },
+    ]);
 
-    // Notify background to update badge
-    chrome.runtime.sendMessage({ type: "TRACKER_UPDATED" }).catch(() => {});
+    const result = await trackApplicationViaBackground(jobData, { trigger, runEvaluation: true });
+    const status = result.status;
 
-    showToast("✅ Application tracked in Job Hunt Cockpit!");
-    updateSubmitListenerStatus(`tracked via ${trigger}`);
+    if (result.ok) {
+      updateWorkflowSteps("autofill", [
+        { status: "done", label: `Submit detected`, detail: trigger },
+        { status: "done", label: "Cleaned page text", detail: `${jobData.pageText.length} chars sent to Gemma, no raw HTML/forms.` },
+        { status: "done", label: status === 200 ? "Updated dashboard card" : "Added dashboard card" },
+        result.evaluationSaved
+          ? { status: "done", label: "Stored Gemma evaluation", detail: `${result.evaluation?.decision || "Decision"} · ${result.evaluation?.score ?? 0}/100` }
+          : { status: result.evaluationError ? "error" : "pending", label: "Gemma evaluation", detail: result.evaluationError || "Not returned by local Gemma." },
+      ]);
+
+      showToast(status === 200
+        ? "↻ Updated this application and queued evaluation."
+        : "✅ Application tracked and evaluated in Job Hunt Cockpit!");
+      updateSubmitListenerStatus(`tracked via ${trigger}`);
+    } else {
+      throw new Error(result.error || "Background tracker failed.");
+    }
   } catch (err) {
     console.warn("Auto-track failed:", err);
     showToast("Submit detected, but tracking failed. Check local app server.");
     updateSubmitListenerStatus(`tracking failed via ${trigger}`);
+    updateWorkflowSteps("autofill", [
+      { status: "done", label: `Submit detected`, detail: trigger },
+      { status: "error", label: "Tracking failed", detail: err.message || "Check local app server." },
+      { status: "pending", label: "Saving to dashboard" },
+      { status: "pending", label: "Evaluating role with Gemma" },
+    ]);
   }
 }
 
 async function manualTrackJobApplication() {
   submitTrackerLastTrackedAt = Date.now();
   await trackJobApplication("manual button");
+}
+
+function trackApplicationViaBackground(jobData, { trigger = "submit", runEvaluation = true } = {}) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(
+        { type: "TRACK_APPLICATION", jobData, trigger, runEvaluation },
+        async (response) => {
+          if (chrome.runtime.lastError || !response) {
+            try {
+              const { data, status } = await apiRequest("http://127.0.0.1:8787/api/applications", "POST", jobData);
+              chrome.runtime.sendMessage({ type: "TRACKER_UPDATED" }).catch(() => {});
+              resolve({ ok: true, status, app: data, evaluationSaved: false, evaluationError: chrome.runtime.lastError?.message || "" });
+            } catch (err) {
+              resolve({ ok: false, error: err.message || "Network error" });
+            }
+            return;
+          }
+          resolve(response);
+        }
+      );
+    } catch (err) {
+      resolve({ ok: false, error: err.message || "Extension background unavailable" });
+    }
+  });
 }
 
 async function ensureProfileLoaded() {
@@ -412,6 +606,11 @@ function extractJob() {
   const skills = skillCatalog.filter((skill) => new RegExp(`\\b${escapeRegExp(skill)}\\b`, "i").test(text));
   const level = findLevel(text);
 
+  // One clean text blob serves both purposes: `pageText` is the lean version sent
+  // to the local model (a small model — keep it tight, don't drown the signal),
+  // `description` is the longer copy stored verbatim on the saved record.
+  const aiText = text.slice(0, 7000);
+
   return {
     company,
     role,
@@ -426,9 +625,9 @@ function extractJob() {
     source: "Extension",
     sourceUrl: locationHref(),
     title: document.title,
-    pageText: text.slice(0, 12000),
+    pageText: aiText,
     notes: "",
-    description: text,
+    description: text.slice(0, 9000),
   };
 }
 
@@ -500,26 +699,132 @@ function pickText(selectors) {
   return "";
 }
 
-function visibleText() {
-  const candidates = [
+// Structural elements that are page chrome, never the job description itself.
+const CONTENT_NOISE_TAGS =
+  "script,style,noscript,svg,path,iframe,template,nav,header,footer,aside,form,button,select,input,textarea";
+// Class / id / aria fragments that mark cookie bars, related-job rails, menus,
+// social buttons and similar boilerplate. Used to prune nodes before reading text.
+const CONTENT_NOISE_PATTERN =
+  /(cookie|consent|gdpr|newsletter|subscrib|sign[\s_-]?in|log[\s_-]?in|breadcrumb|related|similar|recommend|sidebar|side-bar|\bmenu\b|navbar|nav-bar|social|share-|sharing|footer|header|banner|promo|advert|\bads?\b|skip-link|back-to|toolbar|cookie-?banner)/i;
+// Whole lines that are pure navigation/legal noise — dropped after text extraction.
+const LINE_NOISE_PATTERN =
+  /^(accept( all)?( cookies?)?|manage (cookies|preferences|settings)|we use cookies.*|cookie (policy|settings|preferences)|sign ?in|log ?in|sign ?up|create (an )?account|menu|skip to (content|main).*|share|tweet|back to (jobs|search|results)|view all jobs?|see all jobs?|similar jobs?|related jobs?|recommended.*|©.*|copyright.*|all rights reserved.*|privacy( policy)?|terms( of (service|use))?|powered by.*)$/i;
+
+// Choose the DOM subtree most likely to hold the job description, falling back to
+// progressively broader containers and finally <body>.
+function pickContentRoot() {
+  const selectors = [
+    "[data-testid*='job-description' i]",
+    "[class*='job-description' i]",
+    "[class*='jobdescription' i]",
+    "[id*='job-description' i]",
+    "[class*='job-details' i]",
+    "[class*='posting' i]",
+    "[class*='description' i]",
+    "article",
     "main",
     "[role='main']",
     "[class*='job' i]",
-    "[class*='posting' i]",
-    "article",
-    "body",
   ];
-  let element = null;
-  for (const selector of candidates) {
+  for (const selector of selectors) {
     try {
-      element = document.querySelector(selector);
-      if (element) break;
+      const el = document.querySelector(selector);
+      const len = (el?.innerText || el?.textContent || "").trim().length;
+      if (el && len > 200) return el;
     } catch (e) {
-      // Ignore syntax exceptions
+      // Ignore invalid selectors
     }
   }
-  element = element || document.body;
-  return clean(element.textContent || element.innerText || document.body.textContent || document.body.innerText || "");
+  return document.body;
+}
+
+// Tags that should produce a line break in serialized text, so paragraphs and
+// list items don't run together into one giant unreadable line.
+const READABLE_BLOCK_TAGS = new Set([
+  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DD", "DIV", "DL", "DT",
+  "FIELDSET", "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5",
+  "H6", "HEADER", "HR", "LI", "MAIN", "OL", "P", "PRE", "SECTION", "TABLE",
+  "TBODY", "TR", "UL", "TD", "TH",
+]);
+
+// Walk a (pruned, detached) DOM subtree and accumulate readable text into `out`,
+// inserting newlines around block elements and bullet markers before list items.
+function serializeReadable(node, out) {
+  for (const child of node.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      const t = child.textContent.replace(/[ \t ]+/g, " ");
+      if (t.trim()) out.push(t);
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const isBlock = READABLE_BLOCK_TAGS.has(child.tagName);
+      if (isBlock) out.push("\n");
+      if (child.tagName === "LI") out.push("• ");
+      serializeReadable(child, out);
+      if (isBlock) out.push("\n");
+    }
+  }
+}
+
+// Produce clean, readable, de-noised text from an element: prune page chrome,
+// serialize with block-aware line breaks, then drop nav/boilerplate lines and
+// duplicates. Keeping the result tight matters — the local model is small, so
+// signal-to-noise beats raw volume.
+function cleanReadableText(rootEl, maxChars = 9000) {
+  if (!rootEl) return "";
+
+  // Prune obvious chrome from a detached clone, then serialize to text ourselves.
+  // We deliberately avoid innerText: it needs the node mounted+rendered to compute
+  // line breaks, and a hidden/off-screen mount makes its output browser-dependent.
+  // A manual block-aware walk is deterministic and side-effect free.
+  let raw = "";
+  try {
+    const clone = rootEl.cloneNode(true);
+    clone.querySelectorAll(CONTENT_NOISE_TAGS).forEach((el) => el.remove());
+    clone.querySelectorAll("[class],[id],[aria-label],[role]").forEach((el) => {
+      const sig = `${el.getAttribute("class") || ""} ${el.id || ""} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("role") || ""}`.toLowerCase();
+      if (sig.trim() && CONTENT_NOISE_PATTERN.test(sig)) el.remove();
+    });
+    if ((clone.textContent || "").trim().length > 120) {
+      const out = [];
+      serializeReadable(clone, out);
+      raw = out.join("");
+    } else {
+      raw = clone.textContent || "";
+    }
+  } catch (e) {
+    raw = rootEl.textContent || "";
+  }
+
+  return denoiseLines(raw, maxChars);
+}
+
+// Pure text post-processing: normalize whitespace, drop nav/legal boilerplate
+// lines, collapse blank runs, de-dupe short repeated chrome, and cap length.
+// Kept separate from the DOM walk so it can be reasoned about and tested directly.
+function denoiseLines(raw, maxChars = 9000) {
+  const seen = new Set();
+  const lines = [];
+  let blankRun = 0;
+  for (const rawLine of String(raw || "").split("\n")) {
+    const line = rawLine.replace(/[ \t ]+/g, " ").trim();
+    if (!line) {
+      if (lines.length && blankRun === 0) lines.push("");
+      blankRun++;
+      continue;
+    }
+    blankRun = 0;
+    if (LINE_NOISE_PATTERN.test(line)) continue;
+    const key = line.toLowerCase();
+    // De-dupe short repeated chrome (menus echoed top & bottom); keep long prose.
+    if (line.length < 60 && seen.has(key)) continue;
+    seen.add(key);
+    lines.push(line);
+  }
+
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, maxChars);
+}
+
+function visibleText() {
+  return cleanReadableText(pickContentRoot(), 9000);
 }
 
 function cleanRole(title) {
@@ -613,6 +918,25 @@ function findCompany(text) {
   const textCompany = text.match(/Company\s*:?\s*([A-Z][A-Za-z0-9 .,&-]{2,60})/)?.[1] || "";
   if (textCompany && !isGarbage(clean(textCompany))) return clean(textCompany).slice(0, 80);
 
+  // 7. Last resort: derive a readable name from the host (e.g. jobs.acme.com →
+  //    "Acme"). Better an editable guess than an empty Company, which both blocks
+  //    the required field on save and collapses every blank capture onto one row.
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+    const parts = host.split(".").filter(Boolean);
+    const tld = new Set(["com", "co", "io", "org", "net", "app", "ai", "dev", "jobs", "careers", "career", "boards", "work", "gov", "edu"]);
+    // Walk from the second-level label outward, skipping generic/ATS tokens.
+    const core = [...parts].reverse().find(
+      (p) => p.length > 1 && !tld.has(p) && !ATS_PLATFORM_RE.test(p)
+    );
+    if (core) {
+      const derived = clean(slugToName(core));
+      if (!isGarbage(derived)) return derived.slice(0, 80);
+    }
+  } catch (e) {
+    // Malformed URL — fall through to empty.
+  }
+
   return "";
 }
 
@@ -664,6 +988,29 @@ function escapeRegExp(value) {
    ========================================================================== */
 
 function getLabelText(input) {
+  // 1. aria-labelledby: resolve the referenced element(s). Used heavily by
+  //    Workday / Greenhouse / Lever and other modern ATS forms.
+  const labelledBy = input.getAttribute && input.getAttribute("aria-labelledby");
+  if (labelledBy) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map((id) => {
+        try {
+          const el = document.getElementById(id);
+          return el ? (el.textContent || el.innerText || "") : "";
+        } catch {
+          return "";
+        }
+      })
+      .join(" ")
+      .trim();
+    if (text) return text;
+  }
+  // 2. Explicit aria-label.
+  const ariaLabel = input.getAttribute && input.getAttribute("aria-label");
+  if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+
+  // 3. <label for="id">.
   if (input.id) {
     try {
       const escapedId = CSS.escape(input.id);
@@ -691,16 +1038,224 @@ function getLabelText(input) {
   return "";
 }
 
-function findInputs() {
-  const inputs = Array.from(
+function getInputType(input) {
+  return (input?.type || "").toLowerCase();
+}
+
+function isChoiceInput(input) {
+  const type = getInputType(input);
+  return input?.tagName === "INPUT" && (type === "radio" || type === "checkbox");
+}
+
+function elementLooksVisible(el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return false;
+  try {
+    const style = window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden";
+  } catch {
+    return true;
+  }
+}
+
+function getRadioGroup(input) {
+  if (!input || getInputType(input) !== "radio") return input ? [input] : [];
+  if (!input.name) return [input];
+  const root = input.form || document;
+  return Array.from(root.querySelectorAll('input[type="radio"]'))
+    .filter((el) => el.name === input.name && !isInCopilotUi(el));
+}
+
+function getChoiceGroup(input) {
+  return getInputType(input) === "radio" ? getRadioGroup(input) : (input ? [input] : []);
+}
+
+function getRadioGroupKey(input) {
+  if (!input || getInputType(input) !== "radio" || !input.name) return "";
+  const formIndex = input.form ? Array.from(document.forms).indexOf(input.form) : -1;
+  return `${formIndex}:${input.name}`;
+}
+
+function getChoiceOptionLabel(input) {
+  if (!input) return "";
+  const explicitLabels = Array.from(input.labels || [])
+    .map((label) => clean(label.textContent || label.innerText || ""))
+    .filter((text) => text && text.length <= 140);
+  if (explicitLabels.length) return clean(explicitLabels.join(" "));
+
+  const closestLabel = input.closest?.("label");
+  if (closestLabel) {
+    const text = clean(closestLabel.textContent || closestLabel.innerText || "");
+    if (text && text.length <= 140) return text;
+  }
+
+  const sibling = input.nextElementSibling;
+  if (sibling && /^(LABEL|SPAN|DIV)$/i.test(sibling.tagName)) {
+    const text = clean(sibling.textContent || sibling.innerText || "");
+    if (text && text.length <= 140) return text;
+  }
+
+  return clean(input.getAttribute("aria-label") || input.value || input.id || input.name || "");
+}
+
+function getCommonAncestor(nodes) {
+  const validNodes = nodes.filter(Boolean);
+  if (!validNodes.length) return null;
+  let ancestor = validNodes[0];
+  while (ancestor && validNodes.some((node) => !ancestor.contains(node))) {
+    ancestor = ancestor.parentElement;
+  }
+  return ancestor;
+}
+
+function getChoiceGroupContainer(input) {
+  if (!input) return null;
+  const fieldset = input.closest?.("fieldset");
+  if (fieldset) return fieldset;
+
+  const roleGroup = input.closest?.('[role="radiogroup"], [role="group"]');
+  if (roleGroup) return roleGroup;
+
+  const group = getChoiceGroup(input);
+  let ancestor = getCommonAncestor(group);
+  while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+    const text = clean(ancestor.textContent || ancestor.innerText || "");
+    const choiceCount = ancestor.querySelectorAll?.('input[type="radio"], input[type="checkbox"]').length || 0;
+    if (text && text.length <= 900 && choiceCount <= Math.max(group.length + 4, 6)) {
+      return ancestor;
+    }
+    ancestor = ancestor.parentElement;
+  }
+
+  return input.closest?.("label") || input.parentElement;
+}
+
+function getPreviousPromptText(el) {
+  const pieces = [];
+  let current = el;
+  let depth = 0;
+
+  while (current && current !== document.body && depth < 3) {
+    let sibling = current.previousElementSibling;
+    let scanned = 0;
+    while (sibling && scanned < 4) {
+      const text = clean(sibling.textContent || sibling.innerText || "");
+      const hasControls = Boolean(sibling.querySelector?.("input, textarea, select, button"));
+      if (text && text.length <= 600 && !hasControls) pieces.unshift(text);
+      sibling = sibling.previousElementSibling;
+      scanned++;
+    }
+    if (pieces.join(" ").length > 600) break;
+    current = current.parentElement;
+    depth++;
+  }
+
+  return clean(pieces.join(" ")).slice(0, 700);
+}
+
+function getChoiceQuestionText(input) {
+  const pieces = [];
+  const fieldset = input?.closest?.("fieldset");
+  const legend = fieldset?.querySelector?.("legend");
+  if (legend) pieces.push(clean(legend.textContent || legend.innerText || ""));
+
+  const container = getChoiceGroupContainer(input);
+  const previousPrompt = getPreviousPromptText(container || input);
+  if (previousPrompt) pieces.push(previousPrompt);
+
+  if (container) {
+    const containerText = clean(container.textContent || container.innerText || "");
+    if (containerText && containerText.length <= 900) pieces.push(containerText);
+  }
+
+  const label = getLabelText(input);
+  if (label) pieces.push(clean(label));
+
+  const uniquePieces = [];
+  pieces.forEach((piece) => {
+    if (piece && !uniquePieces.includes(piece)) uniquePieces.push(piece);
+  });
+
+  return clean(uniquePieces.join(" ")).slice(0, 900);
+}
+
+function getChoiceOptions(input) {
+  return getChoiceGroup(input).map((option) => ({
+    input: option,
+    label: getChoiceOptionLabel(option),
+    value: clean(option.value || ""),
+  }));
+}
+
+function isVisibleFillTarget(input) {
+  if (elementLooksVisible(input)) return true;
+  if (!isChoiceInput(input)) return false;
+
+  const group = getChoiceGroup(input);
+  if (group.some(elementLooksVisible)) return true;
+  if (group.some((option) => Array.from(option.labels || []).some(elementLooksVisible))) return true;
+
+  const container = getChoiceGroupContainer(input);
+  return elementLooksVisible(container) && Boolean(clean(container.textContent || container.innerText || ""));
+}
+
+function collectFillableElements({ visibleOnly = false } = {}) {
+  const seenRadioGroups = new Set();
+  return Array.from(
     document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select'
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="password"]):not([type="image"]), textarea, select'
     )
-  );
+  ).filter((input) => {
+    if (isInCopilotUi(input) || isCustomSelectInput(input)) return false;
+    if (visibleOnly && input.tagName !== "SELECT" && !isVisibleFillTarget(input)) return false;
+    if (!isChoiceInput(input)) return true;
+
+    const radioGroupKey = getRadioGroupKey(input);
+    if (radioGroupKey) {
+      if (seenRadioGroups.has(radioGroupKey)) return false;
+      seenRadioGroups.add(radioGroupKey);
+    }
+    return true;
+  });
+}
+
+function isFieldAlreadyAnswered(input) {
+  if (!input) return true;
+  if (input.tagName === "SELECT") return input.selectedIndex > 0;
+  if (isChoiceInput(input)) {
+    const type = getInputType(input);
+    if (type === "radio") return getChoiceGroup(input).some((option) => option.checked);
+    return input.checked;
+  }
+  return Boolean(input.value && input.value.trim());
+}
+
+function markFieldFilled(filledElements, input) {
+  if (!input) return;
+  if (isChoiceInput(input)) {
+    getChoiceGroup(input).forEach((option) => filledElements.add(option));
+    return;
+  }
+  filledElements.add(input);
+}
+
+function wasFieldFilled(filledElements, input) {
+  if (filledElements.has(input)) return true;
+  return isChoiceInput(input) && getChoiceGroup(input).some((option) => filledElements.has(option));
+}
+
+function getAutofillFieldLabel(input) {
+  return clean((isChoiceInput(input) ? getChoiceQuestionText(input) : getLabelText(input)) || input?.name || input?.id || "Unnamed Field");
+}
+
+function findInputs() {
+  const inputs = collectFillableElements();
   const mapped = {};
 
   inputs.forEach((input) => {
-    const label = getLabelText(input).toLowerCase();
+    const label = getAutofillFieldLabel(input).toLowerCase();
+    const choiceContext = isChoiceInput(input) ? getChoiceQuestionText(input).toLowerCase() : "";
     const name = (input.name || "").toLowerCase();
     const id = (input.id || "").toLowerCase();
     const placeholder = (input.placeholder || "").toLowerCase();
@@ -709,6 +1264,7 @@ function findInputs() {
     const matches = (regex) => {
       return (
         regex.test(label) ||
+        regex.test(choiceContext) ||
         regex.test(name) ||
         regex.test(id) ||
         regex.test(placeholder) ||
@@ -760,23 +1316,297 @@ function findInputs() {
   return mapped;
 }
 
+function isCustomSelectInput(el) {
+  if (!el || el.tagName !== "INPUT") return false;
+  
+  // 1. Check parent classes commonly used by Chosen, Select2, React-Select, etc.
+  if (el.closest('.chosen-container, .chosen-search, .select2-container, .select2-search, [class*="select2-"], [class*="chosen-"]')) {
+    return true;
+  }
+  
+  // 2. Check React-Select or custom comboboxes
+  if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list") {
+    return true;
+  }
+  
+  // 3. Inputs with classes containing "search" inside a custom dropdown wrapper
+  const className = el.className || "";
+  if (typeof className === "string" && (className.includes("chosen") || className.includes("select2"))) {
+    return true;
+  }
+  
+  return false;
+}
+
+// Write a value to a native <input>/<textarea> via the prototype setter (so
+// React/Vue observe it) wrapped in a realistic interaction envelope: pointer →
+// focus → key → input → change → blur. The richer event sequence both helps
+// frameworks capture the change reliably and makes the fill look like ordinary
+// keyboard input rather than a scripted single assignment.
+function setNativeValue(input, val) {
+  const prototype = input.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+  if (descriptor && descriptor.set) {
+    descriptor.set.call(input, val);
+  } else {
+    input.value = val;
+  }
+}
+
 function setInputValue(input, val) {
   if (!input) return;
   try {
-    const prototype = input.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+    input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    input.focus();
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Process" }));
+    try {
+      input.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: String(val) }));
+    } catch (e) { /* InputEvent may be unsupported */ }
+
+    setNativeValue(input, val);
+
+    try {
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: String(val) }));
+    } catch (e) {
+      input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    }
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Process" }));
+    input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  } catch (e) {
+    try { setNativeValue(input, val); } catch (e2) { input.value = val; }
+    input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  }
+  try {
+    input.blur();
+    input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  } catch (e) {
+    input.dispatchEvent(new Event("blur", { bubbles: true }));
+  }
+}
+
+function setNativeChecked(input, checked) {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked");
+  if (descriptor && descriptor.set) {
+    descriptor.set.call(input, checked);
+  } else {
+    input.checked = checked;
+  }
+}
+
+function setCheckedInput(input, checked) {
+  if (!input || input.disabled) return false;
+  try {
+    input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    input.focus();
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+
+    if (input.checked !== checked || (getInputType(input) === "radio" && checked)) {
+      input.click();
+    }
+    if (input.checked !== checked) {
+      setNativeChecked(input, checked);
+    }
+
+    input.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  } catch {
+    try {
+      setNativeChecked(input, checked);
+    } catch {
+      input.checked = checked;
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  }
+
+  try {
+    input.blur();
+    input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  } catch {
+    input.dispatchEvent(new Event("blur", { bubbles: true }));
+  }
+  return input.checked === checked;
+}
+
+function normalizeChoiceText(value) {
+  return clean(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function choiceValueMeansYes(value) {
+  const text = normalizeChoiceText(value);
+  return /^(yes|y|true|1|checked|agree|agreed|accept|accepted)$/.test(text) || /\b(i agree|i accept|yes)\b/.test(text);
+}
+
+function choiceValueMeansNo(value) {
+  const text = normalizeChoiceText(value);
+  return /^(no|n|false|0|unchecked|decline|declined|disagree|opt out)$/.test(text) || /\b(no|do not|don t|not agree|decline|opt out)\b/.test(text);
+}
+
+function optionLooksYes(option) {
+  const text = normalizeChoiceText(`${option.label} ${option.value}`);
+  return /^(yes|y|true|1|agree|accept)\b/.test(text) || /\b(i agree|i accept)\b/.test(text);
+}
+
+function optionLooksNo(option) {
+  const text = normalizeChoiceText(`${option.label} ${option.value}`);
+  return /^(no|n|false|0|decline|disagree)\b/.test(text) || /\b(do not|don t|not agree|opt out)\b/.test(text);
+}
+
+function pickChoiceOption(input, val) {
+  const options = getChoiceOptions(input).filter((option) => !option.input.disabled);
+  const answer = normalizeChoiceText(val);
+  if (!answer || !options.length) return null;
+
+  const exact = options.find((option) => (
+    normalizeChoiceText(option.label) === answer ||
+    normalizeChoiceText(option.value) === answer
+  ));
+  if (exact) return exact.input;
+
+  if (choiceValueMeansYes(val)) {
+    const yesOption = options.find(optionLooksYes);
+    if (yesOption) return yesOption.input;
+  }
+  if (choiceValueMeansNo(val)) {
+    const noOption = options.find(optionLooksNo);
+    if (noOption) return noOption.input;
+  }
+
+  const partial = options.find((option) => {
+    const label = normalizeChoiceText(option.label);
+    const value = normalizeChoiceText(option.value);
+    return (label && (label.includes(answer) || answer.includes(label))) ||
+           (value && (value.includes(answer) || answer.includes(value)));
+  });
+  return partial?.input || null;
+}
+
+function setChoiceValue(input, val) {
+  if (!isChoiceInput(input)) return false;
+  const type = getInputType(input);
+  if (type === "radio") {
+    const option = pickChoiceOption(input, val);
+    return option ? setCheckedInput(option, true) : false;
+  }
+
+  if (choiceValueMeansYes(val)) {
+    return setCheckedInput(input, true);
+  }
+  if (choiceValueMeansNo(val)) {
+    return input.checked ? setCheckedInput(input, false) : true;
+  }
+  return false;
+}
+
+// Type free-text into a field one character at a time with small randomized
+// delays and per-keystroke events. Used for long AI-drafted answers so the
+// field receives natural keystroke timing instead of an instant paste. Returns
+// a promise that resolves once typing completes.
+function typeHumanLike(input, text, { minDelay = 12, maxDelay = 38 } = {}) {
+  return new Promise((resolve) => {
+    if (!input || !text) {
+      resolve();
+      return;
+    }
+    try {
+      input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      input.focus();
+      input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    } catch (e) { /* ignore */ }
+    setNativeValue(input, "");
+    const chars = Array.from(String(text));
+    let i = 0;
+    const typeNext = () => {
+      if (i >= chars.length) {
+        input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+        try {
+          input.blur();
+          input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+        } catch (e) { /* ignore */ }
+        resolve();
+        return;
+      }
+      const ch = chars[i];
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: ch }));
+      try {
+        input.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
+      } catch (e) { /* ignore */ }
+      setNativeValue(input, chars.slice(0, i + 1).join(""));
+      try {
+        input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
+      } catch (e) {
+        input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+      }
+      input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: ch }));
+      i += 1;
+      // Longer pauses after sentence punctuation feel more natural.
+      const punctuation = /[.,!?;\n]/.test(ch);
+      const base = minDelay + Math.random() * (maxDelay - minDelay);
+      setTimeout(typeNext, punctuation ? base + 80 + Math.random() * 120 : base);
+    };
+    typeNext();
+  });
+}
+
+function applySelectIndex(select, index) {
+  if (!select || index === -1) return;
+  try {
+    select.focus();
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "selectedIndex");
     if (descriptor && descriptor.set) {
-      descriptor.set.call(input, val);
+      descriptor.set.call(select, index);
     } else {
-      input.value = val;
+      select.selectedIndex = index;
+    }
+    
+    const options = Array.from(select.options);
+    if (options[index]) {
+      const valDescriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+      if (valDescriptor && valDescriptor.set) {
+        valDescriptor.set.call(select, options[index].value);
+      } else {
+        select.value = options[index].value;
+      }
     }
   } catch (e) {
-    input.value = val;
+    select.selectedIndex = index;
   }
+  
   // Dispatch reactive events statefully so modern web frameworks capture the change
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  input.dispatchEvent(new Event("change", { bubbles: true }));
-  input.dispatchEvent(new Event("blur", { bubbles: true }));
+  select.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  select.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+  
+  // Support for Chosen dropdowns
+  try {
+    const chosenContainer = document.getElementById((select.id || "") + "_chosen") || 
+                            (select.nextElementSibling && select.nextElementSibling.classList.contains("chosen-container") ? select.nextElementSibling : null);
+    if (chosenContainer) {
+      const chosenResult = chosenContainer.querySelector(`li[data-option-array-index="${index}"]`);
+      if (chosenResult) {
+        // Chosen expects mousedown/mouseup sequence on the result item to select it and update everything
+        chosenResult.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        chosenResult.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        chosenResult.click();
+      }
+    }
+  } catch (e) {
+    console.warn("Chosen helper update failed:", e);
+  }
+
+  try {
+    select.blur();
+  } catch (e) {
+    select.dispatchEvent(new Event("blur", { bubbles: true }));
+  }
 }
 
 function setSelectValue(select, val, type) {
@@ -851,10 +1681,7 @@ function setSelectValue(select, val, type) {
   }
 
   if (matchedIndex !== -1) {
-    select.selectedIndex = matchedIndex;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    select.dispatchEvent(new Event("input", { bubbles: true }));
-    select.dispatchEvent(new Event("blur", { bubbles: true }));
+    applySelectIndex(select, matchedIndex);
   }
 }
 
@@ -863,6 +1690,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   ensureCopilotPanel(profile);
   expandWidget();
   attachFormSubmitTracker("scan/prefill clicked");
+  showCopilotPanel("autofill");
 
   const summaryEl = document.getElementById("jh-autofill-summary");
   const logContainer = document.getElementById("jh-autofill-audit-log");
@@ -870,6 +1698,12 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (summaryEl) summaryEl.textContent = "Scanning visible form fields...";
   if (logContainer) logContainer.hidden = false;
   if (logList) logList.innerHTML = "";
+  updateWorkflowSteps("autofill", [
+    { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+    { status: "active", label: "Scanning visible form controls" },
+    { status: "pending", label: "Filling profile fields" },
+    { status: useAi ? "pending" : "done", label: "Gemma custom-field pass", detail: useAi ? "" : "Skipped by request." },
+  ]);
 
   const mapped = findInputs();
   let filledCount = 0;
@@ -892,14 +1726,18 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   const fillList = (inputs, val, type) => {
     if (!inputs || val === undefined || val === null || val === "") return;
     inputs.forEach((input) => {
+      let didFill = true;
       if (input.tagName === "SELECT") {
         setSelectValue(input, val, type);
+      } else if (isChoiceInput(input)) {
+        didFill = setChoiceValue(input, val);
       } else {
         setInputValue(input, val);
       }
-      regexFilledElements.add(input);
+      if (!didFill) return;
+      markFieldFilled(regexFilledElements, input);
       filledCount++;
-      const label = (getLabelText(input).trim() || input.name || input.id || "Unnamed Field").slice(0, 40);
+      const label = getAutofillFieldLabel(input).slice(0, 40);
       auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #FFB300;">${label}</strong>: <span style="opacity: 0.8;">${val}</span></li>`);
     });
   };
@@ -917,6 +1755,12 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (mapped.noticePeriod) fillList(mapped.noticePeriod, profile.noticePeriod);
   if (mapped.introOneLiner) fillList(mapped.introOneLiner, profile.introOneLiner);
   if (mapped.whyCompany) fillList(mapped.whyCompany, profile.whyCompany);
+  updateWorkflowSteps("autofill", [
+    { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+    { status: "done", label: "Scanned visible form controls" },
+    { status: "done", label: "Filled profile fields", detail: `${filledCount} basic field${filledCount === 1 ? "" : "s"} changed.` },
+    { status: useAi ? "active" : "done", label: "Gemma custom-field pass", detail: useAi ? "Preparing unmatched fields." : "Skipped by request." },
+  ]);
 
   if (!useAi) {
     showToast(`Auto-filled ${filledCount} fields. Gemma was not used. ⚡`);
@@ -928,33 +1772,29 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
 
   // ── Phase 2: AI-powered fill for remaining unmatched fields ──
   try {
-    const allInputs = Array.from(
-      document.querySelectorAll(
-        'input:not([type="hidden"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="button"]):not([type="password"]):not([type="image"]), textarea, select'
-      )
-    );
+    const allInputs = collectFillableElements();
 
     // Filter to only unfilled, visible fields
     const unmatchedFields = allInputs.filter((el) => {
-      if (regexFilledElements.has(el)) return false;
+      if (wasFieldFilled(regexFilledElements, el)) return false;
       // Skip already-filled fields (user or regex)
-      if (el.tagName === "SELECT") {
-        // Only skip if a non-default/non-placeholder option is selected
-        if (el.selectedIndex > 0) return false;
-      } else if (el.value && el.value.trim()) {
-        return false;
-      }
-      // Skip invisible elements
-      const rect = el.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return false;
-      return true;
+      if (isFieldAlreadyAnswered(el)) return false;
+      if (el.tagName === "SELECT") return true; // Keep SELECT elements even if hidden by custom styled elements.
+      return isVisibleFillTarget(el);
     });
 
     if (unmatchedFields.length > 0 && unmatchedFields.length <= 40) {
+      const jobContext = extractJob();
+      updateWorkflowSteps("autofill", [
+        { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+        { status: "done", label: "Scanned visible form controls" },
+        { status: "done", label: "Filled profile fields", detail: `${filledCount} basic field${filledCount === 1 ? "" : "s"} changed.` },
+        { status: "active", label: "Gemma custom-field pass", detail: `${unmatchedFields.length} field${unmatchedFields.length === 1 ? "" : "s"}, ${jobContext.pageText.length} cleaned chars.` },
+      ]);
       // Build field descriptors for AI
       const fieldDescriptors = unmatchedFields.map((el) => {
         const desc = {
-          label: getLabelText(el).trim().slice(0, 200),
+          label: getAutofillFieldLabel(el).slice(0, 200),
           name: (el.name || "").slice(0, 100),
           id: (el.id || "").slice(0, 100),
           tag: el.tagName.toLowerCase(),
@@ -968,9 +1808,20 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
             .filter((t) => t && t !== "--" && t !== "Select" && t.length < 100)
             .slice(0, 30);
         }
+        if (isChoiceInput(el)) {
+          desc.options = getChoiceOptions(el)
+            .map((option) => {
+              const label = option.label || option.value;
+              if (!label) return "";
+              return option.value && normalizeChoiceText(option.value) !== normalizeChoiceText(label)
+                ? `${label} (${option.value})`
+                : label;
+            })
+            .filter((text) => text && text.length < 120)
+            .slice(0, 20);
+        }
         return desc;
       });
-      const jobContext = extractJob();
 
       const aiResult = await apiProxy(
         "http://127.0.0.1:8787/api/autofill-ai",
@@ -995,30 +1846,61 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
               return text === lowerVal || val === lowerVal || text.includes(lowerVal) || lowerVal.includes(text);
             });
             if (matchIdx !== -1) {
-              el.selectedIndex = matchIdx;
-              el.dispatchEvent(new Event("change", { bubbles: true }));
-              el.dispatchEvent(new Event("input", { bubbles: true }));
+              applySelectIndex(el, matchIdx);
               aiFilledCount++;
-              const label = (getLabelText(el).trim() || el.name || el.id || "Unnamed Field").slice(0, 40);
+              const label = getAutofillFieldLabel(el).slice(0, 40);
+              auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #00C853;">[AI] ${label}</strong>: <span style="opacity: 0.8;">${value}</span></li>`);
+            }
+          } else if (isChoiceInput(el)) {
+            if (setChoiceValue(el, value)) {
+              aiFilledCount++;
+              markFieldFilled(regexFilledElements, el);
+              const label = getAutofillFieldLabel(el).slice(0, 40);
               auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #00C853;">[AI] ${label}</strong>: <span style="opacity: 0.8;">${value}</span></li>`);
             }
           } else {
             setInputValue(el, value);
             aiFilledCount++;
-            const label = (getLabelText(el).trim() || el.name || el.id || "Unnamed Field").slice(0, 40);
+            const label = getAutofillFieldLabel(el).slice(0, 40);
             auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #00C853;">[AI] ${label}</strong>: <span style="opacity: 0.8;">${value}</span></li>`);
           }
         });
       filledCount += aiFilledCount;
+      updateWorkflowSteps("autofill", [
+        { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+        { status: "done", label: "Scanned visible form controls" },
+        { status: "done", label: "Filled profile fields", detail: `${filledCount - aiFilledCount} basic field${filledCount - aiFilledCount === 1 ? "" : "s"} changed.` },
+        { status: "done", label: "Gemma custom-field pass", detail: `${aiFilledCount} field${aiFilledCount === 1 ? "" : "s"} filled from cleaned page context.` },
+      ]);
       showToast(`Auto-filled ${filledCount} fields total (${aiFilledCount} with Gemma).`);
       } else {
+        updateWorkflowSteps("autofill", [
+          { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+          { status: "done", label: "Scanned visible form controls" },
+          { status: "done", label: "Filled profile fields", detail: `${filledCount} basic field${filledCount === 1 ? "" : "s"} changed.` },
+          { status: "error", label: "Gemma custom-field pass", detail: "No confident answers returned." },
+        ]);
         showToast(`Auto-filled ${filledCount} fields. Gemma did not return confident custom answers.`);
       }
     } else {
+      updateWorkflowSteps("autofill", [
+        { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+        { status: "done", label: "Scanned visible form controls" },
+        { status: "done", label: "Filled profile fields", detail: `${filledCount} basic field${filledCount === 1 ? "" : "s"} changed.` },
+        unmatchedFields.length > 40
+          ? { status: "error", label: "Gemma custom-field pass", detail: "Too many fields for one pass." }
+          : { status: "done", label: "Gemma custom-field pass", detail: "No empty custom fields left." },
+      ]);
       showToast(`Auto-filled ${filledCount} fields. ${unmatchedFields.length > 40 ? "Too many custom fields for one Gemma pass." : "No custom fields left for Gemma."}`);
     }
   } catch (err) {
     console.warn("AI autofill phase failed:", err);
+    updateWorkflowSteps("autofill", [
+      { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+      { status: "done", label: "Scanned visible form controls" },
+      { status: "done", label: "Filled profile fields", detail: `${filledCount} basic field${filledCount === 1 ? "" : "s"} changed.` },
+      { status: "error", label: "Gemma custom-field pass failed", detail: err.message || "Local Gemma/server unavailable." },
+    ]);
     showToast(`Auto-filled ${filledCount} fields. Gemma autofill failed or is busy.`);
   }
 
@@ -1319,9 +2201,24 @@ function injectWebCopilot(profile) {
   trackBtn.setAttribute("aria-label", "Manually add this application now");
   trackBtn.innerHTML = `<span class="jh-icon">＋</span>`;
 
+  // Create Close/Hide button
+  const hideBtn = document.createElement("button");
+  hideBtn.id = "jh-btn-hide";
+  hideBtn.type = "button";
+  hideBtn.className = "jh-floating-btn jh-hide-btn";
+  hideBtn.title = "Hide Copilot toolbar";
+  hideBtn.setAttribute("aria-label", "Hide Copilot toolbar");
+  hideBtn.innerHTML = `<span class="jh-icon">✕</span>`;
+  hideBtn.addEventListener("click", () => {
+    actionsBar.style.display = "none";
+    const w = document.getElementById("jh-copilot-widget");
+    if (w) w.style.display = "none";
+  });
+
   actionsBar.appendChild(prefillBtn);
   actionsBar.appendChild(evalBtn);
   actionsBar.appendChild(trackBtn);
+  actionsBar.appendChild(hideBtn);
   document.body.appendChild(actionsBar);
   makeFloatingActionsDraggable(actionsBar);
 
@@ -1364,7 +2261,11 @@ function injectWebCopilot(profile) {
         <h3 class="jh-section-title">🧠 Gemma Evaluation</h3>
         <div class="jh-draft-loading" id="jh-eval-loading">
           <div class="jh-spinner"></div>
-          <span style="color: #A5A5AB;">Evaluating job fit with Gemma...</span>
+          <span id="jh-eval-loading-text" style="color: #A5A5AB;">Evaluating job fit with Gemma...</span>
+        </div>
+        <div class="jh-workflow-card">
+          <div class="jh-workflow-summary" id="jh-eval-workflow-summary">Ready</div>
+          <ol class="jh-workflow-list" id="jh-eval-workflow-list"></ol>
         </div>
         <div id="jh-eval-result" class="jh-results-container"></div>
       </div>
@@ -1379,10 +2280,68 @@ function injectWebCopilot(profile) {
           </div>
           <p id="jh-submit-listener-detail">Click Scan/Prefill to attach the submit tracker.</p>
         </div>
+        <div class="jh-workflow-card">
+          <div class="jh-workflow-summary" id="jh-autofill-workflow-summary">Ready</div>
+          <ol class="jh-workflow-list" id="jh-autofill-workflow-list"></ol>
+        </div>
         <div id="jh-autofill-audit-log">
           <div id="jh-autofill-summary" class="jh-audit-summary">Form scanned successfully.</div>
           <ul id="jh-autofill-audit-list" class="jh-audit-list"></ul>
         </div>
+      </div>
+
+      <!-- Manual Track Form View -->
+      <div id="jh-track-panel" class="jh-panel-section" hidden>
+        <h3 class="jh-section-title">＋ Edit & Save Job</h3>
+        <div class="jh-draft-loading" id="jh-track-loading">
+          <div class="jh-spinner"></div>
+          <span id="jh-track-loading-text" style="color: #A5A5AB;">Extracting job details via Gemma...</span>
+        </div>
+        <div class="jh-workflow-card">
+          <div class="jh-workflow-summary" id="jh-track-workflow-summary">Ready</div>
+          <ol class="jh-workflow-list" id="jh-track-workflow-list"></ol>
+        </div>
+        <form id="jh-track-form" class="jh-widget-form">
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-company">Company</label>
+            <input id="jh-f-company" name="company" class="jh-form-input" required autocomplete="off" />
+          </div>
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-role">Role</label>
+            <input id="jh-f-role" name="role" class="jh-form-input" required autocomplete="off" />
+          </div>
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-status">Status</label>
+            <select id="jh-f-status" name="status" class="jh-form-input">
+              <option value="Saved">Saved — haven't applied yet</option>
+              <option selected>Applied</option>
+              <option>Interview</option>
+              <option>Offer</option>
+              <option>Rejected</option>
+            </select>
+          </div>
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-location">Location</label>
+            <input id="jh-f-location" name="location" class="jh-form-input" autocomplete="off" />
+          </div>
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-salary">Salary</label>
+            <input id="jh-f-salary" name="salary" class="jh-form-input" autocomplete="off" />
+          </div>
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-skills">Skills</label>
+            <input id="jh-f-skills" name="skills" class="jh-form-input" placeholder="Python, TypeScript..." autocomplete="off" />
+          </div>
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-group">Group / Category</label>
+            <input id="jh-f-group" name="group" class="jh-form-input" placeholder="e.g., Tier 1, Warm Leads" autocomplete="off" />
+          </div>
+          <div class="jh-form-field">
+            <label class="jh-form-label" for="jh-f-notes">Notes</label>
+            <textarea id="jh-f-notes" name="notes" rows="2" class="jh-form-input"></textarea>
+          </div>
+          <button class="jh-form-submit-btn" type="submit">Save to Tracker</button>
+        </form>
       </div>
     </div>
   `;
@@ -1396,111 +2355,224 @@ function injectWebCopilot(profile) {
 
   // Evaluate Button Handler
   evalBtn.addEventListener("click", async () => {
-    widget.classList.remove("minimized");
-    const evalPanel = document.getElementById("jh-eval-panel");
-    const autofillPanel = document.getElementById("jh-autofill-panel");
+    showCopilotPanel("eval");
     const loading = document.getElementById("jh-eval-loading");
     const resultDiv = document.getElementById("jh-eval-result");
 
-    evalPanel.hidden = false;
-    autofillPanel.hidden = true;
     loading.classList.add("visible");
+    setEvaluationLoadingText("Cleaning page text...");
     resultDiv.replaceChildren();
 
     try {
       const jobData = extractJob();
+      updateWorkflowSteps("eval", [
+        { status: "done", label: "Cleaned job page", detail: `${jobData.pageText.length} chars, raw HTML and form controls removed.` },
+        { status: "active", label: "Sending to Gemma", detail: "Local server receives the cleaned text plus profile prompt." },
+        { status: "pending", label: "Rendering result" },
+      ]);
+      setEvaluationLoadingText("Gemma is reading the cleaned posting...");
       const res = await apiProxy("http://127.0.0.1:8787/api/evaluate-job", "POST", jobData);
       loading.classList.remove("visible");
       if (res && res.evaluation) {
+        updateWorkflowSteps("eval", [
+          { status: "done", label: "Cleaned job page", detail: `${jobData.pageText.length} chars, raw HTML and form controls removed.` },
+          { status: "done", label: "Gemma returned evaluation", detail: `${res.evaluation.applyOrSkip || "Decision"} · ${res.evaluation.matchScore || 0}/100` },
+          { status: "done", label: "Rendered result" },
+        ]);
         renderInlineEvaluation(res.evaluation, resultDiv);
       } else {
         throw new Error("Invalid response received from evaluation server.");
       }
     } catch (err) {
       loading.classList.remove("visible");
+      updateWorkflowSteps("eval", [
+        { status: "done", label: "Cleaned job page" },
+        { status: "error", label: "Evaluation failed", detail: err.message || "Check local Gemma/server." },
+        { status: "pending", label: "Rendering result" },
+      ]);
       showToast("Evaluation failed: " + err.message);
     }
   });
 
   // Prefill Button Handler
   prefillBtn.addEventListener("click", () => {
-    widget.classList.remove("minimized");
-    const evalPanel = document.getElementById("jh-eval-panel");
-    const autofillPanel = document.getElementById("jh-autofill-panel");
-
-    evalPanel.hidden = true;
-    autofillPanel.hidden = false;
+    showCopilotPanel("autofill");
 
     // Run autofill. This also attaches the submit listener for every entry point.
     autofillWebForm(profile, { useAi: true });
   });
 
-  // Manual Track Button Handler
+  // Manual Track Button Handler (Displays the prefilled form for manual review)
   trackBtn.addEventListener("click", async () => {
-    trackBtn.disabled = true;
-    const icon = trackBtn.querySelector(".jh-icon");
-    if (icon) icon.textContent = "…";
+    showCopilotPanel("track");
+    const loading = document.getElementById("jh-track-loading");
+    const form = document.getElementById("jh-track-form");
+
+    // Show pending loading indicator and hide form
+    loading.classList.add("visible");
+    const loadingText = document.getElementById("jh-track-loading-text");
+    if (loadingText) loadingText.textContent = "Cleaning page before Gemma...";
+    form.hidden = true;
+
+    const rulesGuess = extractJob();
+    updateWorkflowSteps("track", [
+      { status: "done", label: "Cleaned job page", detail: `${rulesGuess.pageText.length} chars, no raw HTML/forms.` },
+      { status: "active", label: "Asking Gemma to refine details" },
+      { status: "pending", label: "Preparing editable tracker form" },
+    ]);
     try {
-      await manualTrackJobApplication();
-      if (icon) icon.textContent = "✓";
-      setTimeout(() => {
-        if (icon) icon.textContent = "＋";
-        trackBtn.disabled = false;
-      }, 1200);
-    } catch {
-      if (icon) icon.textContent = "!";
-      trackBtn.disabled = false;
+      // Trigger local AI/Gemma extraction
+      const res = await apiProxy("http://127.0.0.1:8787/api/extract-ai", "POST", {
+        pageText: rulesGuess.pageText || rulesGuess.description || "",
+        rulesGuess: rulesGuess,
+        sourceUrl: rulesGuess.sourceUrl || window.location.href,
+        title: rulesGuess.title || document.title
+      });
+
+      let finalData = rulesGuess;
+      if (res && res.ok && res.application) {
+        finalData = res.application;
+        updateWorkflowSteps("track", [
+          { status: "done", label: "Cleaned job page", detail: `${rulesGuess.pageText.length} chars, no raw HTML/forms.` },
+          { status: "done", label: "Gemma refined details" },
+          { status: "active", label: "Preparing editable tracker form" },
+        ]);
+        showToast("Gemma extracted job details successfully! 🧠");
+      } else {
+        console.warn("Gemma extraction empty/failed, falling back to rules-based extraction.");
+        updateWorkflowSteps("track", [
+          { status: "done", label: "Cleaned job page", detail: `${rulesGuess.pageText.length} chars, no raw HTML/forms.` },
+          { status: "error", label: "Gemma extraction unavailable", detail: "Using rules-based details instead." },
+          { status: "active", label: "Preparing editable tracker form" },
+        ]);
+        showToast("AI extraction unavailable; using fast rules extraction. ⚡");
+      }
+
+      document.getElementById("jh-f-company").value = finalData.company || "";
+      document.getElementById("jh-f-role").value = finalData.role || "";
+      document.getElementById("jh-f-status").value = finalData.status || "Applied";
+      document.getElementById("jh-f-location").value = finalData.location || "";
+      document.getElementById("jh-f-salary").value = finalData.salary || "";
+      document.getElementById("jh-f-skills").value = Array.isArray(finalData.skills) ? finalData.skills.join(", ") : finalData.skills || "";
+      document.getElementById("jh-f-group").value = finalData.group || "";
+      document.getElementById("jh-f-notes").value = finalData.notes || "";
+    } catch (err) {
+      console.warn("AI extraction failed:", err);
+      updateWorkflowSteps("track", [
+        { status: "done", label: "Cleaned job page", detail: `${rulesGuess.pageText.length} chars, no raw HTML/forms.` },
+        { status: "error", label: "Gemma extraction failed", detail: err.message || "Using rules-based details instead." },
+        { status: "active", label: "Preparing editable tracker form" },
+      ]);
+      showToast("AI extraction failed; using fast rules extraction. ⚡");
+
+      document.getElementById("jh-f-company").value = rulesGuess.company || "";
+      document.getElementById("jh-f-role").value = rulesGuess.role || "";
+      document.getElementById("jh-f-status").value = rulesGuess.status || "Applied";
+      document.getElementById("jh-f-location").value = rulesGuess.location || "";
+      document.getElementById("jh-f-salary").value = rulesGuess.salary || "";
+      document.getElementById("jh-f-skills").value = Array.isArray(rulesGuess.skills) ? rulesGuess.skills.join(", ") : rulesGuess.skills || "";
+      document.getElementById("jh-f-group").value = rulesGuess.group || "";
+      document.getElementById("jh-f-notes").value = rulesGuess.notes || "";
+    } finally {
+      loading.classList.remove("visible");
+      form.hidden = false;
+      const hadError = document.querySelector("#jh-track-workflow-list .error");
+      updateWorkflowSteps("track", [
+        { status: "done", label: "Cleaned job page", detail: `${rulesGuess.pageText.length} chars, no raw HTML/forms.` },
+        hadError
+          ? { status: "error", label: "Gemma refinement unavailable", detail: "Using rules-based details." }
+          : { status: "done", label: "Gemma refined details" },
+        { status: "done", label: "Editable tracker form ready" },
+      ]);
+    }
+  });
+
+  // Bind Manual Track Form Submission
+  const trackForm = document.getElementById("jh-track-form");
+  trackForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const saveBtn = trackForm.querySelector(".jh-form-submit-btn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+
+    const now = new Date();
+    const appliedAt = now.toISOString();
+    const statusValue = document.getElementById("jh-f-status").value;
+    // "Saved" = captured for later, not applied. It must carry NO applied date so
+    // the tracker (and the toolbar badge) can tell saved-for-later apart from applied.
+    const isSaved = statusValue === "Saved";
+    const extractedContext = extractJob();
+
+    const jobData = {
+      company: document.getElementById("jh-f-company").value.trim(),
+      role: document.getElementById("jh-f-role").value.trim(),
+      status: statusValue,
+      location: document.getElementById("jh-f-location").value.trim(),
+      salary: document.getElementById("jh-f-salary").value.trim(),
+      skills: document.getElementById("jh-f-skills").value.split(/[,;]+/).map((s) => s.trim()).filter(Boolean),
+      group: document.getElementById("jh-f-group").value.trim(),
+      notes: document.getElementById("jh-f-notes").value.trim(),
+      dateApplied: isSaved ? "" : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
+      appliedAt: isSaved ? "" : appliedAt,
+      stageDateTimes: isSaved ? {} : { Applied: appliedAt },
+      source: "Extension",
+      sourceUrl: window.location.href,
+      title: extractedContext.title || document.title,
+      pageText: extractedContext.pageText || "",
+      description: extractedContext.description || "",
+    };
+
+    try {
+      updateWorkflowSteps("track", [
+        { status: "done", label: "Reviewed tracker form" },
+        { status: "active", label: "Saving to dashboard" },
+        { status: "pending", label: "Evaluating role with Gemma" },
+      ]);
+      const result = await trackApplicationViaBackground(jobData, { trigger: "manual save", runEvaluation: true });
+      if (!result.ok) throw new Error(result.error || "Tracker save failed.");
+      const status = result.status;
+      // 200 = matched & updated an existing record; 201 = brand-new entry. Telling
+      // them apart stops the "it said done but nothing appeared" confusion when a
+      // job (same URL or company+role) was already in the tracker.
+      updateWorkflowSteps("track", [
+        { status: "done", label: "Reviewed tracker form" },
+        { status: "done", label: status === 200 ? "Updated dashboard card" : "Saved dashboard card" },
+        result.evaluationSaved
+          ? { status: "done", label: "Stored Gemma evaluation", detail: `${result.evaluation?.decision || "Decision"} · ${result.evaluation?.score ?? 0}/100` }
+          : { status: result.evaluationError ? "error" : "pending", label: "Gemma evaluation", detail: result.evaluationError || "No evaluation returned." },
+      ]);
+      showToast(
+        isSaved
+          ? (status === 200 ? "↻ Updated — saved for later (not marked applied)." : "🔖 Saved for later in Job Hunt Cockpit.")
+          : (status === 200 ? "↻ Updated the existing entry for this job in your tracker." : "✅ New application saved to Job Hunt Cockpit!")
+      );
+      widget.classList.add("minimized");
+    } catch (err) {
+      updateWorkflowSteps("track", [
+        { status: "done", label: "Reviewed tracker form" },
+        { status: "error", label: "Tracking failed", detail: err.message || "Check local app server." },
+        { status: "pending", label: "Evaluating role with Gemma" },
+      ]);
+      showToast("Tracking failed. Check local app server.");
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save to Tracker";
     }
   });
 
   // Expose toggle helpers for other parts of extension compatibility
-  window.openCopilotDrawer = () => widget.classList.remove("minimized");
+  window.openCopilotDrawer = () => {
+    widget.classList.remove("minimized");
+    trackBtn.click(); // Default opening manually displays the track panel
+  };
   window.expandWidget = () => widget.classList.remove("minimized");
 }
 
-async function copyToClipboard(text, element) {
-  try {
-    await navigator.clipboard.writeText(text || "");
-    element.classList.add("copied");
-    const labelVal = element.querySelector(".jh-badge-val");
-    const originalText = labelVal.textContent;
-    labelVal.textContent = "✓ Copied!";
-    setTimeout(() => {
-      element.classList.remove("copied");
-      labelVal.textContent = originalText;
-    }, 1500);
-  } catch (err) {
-    showToast("Copy failed.");
-  }
-}
-
+// On focus changes, keep the floating Prefill button's state in sync with whether
+// the current page looks like an application form. (The older inline "active field"
+// drawer this once updated was removed; only the prefill-button sync remains.)
 function updateActiveFieldLabel() {
-  // Dynamically adjust prefill button display based on form presence
-  const prefillBtn = document.getElementById("jh-btn-prefill");
-  updatePrefillButtonState(prefillBtn);
-
-  const textField = document.getElementById("jh-active-field-text");
-  if (!textField) return;
-
-  if (lastFocusedInput) {
-    const labelText = getLabelText(lastFocusedInput).trim();
-    const typeName = lastFocusedInput.tagName.toLowerCase();
-    const displayName = labelText
-      ? `"${labelText.length > 35 ? labelText.slice(0, 35) + "..." : labelText}"`
-      : lastFocusedInput.placeholder || lastFocusedInput.name || lastFocusedInput.id || "unnamed field";
-    textField.textContent = `${typeName === "textarea" ? "Text Area" : "Text Field"}: ${displayName}`;
-
-    // Auto-detect question if solver textarea is empty
-    const questionTextarea = document.getElementById("jh-ai-question");
-    if (questionTextarea && !questionTextarea.value.trim()) {
-      const question = detectQuestion(lastFocusedInput);
-      if (question) {
-        questionTextarea.value = question;
-      }
-    }
-  } else {
-    textField.textContent = "Click any input/textarea on the page";
-  }
+  updatePrefillButtonState(document.getElementById("jh-btn-prefill"));
 }
 
 function updatePrefillButtonState(prefillBtn = document.getElementById("jh-btn-prefill")) {
@@ -1691,45 +2763,12 @@ async function handleAiSolverDraft(inputElement) {
   }
 }
 
+// Thin wrapper over typeHumanLike: types the AI-drafted answer keystroke by
+// keystroke with realistic per-key events and timing (defined near
+// setInputValue), instead of an instant paste.
 async function typeIntoField(element, text) {
   if (!element) return;
-  element.focus();
-
-  const prototype = element.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-  
-  const setVal = (val) => {
-    try {
-      if (descriptor && descriptor.set) {
-        descriptor.set.call(element, val);
-      } else {
-        element.value = val;
-      }
-    } catch (e) {
-      element.value = val;
-    }
-  };
-
-  setVal(""); // Clear initial state
-  
-  let idx = 0;
-  return new Promise((resolve) => {
-    function tick() {
-      if (idx < text.length) {
-        const currentVal = element.value + text[idx];
-        setVal(currentVal);
-        element.dispatchEvent(new Event("input", { bubbles: true }));
-        element.dispatchEvent(new Event("change", { bubbles: true }));
-        idx++;
-        // Natural human typewriter timing: 15-30ms random delay
-        setTimeout(tick, Math.random() * 15 + 12);
-      } else {
-        element.dispatchEvent(new Event("blur", { bubbles: true }));
-        resolve();
-      }
-    }
-    tick();
-  });
+  await typeHumanLike(element, text);
 }
 
 function showToast(message) {
@@ -1802,16 +2841,17 @@ function injectStyles() {
       align-items: center;
       pointer-events: auto;
       font-family: 'Outfit', system-ui, -apple-system, sans-serif;
-      padding: 6px;
+      padding: 8px;
       border-radius: 999px;
-      background: rgba(18, 19, 22, 0.62);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.34);
-      backdrop-filter: blur(18px) saturate(170%);
-      -webkit-backdrop-filter: blur(18px) saturate(170%);
+      background: rgba(18, 20, 24, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(20px) saturate(170%);
+      -webkit-backdrop-filter: blur(20px) saturate(170%);
       cursor: grab;
       touch-action: none;
       user-select: none;
+      transition: box-shadow 0.3s, border-color 0.3s;
     }
 
     #jh-floating-actions.jh-dragging {
@@ -1879,6 +2919,12 @@ function injectStyles() {
       border-color: rgba(0, 200, 83, 0.3);
       color: #001B0C;
       font-weight: 800;
+    }
+
+    .jh-hide-btn {
+      background: rgba(30, 31, 36, 0.8);
+      border-color: rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.7);
     }
 
     .jh-floating-btn:disabled {
@@ -2101,6 +3147,105 @@ function injectStyles() {
       line-height: 1.35;
     }
 
+    .jh-workflow-card {
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.22);
+    }
+
+    .jh-workflow-summary {
+      color: #FFFFFF;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .jh-workflow-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .jh-workflow-step {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 8px;
+      align-items: start;
+      color: #A5A5AB;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .jh-workflow-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 800;
+      color: rgba(255, 255, 255, 0.45);
+      margin-top: 1px;
+    }
+
+    .jh-workflow-step.done .jh-workflow-dot {
+      background: rgba(0, 200, 83, 0.18);
+      border-color: rgba(0, 200, 83, 0.45);
+      color: #65D99A;
+    }
+
+    .jh-workflow-step.active .jh-workflow-dot {
+      background: rgba(255, 179, 0, 0.18);
+      border-color: rgba(255, 179, 0, 0.5);
+      color: #FFB300;
+      animation: jh-pulse 1s ease-in-out infinite;
+    }
+
+    .jh-workflow-step.error .jh-workflow-dot {
+      background: rgba(255, 61, 0, 0.15);
+      border-color: rgba(255, 61, 0, 0.45);
+      color: #FF8A65;
+    }
+
+    .jh-workflow-text {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .jh-workflow-text strong {
+      color: #E2E2E6;
+      font-weight: 700;
+    }
+
+    .jh-workflow-step.done .jh-workflow-text strong {
+      color: #FFFFFF;
+    }
+
+    .jh-workflow-step.error .jh-workflow-text strong {
+      color: #FFAB91;
+    }
+
+    .jh-workflow-text small {
+      color: #8E8E96;
+      font-size: 10.5px;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    @keyframes jh-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 179, 0, 0.18); }
+      50% { box-shadow: 0 0 0 4px rgba(255, 179, 0, 0); }
+    }
+
     /* Autofill Logs specific styles */
     #jh-autofill-audit-log {
       font-size: 11px;
@@ -2154,37 +3299,117 @@ function injectStyles() {
       background: rgba(255, 255, 255, 0.06);
       margin: 4px 0;
     }
+
+    /* Form inputs and submission styles */
+    .jh-widget-form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .jh-form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .jh-form-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #A5A5AB;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .jh-form-input {
+      background: rgba(0, 0, 0, 0.25) !important;
+      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      border-radius: 8px !important;
+      padding: 8px 12px !important;
+      color: #E2E2E6 !important;
+      font-family: 'Outfit', sans-serif !important;
+      font-size: 13px !important;
+      width: 100% !important;
+      outline: none !important;
+      transition: border-color 0.2s, box-shadow 0.2s !important;
+    }
+
+    .jh-form-input:focus {
+      border-color: rgba(255, 179, 0, 0.4) !important;
+      box-shadow: 0 0 0 2px rgba(255, 179, 0, 0.1) !important;
+    }
+
+    select.jh-form-input {
+      cursor: pointer !important;
+      appearance: none !important;
+    }
+
+    .jh-form-submit-btn {
+      background: linear-gradient(135deg, #00C853, #00A86B) !important;
+      border: none !important;
+      border-radius: 8px !important;
+      padding: 10px 16px !important;
+      color: #001B0C !important;
+      font-weight: 700 !important;
+      font-size: 13.5px !important;
+      cursor: pointer !important;
+      margin-top: 6px !important;
+      transition: transform 0.2s, filter 0.2s !important;
+      width: 100% !important;
+      box-shadow: 0 4px 12px rgba(0, 200, 83, 0.2) !important;
+    }
+
+    .jh-form-submit-btn:hover {
+      transform: translateY(-1px) !important;
+      filter: brightness(1.1) !important;
+    }
+
+    .jh-form-submit-btn:active {
+      transform: translateY(0) !important;
+    }
   `;
   document.head.appendChild(style);
 }
 
 function renderInlineEvaluation(evaluation, parentDiv) {
   const score = Number(evaluation.matchScore) || 0;
-  let color = "#F44336"; // Low
-  if (score >= 80) color = "#4CAF50"; // High
-  else if (score >= 60) color = "#FFB300"; // Med
+  
+  let dialColor = "#FF3D00"; // Low (Coral)
+  if (score >= 80) dialColor = "#00C853"; // High (Green)
+  else if (score >= 60) dialColor = "#FFB300"; // Med (Amber)
 
   let html = `
-    <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+    <!-- Dial Verdict card -->
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.25); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px;">
       <div>
-        <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Verdict</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${color};">${evaluation.applyOrSkip || "Maybe"}</div>
+        <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight:600;">LLM Verdict</div>
+        <div style="font-size: 18px; font-weight: 800; color: ${dialColor}; text-transform: uppercase;">${evaluation.applyOrSkip || "Maybe"}</div>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <div style="position: relative; width: 44px; height: 44px;">
-          <svg viewBox="0 0 36 36" style="width: 100%; height: 100%; transform: rotate(-90deg);">
-            <path stroke="rgba(255,255,255,0.1)" stroke-width="3" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-            <path stroke="${color}" stroke-width="3" stroke-dasharray="${score}, 100" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-          </svg>
-          <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #FFF;">${score}%</div>
-        </div>
+      
+      <!-- Animated SVG Single Dial -->
+      <div style="position: relative; width: 56px; height: 56px;">
+        <svg viewBox="0 0 100 100" style="width: 100%; height: 100%; transform: rotate(-90deg);">
+          <defs>
+            <linearGradient id="dialGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="${score >= 80 ? '#00F2FE' : score >= 60 ? '#FFD700' : '#FF3D00'}" />
+              <stop offset="100%" stop-color="${dialColor}" />
+            </linearGradient>
+          </defs>
+          <circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.05)" stroke-width="8" fill="none" />
+          <circle cx="50" cy="50" r="40" stroke="url(#dialGrad)" stroke-width="8" stroke-linecap="round" fill="none"
+                  stroke-dasharray="251.2" stroke-dashoffset="${251.2 - (251.2 * score / 100)}"
+                  style="transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);" />
+        </svg>
+        <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #FFF;">${score}%</div>
       </div>
     </div>
   `;
 
   if (evaluation.finalDecision) {
     html += `
-      <div style="padding: 10px; background: rgba(0,0,0,0.2); border-left: 3px solid ${color}; font-size: 12.5px; line-height: 1.4; color: #E2E2E6; border-radius: 4px;">
+      <div style="padding: 10px 12px; background: rgba(0,0,0,0.25); border-left: 3px solid ${dialColor}; font-size: 12.5px; line-height: 1.45; color: #E2E2E6; border-radius: 4px; margin-bottom: 12px;">
         ${evaluation.finalDecision}
       </div>
     `;
@@ -2192,8 +3417,8 @@ function renderInlineEvaluation(evaluation, parentDiv) {
 
   if (evaluation.strongMatches && evaluation.strongMatches.length > 0) {
     html += `
-      <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Strong Matches</div>
-      <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #E2E2E6; line-height: 1.4;">
+      <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px; margin-bottom: 4px; font-weight: 600;">Strong Matches</div>
+      <ul style="margin: 0 0 12px; padding-left: 20px; font-size: 12px; color: #E2E2E6; line-height: 1.45;">
         ${evaluation.strongMatches.map(m => `<li style="margin-bottom: 4px;">${m}</li>`).join('')}
       </ul>
     `;
@@ -2201,8 +3426,8 @@ function renderInlineEvaluation(evaluation, parentDiv) {
 
   if (evaluation.gapsRisks && evaluation.gapsRisks.length > 0) {
     html += `
-      <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Gaps / Risks</div>
-      <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #E2E2E6; line-height: 1.4;">
+      <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px; margin-bottom: 4px; font-weight: 600;">Gaps / Risks</div>
+      <ul style="margin: 0 0 12px; padding-left: 20px; font-size: 12px; color: #E2E2E6; line-height: 1.45;">
         ${evaluation.gapsRisks.map(m => `<li style="margin-bottom: 4px;">${m}</li>`).join('')}
       </ul>
     `;
