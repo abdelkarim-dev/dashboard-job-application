@@ -7612,49 +7612,67 @@ body.pane-resizing {
   flex-direction: column;
   gap: 8px;
 }
-.ndc-role-title-row {
+.ndc-role-head {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .ndc-role-title {
   font-size: 14px;
   font-weight: 700;
   color: var(--md-on-surface);
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.35;
 }
-.ndc-status-badge {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-.ndc-stage-date-chip {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
+.ndc-role-status { flex: 0 0 auto; }
 .ndc-role-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 4px 10px;
   font-size: 11px;
   color: var(--md-on-surface-variant);
 }
-.ndc-role-stage-line {
-  display: flex;
-  flex-wrap: wrap;
+.ndc-role-meta-item {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
+  white-space: nowrap;
 }
+.ndc-role-meta-item--rejected {
+  color: var(--s-rejected);
+  font-weight: 600;
+}
+
+/* Single status pill — shows the status AND its date (e.g. "Phone Interview ·
+   Jun 16"), and is itself the click target to change status. */
+.ndc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: transform 0.14s cubic-bezier(0.22,1,0.36,1), filter 0.14s ease, box-shadow 0.14s ease;
+}
+.ndc-status-pill:hover { filter: brightness(1.07); transform: translateY(-1px); box-shadow: var(--shadow-1); }
+.ndc-status-pill:active { transform: translateY(0); }
+.ndc-status-pill-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.ndc-status-pill-label { letter-spacing: 0.01em; }
+.ndc-status-pill-date { font-weight: 600; opacity: 0.9; }
+.ndc-status-pill-arrow { font-size: 9px; opacity: 0.7; }
+.ndc-status-pill--ats { cursor: default; }
+.ndc-status-pill--ats:hover { transform: none; filter: none; box-shadow: none; }
 .ndc-skill {
   background: color-mix(in srgb, var(--md-secondary) 8%, var(--md-surface));
   border: 1px solid var(--md-outline-variant);
@@ -8162,22 +8180,6 @@ body.pane-resizing {
 /* ════════════════════════════════════════════════════
    STATUS QUICK PICKER
    ════════════════════════════════════════════════════ */
-.ndc-status-badge--btn {
-  cursor: pointer;
-  border: none;
-  font-family: inherit;
-  transition: opacity 0.14s, transform 0.1s;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.ndc-status-badge--btn:hover { opacity: 0.82; transform: scale(1.04); }
-.ndc-status-badge-arrow {
-  font-size: 11px;
-  opacity: 0.75;
-  line-height: 1;
-}
-
 .ndc-quick-reject {
   display: inline-flex;
   align-items: center;
@@ -8226,7 +8228,7 @@ body.pane-resizing {
   position: fixed;
   right: auto;
   z-index: 1200;
-  width: 196px;
+  width: 210px;
 }
 @keyframes ndc-menu-in {
   from { opacity: 0; transform: translateY(-6px) scale(0.97); }
@@ -8268,6 +8270,70 @@ body.pane-resizing {
   border-radius: 50%;
   flex-shrink: 0;
 }
+.ndc-status-menu-label { flex: 1; }
+.ndc-status-menu-cal { font-size: 11px; opacity: 0.6; }
+
+/* Inline "ask for a date" step shown after picking a stage that needs one. */
+.ndc-status-datestep {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+.ndc-status-datestep-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--md-on-surface);
+}
+.ndc-status-datestep-cal { font-size: 13px; }
+.ndc-status-datestep-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--md-on-surface);
+  background: var(--ndash-fill-subtle);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 8px;
+}
+.ndc-status-datestep-input:focus {
+  outline: none;
+  border-color: var(--md-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-primary) 22%, transparent);
+}
+.ndc-status-datestep-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.ndc-status-datestep-back {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.ndc-status-datestep-back:hover { background: var(--ndash-fill-subtle); }
+.ndc-status-datestep-set {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 8px;
+  transition: filter 0.14s ease;
+}
+.ndc-status-datestep-set:hover { filter: brightness(1.08); }
 
 /* ════════════════════════════════════════════════════
    GEMMA EVALUATION PANEL SECTION
@@ -8349,11 +8415,10 @@ body.pane-resizing {
 /* ════════════════════════════════════════════════════
    ATS REJECT + STALLED BADGE OVERRIDES
    ════════════════════════════════════════════════════ */
-.ndc-status-badge--ats {
+.ndc-status-pill--ats {
   font-style: italic;
   opacity: 0.85;
 }
-.ndc-status-badge--ats:not(.ndc-status-badge--btn):hover { opacity: 1; }
 
 /* Stalled section header distinct styling */
 .ndash-stage-section--stalled .ndash-section-label { color: var(--s-stalled) !important; }

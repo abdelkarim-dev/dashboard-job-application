@@ -2255,7 +2255,10 @@ function normalizeStageDateTimes(input, existing, status, previousStatus, applie
   const changedStatus = previousStatus && previousStatus !== status;
   const isNewApplication = !existing.id;
   if (changedStatus || (isNewApplication && !stageDateTimes[status])) {
-    stageDateTimes[status] = now;
+    // Honor an explicitly-provided stage timestamp (e.g. the dashboard quick
+    // picker asking for an interview / OA date) instead of stamping "now".
+    const inputStageTime = cleanTimestamp(input.stageDateTimes?.[status]);
+    stageDateTimes[status] = inputStageTime || now;
   }
 
   return stageDateTimes;
@@ -4139,10 +4142,11 @@ app.use((err, req, res, next) => {
 });
 
 let serverInstance = null;
-async function startServer() {
+async function startServer(listenPort = port) {
   await initDatabase();
-  serverInstance = app.listen(port, "127.0.0.1", () => {
-    console.log(`Claire (job hunt copilot) running at http://127.0.0.1:${port}`);
+  serverInstance = app.listen(listenPort, "127.0.0.1", () => {
+    const actual = serverInstance.address()?.port ?? listenPort;
+    console.log(`Claire (job hunt copilot) running at http://127.0.0.1:${actual}`);
   });
   return serverInstance;
 }

@@ -98,14 +98,6 @@ function isAppliedToday(app) {
     d.getDate() === now.getDate();
 }
 
-function getStageDateLabel(app) {
-  if (!STAGE_DATE_STATUSES.has(app.status)) return null;
-  const date = app.stageDateTimes?.[app.status] || (app.status === "Interview" ? app.interviewDate : null);
-  if (!date) return null;
-  const m = STATUS_META[app.status];
-  return `${m.short}: ${formatDate(date)}`;
-}
-
 const COMPANY_COLORS = ["#38bdf8","#34d399","#fbbf24","#c084fc","#fb923c","#f472b6","#a3e635","#22d3ee","#818cf8","#f87171"];
 function companyColor(company) {
   let h = 0;
@@ -168,15 +160,38 @@ function normalizeEvaluationResult(result) {
   };
 }
 
+// The single date shown inside the status pill: the stage date for OA / Phone /
+// Loop stages. (The rejection date lives in the role's meta line instead, so it
+// isn't duplicated on a rejected card.)
+function getStatusPillDate(app) {
+  const s = app.status;
+  if (STAGE_DATE_STATUSES.has(s)) {
+    return app.stageDateTimes?.[s] || (s === "Interview" ? app.interviewDate : null);
+  }
+  return null;
+}
+
+// Convert a date-input value ("YYYY-MM-DD") to a local-noon ISO timestamp, the
+// same convention the server uses (avoids the UTC-midnight off-by-one-day).
+function dateInputToISO(value) {
+  const [y, m, d] = String(value || "").split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return new Date(y, m - 1, d, 12, 0, 0).toISOString();
+}
+
 // ── Status Quick Picker ───────────────────────────────────────────────────────
+// One clickable pill that shows the role's status AND its date (e.g. "Phone
+// Interview · Jun 16"). Switching to a stage that needs a date (OA / Phone /
+// Loop) prompts for one inline; rejection records the date of the action (now).
 function StatusPicker({ app, onStatusChange }) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
+  const [dateStep, setDateStep] = useState(null); // { status, value } | null
   const ref = useRef(null);
   const menuRef = useRef(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { setDateStep(null); return; }
     const close = (e) => {
       if (ref.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
       setOpen(false);
@@ -200,28 +215,64 @@ function StatusPicker({ app, onStatusChange }) {
   const displayStatus = getDisplayStatus(app);
   const meta = STATUS_META[displayStatus] || STATUS_META["Applied"];
   const isAts = displayStatus === "REJECTED_ATS";
+  const pillDate = getStatusPillDate(app);
+  const pillDateLabel = pillDate ? formatDate(pillDate) : null;
 
   const toggleOpen = (e) => {
     e.stopPropagation();
     if (isAts) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const menuWidth = 196;
+    const menuWidth = 210;
     const left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
     setMenuPos({ top: rect.bottom + 6, left });
     setOpen((value) => !value);
   };
 
+  const commit = (status, extra) => {
+    onStatusChange(app, status, extra);
+    setOpen(false);
+    setDateStep(null);
+  };
+
+  const pickStatus = (e, status) => {
+    e.stopPropagation();
+    if (STAGE_DATE_STATUSES.has(status)) {
+      const existing = app.stageDateTimes?.[status] || (status === "Interview" ? app.interviewDate : "");
+      setDateStep({
+        status,
+        value: formatDateForInput(existing) || formatDateForInput(new Date().toISOString()),
+      });
+    } else if (status === "Rejected") {
+      commit("Rejected", { rejectedAt: new Date().toISOString() });
+    } else {
+      commit(status);
+    }
+  };
+
+  const confirmDate = (e) => {
+    e.stopPropagation();
+    if (!dateStep) return;
+    const { status, value } = dateStep;
+    const iso = dateInputToISO(value) || new Date().toISOString();
+    commit(status, {
+      stageDateTimes: { ...(app.stageDateTimes || {}), [status]: iso },
+      ...(status === "Interview" ? { interviewDate: iso } : {}),
+    });
+  };
+
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button
-        className={`ndc-status-badge ndc-status-badge--btn${isAts ? " ndc-status-badge--ats" : ""}`}
+        className={`ndc-status-pill${isAts ? " ndc-status-pill--ats" : ""}`}
         style={{ color: meta.color, background: meta.bg }}
         onClick={toggleOpen}
         title={isAts ? "Auto-rejected by ATS (within 3 days of applying)" : "Click to change status"}
         type="button"
       >
-        {meta.short}
-        {!isAts && <span className="ndc-status-badge-arrow">▾</span>}
+        <span className="ndc-status-pill-dot" style={{ background: meta.dot }} />
+        <span className="ndc-status-pill-label">{meta.short}</span>
+        {pillDateLabel && <span className="ndc-status-pill-date">· {pillDateLabel}</span>}
+        {!isAts && <span className="ndc-status-pill-arrow">▾</span>}
       </button>
       {open && menuPos && createPortal(
         <div
@@ -230,20 +281,47 @@ function StatusPicker({ app, onStatusChange }) {
           style={{ top: menuPos.top, left: menuPos.left }}
           onClick={(e) => e.stopPropagation()}
         >
-          {[...PIPELINE_FORWARD, "Rejected"].map(status => {
-            const m = STATUS_META[status];
-            return (
-              <button
-                key={status}
-                className={`ndc-status-menu-item ${app.status === status ? "ndc-status-menu-item--active" : ""}`}
-                onClick={(e) => { e.stopPropagation(); onStatusChange(app, status); setOpen(false); }}
-                type="button"
-              >
-                <span className="ndc-status-menu-dot" style={{ background: m.dot }} />
-                {m.short}
-              </button>
-            );
-          })}
+          {dateStep ? (
+            <div className="ndc-status-datestep">
+              <div className="ndc-status-datestep-title">
+                <span className="ndc-status-datestep-cal">📅</span>
+                {STATUS_META[dateStep.status]?.short} date
+              </div>
+              <input
+                type="date"
+                className="ndc-status-datestep-input"
+                autoFocus
+                value={dateStep.value}
+                onChange={(e) => setDateStep((s) => ({ ...s, value: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmDate(e); }}
+              />
+              <div className="ndc-status-datestep-actions">
+                <button type="button" className="ndc-status-datestep-back" onClick={(e) => { e.stopPropagation(); setDateStep(null); }}>
+                  ‹ Back
+                </button>
+                <button type="button" className="ndc-status-datestep-set" onClick={confirmDate}>
+                  Set status
+                </button>
+              </div>
+            </div>
+          ) : (
+            [...PIPELINE_FORWARD, "Rejected"].map(status => {
+              const m = STATUS_META[status];
+              const needsDate = STAGE_DATE_STATUSES.has(status);
+              return (
+                <button
+                  key={status}
+                  className={`ndc-status-menu-item ${app.status === status ? "ndc-status-menu-item--active" : ""}`}
+                  onClick={(e) => pickStatus(e, status)}
+                  type="button"
+                >
+                  <span className="ndc-status-menu-dot" style={{ background: m.dot }} />
+                  <span className="ndc-status-menu-label">{m.short}</span>
+                  {needsDate && <span className="ndc-status-menu-cal" title="Asks for a date">📅</span>}
+                </button>
+              );
+            })
+          )}
         </div>,
         document.body
       )}
@@ -573,7 +651,9 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
 function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
   const meta = getDisplayMeta(app);
   const applied = formatDate(getAppliedDate(app));
-  const stageLabel = getStageDateLabel(app);
+  const rejected = app.status === "Rejected"
+    ? formatDate(app.rejectedAt || app.stageDateTimes?.Rejected)
+    : null;
   const stale = isStale(app);
 
   return (
@@ -591,20 +671,19 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
     >
       <span className="ndc-role-dot" style={{ background: meta.dot }} />
       <div className="ndc-role-info">
-        <div className="ndc-role-title-row">
+        <div className="ndc-role-head">
           <span className="ndc-role-title">{app.role || "Untitled role"}</span>
+          {/* The single status control — shows status + its date, click to change. */}
+          <div className="ndc-role-status" onClick={(e) => e.stopPropagation()}>
+            <StatusPicker app={app} onStatusChange={onQuickStatusChange} />
+          </div>
         </div>
         <div className="ndc-role-meta">
-          {app.location && <span>📍 {app.location}</span>}
-          {applied && <span>📅 {applied}</span>}
-        </div>
-        <div className="ndc-role-stage-line">
-          {stageLabel && (
-            <span className="ndc-stage-date-chip" style={{ color: meta.color, background: meta.bg }}>
-              📅 {stageLabel}
-            </span>
+          {app.location && <span className="ndc-role-meta-item">📍 {app.location}</span>}
+          {applied && <span className="ndc-role-meta-item">Applied {applied}</span>}
+          {rejected && (
+            <span className="ndc-role-meta-item ndc-role-meta-item--rejected">Rejected {rejected}</span>
           )}
-          <StatusPicker app={app} onStatusChange={onQuickStatusChange} />
         </div>
       </div>
     </div>
@@ -712,7 +791,7 @@ function SearchTags({ fieldFilters, searchRaw, onRemove }) {
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function NewDashboard({ applications, onOpenAppInBoard, fetchApplications }) {
+export default function Dashboard({ applications, onOpenAppInBoard, fetchApplications }) {
   const [searchRaw, setSearchRaw] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApp, setSelectedApp] = useState(null);
@@ -884,13 +963,15 @@ export default function NewDashboard({ applications, onOpenAppInBoard, fetchAppl
     finally { setSaving(false); }
   }, [selectedApp, saving, fetchApplications]);
 
-  // Quick status change from the card badge (without opening the panel)
-  const handleQuickStatusChange = useCallback(async (app, newStatus) => {
+  // Quick status change from the card pill (without opening the panel). `extra`
+  // carries the chosen stage date / interviewDate / rejectedAt so switching to
+  // OA, Phone or Loop records the date the user picked.
+  const handleQuickStatusChange = useCallback(async (app, newStatus, extra = {}) => {
     try {
       const res = await fetch(`/api/applications/${encodeURIComponent(app.id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...app, status: newStatus }),
+        body: JSON.stringify({ ...app, status: newStatus, ...extra }),
       });
       if (res.ok && fetchApplications) await fetchApplications();
     } catch {}

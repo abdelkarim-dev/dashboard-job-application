@@ -4,7 +4,7 @@ import Analytics from "./components/Analytics.jsx";
 import Practice from "./components/Practice.jsx";
 import Profile from "./components/Profile.jsx";
 import SystemDesign from "./components/SystemDesign.jsx";
-import NewDashboard from "./components/NewDashboard.jsx";
+import Dashboard from "./components/Dashboard.jsx";
 
 const SolidPractice = lazy(() => import("./components/SolidPractice.jsx"));
 const CleanArchitecture = lazy(() => import("./components/CleanArchitecture.jsx"));
@@ -509,7 +509,7 @@ export default function App() {
         {activeTab === "profile" && <Profile />}
 
         {activeTab === "newdashboard" && (
-          <NewDashboard
+          <Dashboard
             applications={applications}
             onOpenAppInBoard={handleOpenAppFromDashboard}
             fetchApplications={fetchApplications}

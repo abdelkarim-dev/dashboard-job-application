@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "data");
-const dbPath = path.join(dataDir, "cockpit.db");
+// The DB path is resolved lazily in initDatabase so tests can point at a temp
+// file via COCKPIT_DB_PATH without touching the real data/cockpit.db.
+function resolveDbPath() {
+  return process.env.COCKPIT_DB_PATH || path.join(dataDir, "cockpit.db");
+}
 
 const defaultPracticeSettings = {
   timezone: "America/Vancouver",
@@ -17,7 +21,8 @@ const defaultPracticeSettings = {
 let db = null;
 
 export async function initDatabase() {
-  await mkdir(dataDir, { recursive: true });
+  const dbPath = resolveDbPath();
+  await mkdir(path.dirname(dbPath), { recursive: true });
   db = new DatabaseSync(dbPath);
 
   // 1. Create Tables
