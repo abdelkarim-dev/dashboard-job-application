@@ -60,6 +60,7 @@ export async function initDatabase() {
   ensureColumn("applications", "nextActionAt", "TEXT");
   ensureColumn("applications", "level", "TEXT");
   ensureColumn("applications", "source", "TEXT");
+  ensureColumn("applications", "interviewDate", "TEXT");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS profile (
@@ -71,6 +72,7 @@ export async function initDatabase() {
       github TEXT,
       linkedin TEXT,
       resumeText TEXT,
+      resumeText2 TEXT,
       legallyAuthorized TEXT,
       requiresSponsorship TEXT,
       gender TEXT,
@@ -151,6 +153,16 @@ export async function initDatabase() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profile_cvs (
+      variant TEXT PRIMARY KEY,
+      fileName TEXT,
+      mimeType TEXT,
+      data TEXT,
+      uploadedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -388,6 +400,7 @@ export async function sqlLoadApplications() {
     nextActionAt: r.nextActionAt || "",
     level: r.level || "",
     source: r.source || "Manual",
+    interviewDate: r.interviewDate || "",
     stageDates: JSON.parse(r.stageDates || "{}"),
     stageDateTimes: JSON.parse(r.stageDateTimes || "{}"),
     evaluation: JSON.parse(r.evaluation || "null"),
@@ -400,8 +413,8 @@ export async function sqlSaveApplications(apps) {
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO applications (
       id, company, role, status, dateApplied, appliedAt, rejectedAt, location,
-      salary, equity, oaDeadline, oaCompletedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, level, source, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      salary, equity, oaDeadline, oaCompletedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, level, source, interviewDate, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec("BEGIN TRANSACTION");
@@ -434,6 +447,7 @@ export async function sqlSaveApplications(apps) {
         JSON.stringify(app.attachments || []),
         app.level || "",
         app.source || "Manual",
+        app.interviewDate || "",
         new Date().toISOString()
       );
     }
@@ -457,9 +471,9 @@ export async function sqlLoadProfile() {
 export async function sqlSaveProfile(p) {
   db.prepare(`
     INSERT OR REPLACE INTO profile (
-      key, fullName, email, phone, portfolio, github, linkedin, resumeText,
+      key, fullName, email, phone, portfolio, github, linkedin, resumeText, resumeText2,
       legallyAuthorized, requiresSponsorship, gender, race, veteranStatus, disabilityStatus, gemmaPrompt, updatedAt
-    ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     p.fullName || "",
     p.email || "",
@@ -468,6 +482,7 @@ export async function sqlSaveProfile(p) {
     p.github || "",
     p.linkedin || "",
     p.resumeText || "",
+    p.resumeText2 || "",
     p.legallyAuthorized || "Yes",
     p.requiresSponsorship || "No",
     p.gender || "Decline to Self-Identify",
@@ -653,6 +668,32 @@ export async function sqlSaveSystemDesignStore(store) {
     db.exec("ROLLBACK");
     throw err;
   }
+}
+
+export async function sqlLoadCvMeta() {
+  const rows = db.prepare("SELECT variant, fileName, mimeType, uploadedAt FROM profile_cvs").all();
+  const meta = { backend: null, architect: null };
+  for (const row of rows) {
+    if (row.variant === "backend" || row.variant === "architect") {
+      meta[row.variant] = { fileName: row.fileName, mimeType: row.mimeType, uploadedAt: row.uploadedAt };
+    }
+  }
+  return meta;
+}
+
+export async function sqlLoadCv(variant) {
+  return db.prepare("SELECT variant, fileName, mimeType, data, uploadedAt FROM profile_cvs WHERE variant = ?").get(variant) || null;
+}
+
+export async function sqlSaveCv(variant, fileName, mimeType, data) {
+  db.prepare(`
+    INSERT OR REPLACE INTO profile_cvs (variant, fileName, mimeType, data, uploadedAt)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(variant, fileName, mimeType, data, new Date().toISOString());
+}
+
+export async function sqlDeleteCv(variant) {
+  db.prepare("DELETE FROM profile_cvs WHERE variant = ?").run(variant);
 }
 
 export async function seedLearningData() {

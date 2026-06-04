@@ -1,4 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
+import {
+  isStale as isStaleShared,
+  daysSinceCurrentStage,
+  STALE_THRESHOLD_DAYS as SHARED_STALE_THRESHOLD_DAYS,
+} from "../lib/metrics.mjs";
 
 function normalizeEvaluationResult(result) {
   if (!result) return null;
@@ -36,12 +41,66 @@ export default function Board({
 }) {
   const [searchText, setSearchText] = useState("");
   const sortOption = "dateApplied-desc";
-  const [showRejected, setShowRejected] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  // Company groups render fully expanded by default (show every role's whole
+  // content); this tracks the ones the user has explicitly collapsed.
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
   const [showRemindersTray, setShowRemindersTray] = useState(false);
+  const [oaDialogApp, setOaDialogApp] = useState(null);
+  const [oaDialogDate, setOaDialogDate] = useState("");
+  // Interview-date dialog: opened when tagging Phone Interview or Loop Interview
+  const [interviewDialog, setInterviewDialog] = useState(null); // { app, option }
+  const [interviewDialogDate, setInterviewDialogDate] = useState("");
+  // Stage tag popover (OA / Phone Interview / Loop Interview) for In Progress cards.
+  const [stageMenu, setStageMenu] = useState(null); // { app, x, y }
+  // Horizontal Rejected shelf: expand-to-browse + drop-hover highlight.
+  const [rejectedExpanded, setRejectedExpanded] = useState(false);
+  const [rejectShelfDragOver, setRejectShelfDragOver] = useState(false);
+  // Stalled lives in a collapsible shelf above the board — hidden by default so
+  // it doesn't crowd the active columns; a button reveals the full-content cards.
+  const [stalledExpanded, setStalledExpanded] = useState(false);
 
   const STATUSES = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer", "Rejected"];
   const ACTIVE_STATUSES = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer"];
+
+  // The "In Progress" column merges every active interviewing stage. These three
+  // granular statuses double as the user-facing interview tags (OA / Phone /
+  // Loop) shown on the cards.
+  const IN_PROGRESS_STATUSES = ["Online Assessment", "Recruiter Screen", "Interview"];
+
+  // Friendly, board-only labels for the in-progress stages. Storage + Analytics
+  // keep the canonical status values — the server's simplifyStatus() only
+  // accepts those — so we relabel ONLY what the user sees on the board.
+  const STAGE_LABELS = {
+    "Online Assessment": "OA",
+    "Recruiter Screen": "Phone Interview",
+    "Interview": "Loop Interview",
+  };
+  const STAGE_TAG_OPTIONS = [
+    { label: "OA", status: "Online Assessment", color: "#c084fc" },
+    { label: "Phone Interview", status: "Recruiter Screen", color: "#5eead4" },
+    { label: "Loop Interview", status: "Interview", color: "#60a5fa" },
+  ];
+  const ALL_STATUS_OPTIONS = [
+    { label: "Applied",        status: "Applied",            color: "var(--s-applied-dot)" },
+    { label: "OA",             status: "Online Assessment",  color: "var(--s-oa-dot)" },
+    { label: "Phone",          status: "Recruiter Screen",   color: "var(--s-screen-dot)" },
+    { label: "Loop",           status: "Interview",          color: "var(--s-interview-dot)" },
+    { label: "Offer",          status: "Offer",              color: "var(--s-offer-dot)" },
+    { label: "Rejected",       status: "Rejected",           color: "var(--s-rejected-dot)" },
+  ];
+  const stageLabel = (status) => STAGE_LABELS[status] || status;
+  const stageColor = (status) => {
+    const map = {
+      "Applied":            "var(--s-applied-dot)",
+      "Online Assessment":  "var(--s-oa-dot)",
+      "Recruiter Screen":   "var(--s-screen-dot)",
+      "Interview":          "var(--s-interview-dot)",
+      "Offer":              "var(--s-offer-dot)",
+      "Rejected":           "var(--s-rejected-dot)",
+    };
+    return map[status] || "var(--md-primary)";
+  };
+  const canUseStageTags = (app) => Boolean(app);
   const EXTENSION_PATH = "/Users/adnane/Documents/Codex/2026-05-17/files-mentioned-by-the-user-cleanshot/job-hunt-cockpit/extension";
 
   const [formData, setFormData] = useState({
@@ -70,6 +129,7 @@ export default function Board({
   const [evalLoading, setEvalLoading] = useState(false);
   const [drawerFeedback, setDrawerFeedback] = useState("");
   const [extensionSetupOpen, setExtensionSetupOpen] = useState(false);
+  const [descExpanded, setDescExpanded] = useState(false);
   const [reminderMessage, setReminderMessage] = useState("");
   const [reminderWhen, setReminderWhen] = useState("");
   const [snackbar, setSnackbar] = useState(null); // { message, onUndo, key }
@@ -127,6 +187,7 @@ export default function Board({
       setEvaluation(null);
     }
     setDrawerFeedback("");
+    setDescExpanded(false);
   }, [drawerOpen, drawerAppId, applications]);
 
   // Auto-dismiss Undo Snackbar after 5 seconds
@@ -306,6 +367,13 @@ export default function Board({
     return () => window.removeEventListener("keydown", handler);
   }, [drawerOpen]);
 
+  // Sidebar "Extension setup" button dispatches this event.
+  useEffect(() => {
+    const handler = () => setExtensionSetupOpen(true);
+    window.addEventListener("jh:openExtensionSetup", handler);
+    return () => window.removeEventListener("jh:openExtensionSetup", handler);
+  }, []);
+
   // Board-level keyboard shortcuts. Skipped while typing in inputs/textareas
   // (so "/" in a search field is still literal), and while the drawer is open.
   useEffect(() => {
@@ -480,16 +548,16 @@ export default function Board({
     const stageTimestamp = getCurrentStageTimestamp(app);
     if (stageTimestamp) {
       return {
-        label: `${status} ${formatDateTimeShort(stageTimestamp)}`,
-        title: `Moved to ${status} on ${formatDateTimeLong(stageTimestamp)}`,
+        label: `${stageLabel(status)} ${formatDateTimeShort(stageTimestamp)}`,
+        title: `Moved to ${stageLabel(status)} on ${formatDateTimeLong(stageTimestamp)}`,
       };
     }
 
     const stageDate = getCurrentStageDate(app);
     if (stageDate) {
       return {
-        label: `${status} ${formatShortDate(stageDate)}`,
-        title: `Moved to ${status} on ${stageDate}`,
+        label: `${stageLabel(status)} ${formatShortDate(stageDate)}`,
+        title: `Moved to ${stageLabel(status)} on ${stageDate}`,
       };
     }
 
@@ -506,26 +574,13 @@ export default function Board({
     return `${y}-${m}-${d}`;
   };
 
-  // How many days ago this application's current stage was reached. Returns
-  // null if there is no usable timestamp on the application.
-  const STALE_THRESHOLD_DAYS = 10;
-  const NON_STALE_STATUSES = new Set(["Rejected", "Offer"]);
-  const getDaysSinceStage = (app) => {
-    const stamp = getCurrentStageTimestamp(app) || getAppliedTimestamp(app) || app.updatedAt || app.createdAt;
-    if (!stamp) return null;
-    const date = parseDateValue(stamp);
-    if (!date) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const since = new Date(date);
-    since.setHours(0, 0, 0, 0);
-    return Math.floor((today - since) / 86400000);
-  };
-  const isStale = (app) => {
-    if (NON_STALE_STATUSES.has(app.status)) return false;
-    const days = getDaysSinceStage(app);
-    return days !== null && days >= STALE_THRESHOLD_DAYS;
-  };
+  // "Stale" is defined ONCE, in src/lib/metrics.mjs, and shared by the Board and
+  // Analytics so the two views can never silently disagree. These thin wrappers
+  // keep the existing call sites (card rendering, the Stalled column, the
+  // follow-up stat) unchanged while delegating the actual logic to the module.
+  const STALE_THRESHOLD_DAYS = SHARED_STALE_THRESHOLD_DAYS;
+  const getDaysSinceStage = (app) => daysSinceCurrentStage(app);
+  const isStale = (app) => isStaleShared(app);
 
   // Next status in the Applied → ... → Offer pipeline. Returns null at the end.
   const getNextStatus = (current) => {
@@ -603,12 +658,13 @@ export default function Board({
   const [draggedAppId, setDraggedAppId] = useState(null);
   const [draggedAppIds, setDraggedAppIds] = useState([]);
   const [draggedType, setDraggedType] = useState(null); // "application" or "group"
+  const [dragOverColumn, setDragOverColumn] = useState(null);
 
   const getGroupKey = (status, groupName) => `${status}::${groupName}`;
 
   const toggleGroupExpanded = (status, groupName) => {
     const key = getGroupKey(status, groupName);
-    setExpandedGroups((previous) => {
+    setCollapsedGroups((previous) => {
       const next = new Set(previous);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -626,6 +682,7 @@ export default function Board({
   const handleDrop = async (e, columnStatus) => {
     e.preventDefault();
     const rawIds = e.dataTransfer.getData("text/plain");
+    setDragOverColumn(null);
     if (!rawIds) return;
     const ids = rawIds.split(",").filter(Boolean);
     if (ids.length) {
@@ -667,10 +724,11 @@ export default function Board({
       }
 
       // Formulate and trigger Undo Snackbar
-      const firstApp = appsToMove[0];
-      const message = appsToMove.length === 1 
-        ? `Moved ${firstApp.company} to ${newStatus}`
-        : `Moved ${appsToMove.length} applications to ${newStatus}`;
+      const firstApp = applications.find((a) => a.id === ids[0]);
+      const label = stageLabel(newStatus);
+      const message = ids.length === 1
+        ? `Moved ${firstApp?.company || "app"} to ${label}`
+        : `Moved ${ids.length} apps to ${label}`;
       
       setSnackbar({
         key: `sb-${Date.now()}`,
@@ -726,6 +784,118 @@ export default function Board({
       console.error("Failed to update OA completion:", err);
     }
   };
+
+  const openOaDialog = (app, e) => {
+    e?.stopPropagation?.();
+    setOaDialogApp(app);
+    if (app?.oaDeadline) {
+      setOaDialogDate(new Date(app.oaDeadline).toISOString().slice(0, 16));
+    } else {
+      const defaultDate = new Date();
+      defaultDate.setDate(defaultDate.getDate() + 7);
+      setOaDialogDate(defaultDate.toISOString().slice(0, 16));
+    }
+  };
+
+  const confirmOaDialog = async () => {
+    if (!oaDialogApp || !oaDialogDate) return;
+    const updated = { ...oaDialogApp, status: "Online Assessment", oaDeadline: new Date(oaDialogDate).toISOString() };
+    try {
+      await fetch(`/api/applications/${encodeURIComponent(oaDialogApp.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+      await fetchApplications();
+      ensureOaReminder(updated);
+    } catch (err) {
+      console.error("Failed to mark OA:", err);
+    }
+    setOaDialogApp(null);
+    setOaDialogDate("");
+  };
+
+  const validateOaPassed = async (app, e) => {
+    e.stopPropagation();
+    if (!app?.id) return;
+    const updated = { ...app, oaCompletedAt: new Date().toISOString(), status: "Recruiter Screen" };
+    try {
+      await fetch(`/api/applications/${encodeURIComponent(app.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+      await fetchApplications();
+      clearOaRemindersFor(app.id);
+    } catch (err) {
+      console.error("Failed to validate OA:", err);
+    }
+  };
+
+  // ── Stage tag popover ──────────────────────────────────
+  // A fixed-position menu anchored to the clicked tag button, so it is never
+  // clipped by the card's overflow:hidden / fixed-height grid.
+  const openStageMenu = (app, e) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setStageMenu({ app, x: rect.left, y: rect.bottom + 6 });
+  };
+
+  const chooseStage = (option) => {
+    const app = stageMenu?.app;
+    setStageMenu(null);
+    if (!app || app.status === option.status) return;
+    if (option.status === "Online Assessment") {
+      openOaDialog(app);
+    } else if (option.status === "Recruiter Screen" || option.status === "Interview") {
+      const defaultDate = new Date();
+      defaultDate.setDate(defaultDate.getDate() + 3);
+      setInterviewDialog({ app, option });
+      setInterviewDialogDate(app.interviewDate ? new Date(app.interviewDate).toISOString().slice(0, 16) : defaultDate.toISOString().slice(0, 16));
+    } else {
+      updateStatuses([app.id], option.status);
+    }
+  };
+
+  const confirmInterviewDialog = async () => {
+    if (!interviewDialog) return;
+    const { app, option } = interviewDialog;
+    setInterviewDialog(null);
+    const updated = {
+      ...app,
+      status: option.status,
+      interviewDate: interviewDialogDate ? new Date(interviewDialogDate).toISOString() : "",
+    };
+    try {
+      await fetch(`/api/applications/${encodeURIComponent(app.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+      await fetchApplications();
+    } catch (err) {
+      console.error("Failed to save interview stage:", err);
+    }
+    setInterviewDialogDate("");
+  };
+
+  // Close the stage menu on Escape, resize, or any scroll. Scroll MUST use the
+  // capture phase: the real scroll container is the inner .board-cards, not
+  // window, so a bubbling listener never fires and the fixed popover would
+  // drift away from its card.
+  useEffect(() => {
+    if (!stageMenu) return undefined;
+    const close = () => setStageMenu(null);
+    const onKey = (e) => { if (e.key === "Escape") setStageMenu(null); };
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [stageMenu]);
 
   // Omni-search parser: tokens like `company:foo "two words"`, prefix-keyed
   // (company/title/role/status/group/skill/location/notes/url), bare tokens
@@ -813,12 +983,7 @@ export default function Board({
     const dateBadge = getStageDateBadge(app);
     const stale = isStale(app);
     const daysStale = stale ? getDaysSinceStage(app) : null;
-    const nextStatus = getNextStatus(app.status);
     const oaPassed = isOaDeadlinePassed(app);
-    const skills = (Array.isArray(app.skills) ? app.skills : String(app.skills || "").split(","))
-      .map((skill) => skill.trim())
-      .filter(Boolean)
-      .slice(0, 3);
     const hasAlert = stale || oaPassed;
     return (
       <article
@@ -839,22 +1004,19 @@ export default function Board({
             <strong title={app.company}>{app.company}</strong>
             <span title={app.role}>{app.role}</span>
           </div>
-          {nextStatus && (
-            <button
-              type="button"
-              className="board-card-advance"
-              title={`Move to ${nextStatus}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                updateStatuses([app.id], nextStatus);
-              }}
-            >
-              →
-            </button>
-          )}
+          <button
+            type="button"
+            className="board-card-stage-btn"
+            title="Change status"
+            onClick={(e) => openStageMenu(app, e)}
+          >
+            <span className="stage-dot" style={{ background: stageColor(app.status) }} />
+            {stageLabel(app.status)}
+            <span className="stage-caret">▾</span>
+          </button>
           {app.sourceUrl && (
             <a
-              className="board-card-link"
+              className="board-card-link card-link-hover"
               href={app.sourceUrl}
               target="_blank"
               rel="noreferrer"
@@ -865,33 +1027,15 @@ export default function Board({
           )}
         </div>
 
-        <div className={`board-card-alerts ${hasAlert ? "" : "is-empty"}`} aria-hidden={!hasAlert}>
-          {stale && (
-            <div className="board-card-stale" title={`No movement for ${daysStale} days — consider a follow-up`}>
-              💤 {daysStale}d stale · follow up
-            </div>
-          )}
-
-          {oaPassed && (
-            <button
-              type="button"
-              className="oa-passed-action"
-              title="Record the assessment as submitted (keeps this card in OA) and clear reminders"
-              onClick={(e) => {
-                e.stopPropagation();
-                markOaSubmitted(app);
-              }}
-            >
-              ✓ Mark OA submitted
-            </button>
-          )}
-        </div>
-
-        <div className={`board-card-skills ${skills.length ? "" : "is-empty"}`} aria-hidden={!skills.length}>
-          {skills.map((skill, i) => (
-            <span className="board-skill-tag" key={`${skill}-${i}`}>{skill}</span>
-          ))}
-        </div>
+        {hasAlert && (
+          <div className="board-card-alerts">
+            {stale && (
+              <div className="board-card-stale" title={`No movement for ${daysStale} days — consider a follow-up`}>
+                💤 {daysStale}d stale · follow up
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="board-card-meta">
           {app.priority === "High" && (
@@ -913,6 +1057,11 @@ export default function Board({
               ⏱ OA {formatDeadline(app.oaDeadline)}
             </span>
           )}
+          {app.interviewDate && IN_PROGRESS_STATUSES.includes(app.status) && app.status !== "Online Assessment" && (
+            <span className="board-card-meta-item interview-date" title={`Interview: ${formatDateTimeLong(app.interviewDate)}`}>
+              📅 {stageLabel(app.status)} {formatDateTimeShort(app.interviewDate)}
+            </span>
+          )}
           {app.status === "Online Assessment" && isOaSubmitted(app) && (
             <span className="board-card-meta-item oa-submitted" title={`Assessment submitted ${formatDateTimeLong(app.oaCompletedAt)}`}>
               ✓ OA submitted
@@ -925,7 +1074,7 @@ export default function Board({
 
   const renderCompanyGroupCard = (companyName, companyApps, status) => {
     const groupKey = getGroupKey(status, companyName);
-    const isExpanded = expandedGroups.has(groupKey);
+    const isExpanded = !collapsedGroups.has(groupKey);
     const newestApp = [...companyApps].sort((a, b) => parseDateTime(getCurrentStageTimestamp(b) || getAppliedTimestamp(b)) - parseDateTime(getCurrentStageTimestamp(a) || getAppliedTimestamp(a)))[0] || companyApps[0];
     const latestBadge = newestApp ? getStageDateBadge(newestApp) : null;
     const staleCount = companyApps.filter(isStale).length;
@@ -1026,7 +1175,17 @@ export default function Board({
                         </span>
                       )}
                     </span>
-                    {rowNext && (
+                    {app.status === "Online Assessment" && !isOaSubmitted(app) && (
+                      <button
+                        type="button"
+                        className="board-card-validate-oa"
+                        title="Mark OA as passed — advances to Recruiter Screen"
+                        onClick={(e) => { e.stopPropagation(); validateOaPassed(app, e); }}
+                      >
+                        ✓
+                      </button>
+                    )}
+                    {rowNext && app.status !== "Applied" && (
                       <button
                         type="button"
                         className="board-card-advance"
@@ -1041,7 +1200,7 @@ export default function Board({
                     )}
                     {app.sourceUrl && (
                       <a
-                        className="board-card-link"
+                        className="board-card-link card-link-hover"
                         href={app.sourceUrl}
                         target="_blank"
                         rel="noreferrer"
@@ -1052,20 +1211,6 @@ export default function Board({
                       </a>
                     )}
                   </div>
-
-                  {rowOaPassed && (
-                    <button
-                      type="button"
-                      className="oa-passed-action compact"
-                      title="Record the assessment as submitted (keeps this card in OA) and clear reminders"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        markOaSubmitted(app);
-                      }}
-                    >
-                      ✓ Mark OA submitted
-                    </button>
-                  )}
 
                   <div className="company-group-role-meta">
                     {app.priority === "High" && (
@@ -1182,12 +1327,40 @@ export default function Board({
     return null;
   };
 
+  // Compact, draggable chip for the horizontal Rejected shelf. Dragging one onto
+  // any column restores it to that stage (handleDragStart + the column's onDrop).
+  const renderRejectedChip = (app) => (
+    <article
+      key={app.id}
+      className="rejected-chip"
+      draggable
+      onDragStart={(e) => handleDragStart(e, app.id)}
+      onClick={() => onOpenDrawer(app.id)}
+      title={`${app.company} · ${app.role} — drag onto a column to restore`}
+    >
+      <span className="rejected-chip-avatar" style={{ backgroundColor: getCompanyColor(app.company) }}>
+        {(app.company || "?").charAt(0).toUpperCase()}
+      </span>
+      <span className="rejected-chip-text">
+        <strong title={app.company}>{app.company}</strong>
+        <span title={app.role}>{app.role}</span>
+      </span>
+    </article>
+  );
+
   // Surface a "Saved" lane (jobs captured but not yet applied to) only when such
   // jobs exist, so the board stays uncluttered for users who don't use it.
   const hasSavedLane = applications.some((app) => app.status === "Saved");
-  const visibleStatuses = [
-    ...(hasSavedLane ? ["Saved"] : []),
-    ...(showRejected ? STATUSES : ACTIVE_STATUSES),
+
+  // Four-bucket board: Applied · In Progress · Offer as columns; Rejected lives
+  // in the horizontal shelf above the board (rendered separately). "In Progress"
+  // gathers every active interviewing stage; a drop there defaults to a phone
+  // screen (Recruiter Screen), which the per-card stage tag can refine.
+  const DISPLAY_COLUMNS = [
+    ...(hasSavedLane ? [{ id: "Saved", label: "Saved", statuses: ["Saved"], dropStatus: "Saved", dataStatus: "Saved" }] : []),
+    { id: "Applied",    label: "Applied",     statuses: ["Applied"],          dropStatus: "Applied",          dataStatus: "Applied" },
+    { id: "InProgress", label: "In Progress", statuses: IN_PROGRESS_STATUSES, dropStatus: "Recruiter Screen", dataStatus: "InProgress" },
+    { id: "Offer",      label: "Offer",       statuses: ["Offer"],            dropStatus: "Offer",            dataStatus: "Offer" },
   ];
   const rejectedApps = getFilteredApps("Rejected");
   const rejectedCompanyCount = new Set(rejectedApps.map((app) => (app.company || "Unknown Company").trim())).size;
@@ -1219,7 +1392,13 @@ export default function Board({
       : "Clear";
 
   // Active applications with no movement for a while — the follow-up queue.
-  const staleActiveCount = applications.filter((app) => isStale(app)).length;
+  // isStale() already excludes terminal stages (Offer/Rejected), so no extra
+  // status filter is needed here.
+  const stalledApps = applications
+    .filter((app) => isStale(app))
+    .filter((app) => matchesSearchTokens(app, searchTokens))
+    .sort((a, b) => (getDaysSinceStage(b) || 0) - (getDaysSinceStage(a) || 0));
+  const staleActiveCount = stalledApps.length;
   const followUpSummary = staleActiveCount
     ? `${staleActiveCount} stale`
     : "Clear";
@@ -1242,13 +1421,12 @@ export default function Board({
             id="searchInput"
             className="search-input"
             type="search"
-            placeholder='Omni search: company:google title:"staff eng" status:offer -group:remote'
-            title="Use prefixes: company:, title:, status:, group:, skill:, location:, notes:, url:, salary:. Prefix with - to exclude. Wrap multi-word values in quotes."
+            placeholder='Search: company:acme status:offer skill:react -status:rejected'
+            title="Prefix keys: company:, role:, status:, skill:, location:, salary:, url:, notes:. Prefix with - to exclude. Wrap multi-word values in quotes."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
         </div>
-
 
         <label className="board-groupby" title="Group the board columns by">
           <span className="board-groupby-label">Group</span>
@@ -1263,10 +1441,6 @@ export default function Board({
             <option value="none">Flat list</option>
           </select>
         </label>
-
-        <button className="btn-ghost filter-bar-ext" onClick={() => setExtensionSetupOpen(true)}>
-          Extension setup
-        </button>
 
         <div className="board-toolbar-actions">
           <a className="btn-ghost link-button" href="/api/export.csv">Export CSV</a>
@@ -1408,47 +1582,126 @@ export default function Board({
         </div>
       )}
 
+      {/* Rejected drop-target bar + show/hide toggle */}
       <div
-        className={`rejected-shelf ${showRejected ? "expanded" : ""}`}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => handleDrop(e, "Rejected")}
+        className={`rejected-shelf ${rejectShelfDragOver ? "drag-over" : ""}`}
+        onDragOver={(e) => { e.preventDefault(); setRejectShelfDragOver(true); }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setRejectShelfDragOver(false); }}
+        onDrop={(e) => { setRejectShelfDragOver(false); handleDrop(e, "Rejected"); }}
       >
-        <div>
-          <span className="rejected-shelf-label">Rejected</span>
+        <div className="rejected-shelf-info">
+          <span className="rejected-shelf-label">✕ Rejected</span>
           <strong>
-            {rejectedCompanyCount} {rejectedCompanyCount === 1 ? "company" : "companies"} · {rejectedApps.length} {rejectedApps.length === 1 ? "application" : "applications"}
+            {rejectedApps.length === 0
+              ? "No rejections yet"
+              : `${rejectedCompanyCount} ${rejectedCompanyCount === 1 ? "company" : "companies"} · ${rejectedApps.length} ${rejectedApps.length === 1 ? "role" : "roles"}`}
           </strong>
         </div>
-        <span className="rejected-shelf-hint">Drop cards here to close them</span>
-        <button className="btn-ghost" type="button" onClick={() => setShowRejected((value) => !value)}>
-          {showRejected ? "Hide rejected" : "Review rejected"}
+        <span className="rejected-shelf-hint">Drag a card here to reject</span>
+        <button
+          type="button"
+          className="rejected-shelf-toggle"
+          disabled={rejectedApps.length === 0}
+          onClick={() => setRejectedExpanded((v) => !v)}
+        >
+          {rejectedApps.length === 0 ? "—" : rejectedExpanded ? "Hide ▴" : "Show ▾"}
         </button>
       </div>
 
-      {/* Kanban Board */}
+      {/* Stalled shelf — hidden by default; the button reveals a full-width band
+          of fully-expanded cards (whole content) that flow to fill the space.
+          Only surfaced when something is actually stale. */}
+      {stalledApps.length > 0 && (
+        <div className={`stalled-shelf ${stalledExpanded ? "is-open" : ""}`}>
+          <div
+            className="stalled-shelf-header"
+            onClick={() => setStalledExpanded((v) => !v)}
+          >
+            <span className="stalled-shelf-label">💤 Stalled</span>
+            <strong>
+              {stalledApps.length} {stalledApps.length === 1 ? "role" : "roles"} need a follow-up
+            </strong>
+            <span className="stalled-shelf-hint">No movement for {STALE_THRESHOLD_DAYS}+ days</span>
+            <button
+              type="button"
+              className="stalled-shelf-toggle"
+              onClick={(e) => { e.stopPropagation(); setStalledExpanded((v) => !v); }}
+            >
+              {stalledExpanded ? "Hide ▴" : "Show ▾"}
+            </button>
+          </div>
+          {stalledExpanded && (
+            <div className="stalled-shelf-cards">
+              {stalledApps.map((app) => renderStandardCard(app))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Kanban Board — Rejected column conditionally added on the right */}
       <div className="board-wrap">
-        {visibleStatuses.map((status) => {
-          const statusApps = getFilteredApps(status);
+        {DISPLAY_COLUMNS.map((colDef) => {
+          const colApps = colDef.statuses.flatMap((s) => getFilteredApps(s));
+          const isDragOver = dragOverColumn === colDef.id;
           return (
             <div
-              className={`board-column ${status.toLowerCase()} ${statusApps.length === 0 ? "is-empty" : ""}`}
-              data-status={status}
-              key={status}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => handleDrop(e, status)}
+              className={`board-column ${colDef.id.toLowerCase()} ${isDragOver ? "drag-over" : ""}`}
+              data-status={colDef.dataStatus || colDef.statuses[0] || colDef.id}
+              key={colDef.id}
+              onDragOver={(e) => { if (colDef.dropStatus) { e.preventDefault(); setDragOverColumn(colDef.id); } }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverColumn(null); }}
+              onDrop={(e) => { if (colDef.dropStatus) { setDragOverColumn(null); handleDrop(e, colDef.dropStatus); } }}
             >
               <div className="board-column-header">
-                <span className="board-column-label">{status}</span>
-                <span className="board-column-count">
-                  {getColumnBadgeText(statusApps)}
-                </span>
+                <span className="board-column-label">{colDef.label}</span>
+                {colDef.id === "Applied" ? (
+                  <div className="applied-header-stats">
+                    <span className="board-column-count">{getColumnBadgeText(colApps)}</span>
+                    <div className="applied-stats-row">
+                      <span className="applied-stat" title="Applied today">{appliedToday.length} today</span>
+                      <span className="applied-stat-sep">·</span>
+                      <span className={`applied-stat ${staleActiveCount ? "warn" : ""}`} title="Roles with no movement for 14+ days">{staleActiveCount} stale</span>
+                      <span className="applied-stat-sep">·</span>
+                      <span className="applied-stat" title="Roles that moved past Applied">{applications.filter(a => IN_PROGRESS_STATUSES.includes(a.status) || a.status === "Offer").length} advanced</span>
+                    </div>
+                  </div>
+                ) : (
+                  <span className="board-column-count">{getColumnBadgeText(colApps)}</span>
+                )}
               </div>
               <div className="board-cards">
-                {renderColumnContent(statusApps, status)}
+                {colDef.id === "InProgress"
+                  ? (colApps.length === 0
+                      ? <p className="board-empty">No roles yet</p>
+                      : colApps.map((app) => renderStandardCard(app)))
+                  : colDef.id === "Applied"
+                    ? <div className="board-masonry">{renderColumnContent(colApps, colDef.statuses[0])}</div>
+                    : renderColumnContent(colApps, colDef.statuses[0])}
               </div>
             </div>
           );
         })}
+
+        {/* Rejected column — slides in on the right when "Show" is clicked */}
+        {rejectedExpanded && (
+          <div
+            className={`board-column rejected-column ${dragOverColumn === "Rejected" ? "drag-over" : ""}`}
+            data-status="Rejected"
+            onDragOver={(e) => { e.preventDefault(); setDragOverColumn("Rejected"); }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverColumn(null); }}
+            onDrop={(e) => { setDragOverColumn(null); handleDrop(e, "Rejected"); }}
+          >
+            <div className="board-column-header">
+              <span className="board-column-label">Rejected</span>
+              <span className="board-column-count rejected-count">{rejectedApps.length}</span>
+            </div>
+            <div className="board-cards">
+              {rejectedApps.length === 0
+                ? <p className="board-empty">No rejections yet</p>
+                : rejectedApps.map((app) => renderRejectedChip(app))}
+            </div>
+          </div>
+        )}
       </div>
 
 
@@ -1473,6 +1726,24 @@ export default function Board({
                 </button>
                 {formData.id && (
                   <button className="drawer-delete-btn" type="button" onClick={handleDelete}>Delete</button>
+                )}
+                {formData.id && formData.status !== "Rejected" && (
+                  <button
+                    className="drawer-reject-btn"
+                    type="button"
+                    title="Mark as Rejected and close"
+                    onClick={() => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        status: "Rejected",
+                        rejectedAt: new Date().toISOString().slice(0, 16),
+                      }));
+                      dirtyRef.current = true;
+                      setTimeout(() => flushSave({ close: true }), 0);
+                    }}
+                  >
+                    ✕ Reject
+                  </button>
                 )}
                 <button className="drawer-close-btn" onClick={handleCloseWithSave}>✕</button>
               </div>
@@ -1513,12 +1784,12 @@ export default function Board({
                         value={formData.status}
                         onChange={handleInputChange}
                       >
-                        <option>Applied</option>
-                        <option>Online Assessment</option>
-                        <option>Recruiter Screen</option>
-                        <option>Interview</option>
-                        <option>Offer</option>
-                        <option>Rejected</option>
+                        <option value="Applied">Applied</option>
+                        <option value="Online Assessment">OA</option>
+                        <option value="Recruiter Screen">Phone Interview</option>
+                        <option value="Interview">Loop Interview</option>
+                        <option value="Offer">Offer</option>
+                        <option value="Rejected">Rejected</option>
                       </select>
                     </div>
                     <div className="drawer-field">
@@ -1537,34 +1808,21 @@ export default function Board({
                     </div>
                   </div>
 
-                  <div className="drawer-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                    <div className="drawer-field">
-                      <label className="drawer-label" htmlFor="d-date">Date applied</label>
-                      <input
-                        id="d-date"
-                        name="dateApplied"
-                        type="date"
-                        className="drawer-input"
-                        value={formData.dateApplied}
-                        onChange={handleInputChange}
-                      />
-                    </div>
-                    <div className="drawer-field">
-                      <label className="drawer-label" htmlFor="d-appliedAt">Applied timestamp</label>
-                      <input
-                        id="d-appliedAt"
-                        name="appliedAt"
-                        type="datetime-local"
-                        className="drawer-input"
-                        value={formData.appliedAt}
-                        onChange={handleInputChange}
-                      />
-                    </div>
+                  <div className="drawer-field">
+                    <label className="drawer-label" htmlFor="d-date">Date applied</label>
+                    <input
+                      id="d-date"
+                      name="dateApplied"
+                      type="date"
+                      className="drawer-input"
+                      value={formData.dateApplied}
+                      onChange={handleInputChange}
+                    />
                   </div>
 
-                  <div className="drawer-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  {formData.status === "Rejected" && (
                     <div className="drawer-field">
-                      <label className="drawer-label" htmlFor="d-rejectedAt">Rejection timestamp</label>
+                      <label className="drawer-label" htmlFor="d-rejectedAt">Rejection date</label>
                       <input
                         id="d-rejectedAt"
                         name="rejectedAt"
@@ -1574,6 +1832,9 @@ export default function Board({
                         onChange={handleInputChange}
                       />
                     </div>
+                  )}
+
+                  {(formData.status === "Online Assessment" || formData.oaDeadline) && (
                     <div className="drawer-field">
                       <label className="drawer-label" htmlFor="d-oaDeadline">OA deadline</label>
                       <input
@@ -1598,11 +1859,11 @@ export default function Board({
                               scheduleAutoSave();
                             }}
                           />
-                          OA submitted{formData.oaCompletedAt ? ` · ${formatDateTimeShort(formData.oaCompletedAt)}` : " (stops the deadline nag while you await results)"}
+                          OA submitted{formData.oaCompletedAt ? ` · ${formatDateTimeShort(formData.oaCompletedAt)}` : " (stops the deadline nag while awaiting results)"}
                         </label>
                       )}
                     </div>
-                  </div>
+                  )}
 
                   <div className="drawer-field">
                     <label className="drawer-label" htmlFor="d-location">Location</label>
@@ -1615,27 +1876,40 @@ export default function Board({
                     />
                   </div>
 
-                  <div className="drawer-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                    <div className="drawer-field">
-                      <label className="drawer-label" htmlFor="d-salary">Salary</label>
+                  <div className="drawer-field">
+                    <label className="drawer-label" htmlFor="d-salary">Salary{formData.equity ? "" : ""}</label>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                       <input
                         id="d-salary"
                         name="salary"
                         className="drawer-input"
+                        placeholder="e.g. $120k–$150k"
                         value={formData.salary}
                         onChange={handleInputChange}
+                        style={{ flex: 1 }}
                       />
+                      {formData.equity && (
+                        <input
+                          id="d-equity"
+                          name="equity"
+                          className="drawer-input"
+                          placeholder="Equity"
+                          value={formData.equity}
+                          onChange={handleInputChange}
+                          style={{ flex: "0 0 110px" }}
+                          title="Equity"
+                        />
+                      )}
                     </div>
-                    <div className="drawer-field">
-                      <label className="drawer-label" htmlFor="d-equity">Equity</label>
-                      <input
-                        id="d-equity"
-                        name="equity"
-                        className="drawer-input"
-                        value={formData.equity}
-                        onChange={handleInputChange}
-                      />
-                    </div>
+                    {!formData.equity && (
+                      <button
+                        type="button"
+                        style={{ marginTop: "4px", background: "none", border: "none", color: "var(--md-on-surface-variant)", fontSize: "11px", cursor: "pointer", padding: 0, textAlign: "left" }}
+                        onClick={() => setFormData((p) => ({ ...p, equity: "Mentioned" }))}
+                      >
+                        + Add equity
+                      </button>
+                    )}
                   </div>
 
                   <div className="drawer-field">
@@ -1646,18 +1920,6 @@ export default function Board({
                       className="drawer-input"
                       placeholder="Python, TypeScript, Go"
                       value={formData.skills}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-
-                  <div className="drawer-field">
-                    <label className="drawer-label" htmlFor="d-group">Group / Category</label>
-                    <input
-                      id="d-group"
-                      name="group"
-                      className="drawer-input"
-                      placeholder="e.g., Tier 1, Warm Leads, Remote-Only"
-                      value={formData.group}
                       onChange={handleInputChange}
                     />
                   </div>
@@ -1785,7 +2047,8 @@ export default function Board({
                       id="d-notes"
                       name="notes"
                       className="drawer-input"
-                      rows={6}
+                      rows={3}
+                      placeholder="Follow-up thoughts, recruiter name, interview notes…"
                       value={formData.notes}
                       onChange={handleInputChange}
                     />
@@ -1938,7 +2201,7 @@ export default function Board({
                                 
                                 <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                    <strong style={{ fontSize: "13px", color: "var(--md-on-surface)" }}>{event.stage}</strong>
+                                    <strong style={{ fontSize: "13px", color: "var(--md-on-surface)" }}>{stageLabel(event.stage)}</strong>
                                     {isLast && <span style={{ fontSize: "9px", background: "rgba(162, 201, 255, 0.15)", color: "var(--md-primary)", padding: "2px 6px", borderRadius: "10px", fontWeight: "bold" }}>Current Stage</span>}
                                   </div>
                                   <span style={{ fontSize: "11px", color: "var(--md-on-surface-variant)" }}>
@@ -1956,18 +2219,30 @@ export default function Board({
                     </div>
                   )}
 
-                  <div className="drawer-field drawer-field-grow">
-                    <label className="drawer-label" htmlFor="d-description">Full description</label>
-                    <textarea
-                      id="d-description"
-                      name="description"
-                      className="drawer-input drawer-description"
-                      rows={20}
-                      placeholder="Captured automatically when saving from the extension."
-                      value={formData.description}
-                      onChange={handleInputChange}
-                    />
-                  </div>
+                  {formData.description && (
+                    <div className="drawer-field">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                        <label className="drawer-label" htmlFor="d-description">Full description</label>
+                        <button
+                          type="button"
+                          style={{ background: "none", border: "none", color: "var(--md-primary)", fontSize: "11px", cursor: "pointer", fontWeight: 600, padding: 0 }}
+                          onClick={() => setDescExpanded((v) => !v)}
+                        >
+                          {descExpanded ? "Collapse ▲" : "Expand ▼"}
+                        </button>
+                      </div>
+                      <textarea
+                        id="d-description"
+                        name="description"
+                        className="drawer-input drawer-description"
+                        rows={descExpanded ? 20 : 4}
+                        placeholder="Captured automatically when saving from the extension."
+                        value={formData.description}
+                        onChange={handleInputChange}
+                        style={{ resize: descExpanded ? "vertical" : "none", transition: "height 0.2s" }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Hidden submit so Enter inside the form still saves */}
@@ -1975,6 +2250,87 @@ export default function Board({
               </form>
             </div>
           </aside>
+        </>
+      )}
+
+      {/* OA Deadline Dialog */}
+      {oaDialogApp && (
+        <>
+          <div className="drawer-backdrop" onClick={() => setOaDialogApp(null)} />
+          <dialog className="oa-dialog" style={{ display: "block" }}>
+            <div className="dialog-header">
+              <div>
+                <p className="eyebrow">Online Assessment</p>
+                <h3>{oaDialogApp.company} · {oaDialogApp.role}</h3>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setOaDialogApp(null)}>✕</button>
+            </div>
+            <div className="oa-dialog-body">
+              <label className="drawer-label" htmlFor="oa-deadline-input">OA deadline</label>
+              <input
+                id="oa-deadline-input"
+                type="datetime-local"
+                className="drawer-input"
+                value={oaDialogDate}
+                onChange={(e) => setOaDialogDate(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="oa-dialog-actions">
+              <button className="btn-ghost" type="button" onClick={() => setOaDialogApp(null)}>Cancel</button>
+              <button
+                className="btn-primary"
+                type="button"
+                onClick={confirmOaDialog}
+                disabled={!oaDialogDate}
+              >
+                Set OA →
+              </button>
+            </div>
+          </dialog>
+        </>
+      )}
+
+      {/* Interview Date Dialog — Phone / Loop stage picker */}
+      {interviewDialog && (
+        <>
+          <div className="drawer-backdrop" onClick={() => setInterviewDialog(null)} />
+          <dialog className="oa-dialog" style={{ display: "block" }}>
+            <div className="dialog-header">
+              <div>
+                <p className="eyebrow">{interviewDialog.option.label}</p>
+                <h3>{interviewDialog.app.company} · {interviewDialog.app.role}</h3>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setInterviewDialog(null)}>✕</button>
+            </div>
+            <div className="oa-dialog-body">
+              <label className="drawer-label" htmlFor="interview-date-input">Interview date &amp; time</label>
+              <input
+                id="interview-date-input"
+                type="datetime-local"
+                className="drawer-input"
+                value={interviewDialogDate}
+                onChange={(e) => setInterviewDialogDate(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="oa-dialog-actions">
+              <button className="btn-ghost" type="button" onClick={() => setInterviewDialog(null)}>Cancel</button>
+              <button className="btn-ghost" type="button" onClick={() => {
+                setInterviewDialogDate("");
+                const { app, option } = interviewDialog;
+                setInterviewDialog(null);
+                updateStatuses([app.id], option.status);
+              }}>Skip date →</button>
+              <button
+                className="btn-primary"
+                type="button"
+                onClick={confirmInterviewDialog}
+              >
+                Set {interviewDialog.option.label} →
+              </button>
+            </div>
+          </dialog>
         </>
       )}
 
@@ -2018,6 +2374,38 @@ export default function Board({
           </div>
           <div className="undo-snackbar-progress"></div>
         </div>
+      )}
+
+      {/* Interview-stage picker popover (OA / Phone Interview / Loop Interview) */}
+      {stageMenu && (
+        <>
+          <div className="stage-menu-backdrop" onClick={() => setStageMenu(null)} />
+          <div
+            className="board-stage-menu"
+            role="menu"
+            style={{
+              left: Math.min(stageMenu.x, (typeof window !== "undefined" ? window.innerWidth : 9999) - 200),
+              top: Math.min(stageMenu.y, (typeof window !== "undefined" ? window.innerHeight : 9999) - 170),
+            }}
+          >
+            {ALL_STATUS_OPTIONS.map((opt) => {
+              const active = stageMenu.app.status === opt.status;
+              return (
+                <button
+                  key={opt.status}
+                  type="button"
+                  role="menuitem"
+                  className={`board-stage-menu-item ${active ? "active" : ""}`}
+                  onClick={() => chooseStage(opt)}
+                  title={opt.label}
+                >
+                  <span className="stage-dot" style={{ background: opt.color }} />
+                  <span className="stage-menu-label">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

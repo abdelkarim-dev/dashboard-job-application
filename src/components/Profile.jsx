@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export default function Profile() {
   const [profile, setProfile] = useState({
@@ -9,6 +9,7 @@ export default function Profile() {
     github: "",
     linkedin: "",
     resumeText: "",
+    resumeText2: "",
     legallyAuthorized: "Yes",
     requiresSponsorship: "No",
     gender: "Decline to Self-Identify",
@@ -17,9 +18,17 @@ export default function Profile() {
     disabilityStatus: "No, I don't have a disability",
     gemmaPrompt: "",
   });
-  
+
   const [feedback, setFeedback] = useState("");
   const [loading, setLoading] = useState(true);
+
+  // CV upload state
+  const [cvMeta, setCvMeta] = useState({ backend: null, architect: null });
+  const [cvUploading, setCvUploading] = useState({ backend: false, architect: false });
+  const [cvFeedback, setCvFeedback] = useState({ backend: "", architect: "" });
+  const [cvDragOver, setCvDragOver] = useState({ backend: false, architect: false });
+  const cvInputBackend = useRef(null);
+  const cvInputArchitect = useRef(null);
 
   // Integration States
   const [calendarStatus, setCalendarStatus] = useState({ configured: false, hasLocalToken: false });
@@ -30,6 +39,7 @@ export default function Profile() {
   useEffect(() => {
     fetchProfile();
     fetchCalendarStatus();
+    fetchCvMeta();
   }, []);
 
   const fetchCalendarStatus = async () => {
@@ -75,6 +85,66 @@ export default function Profile() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchCvMeta = async () => {
+    try {
+      const res = await fetch("/api/profile/cv");
+      if (res.ok) setCvMeta(await res.json());
+    } catch {}
+  };
+
+  const uploadCv = async (variant, file) => {
+    if (!file) return;
+    const allowed = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
+    if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|doc|docx|txt)$/i)) {
+      setCvFeedback((prev) => ({ ...prev, [variant]: "Only PDF, DOC, DOCX, or TXT files are accepted." }));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setCvFeedback((prev) => ({ ...prev, [variant]: "File must be under 5 MB." }));
+      return;
+    }
+    setCvUploading((prev) => ({ ...prev, [variant]: true }));
+    setCvFeedback((prev) => ({ ...prev, [variant]: "" }));
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch(`/api/profile/cv/${variant}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type || "application/octet-stream", data }),
+      });
+      if (res.ok) {
+        setCvFeedback((prev) => ({ ...prev, [variant]: `Uploaded: ${file.name}` }));
+        await fetchCvMeta();
+        setTimeout(() => setCvFeedback((prev) => ({ ...prev, [variant]: "" })), 4000);
+      } else {
+        setCvFeedback((prev) => ({ ...prev, [variant]: "Upload failed." }));
+      }
+    } catch {
+      setCvFeedback((prev) => ({ ...prev, [variant]: "Error uploading file." }));
+    } finally {
+      setCvUploading((prev) => ({ ...prev, [variant]: false }));
+    }
+  };
+
+  const removeCv = async (variant) => {
+    try {
+      await fetch(`/api/profile/cv/${variant}`, { method: "DELETE" });
+      setCvMeta((prev) => ({ ...prev, [variant]: null }));
+    } catch {}
+  };
+
+  const handleCvDrop = (variant, e) => {
+    e.preventDefault();
+    setCvDragOver((prev) => ({ ...prev, [variant]: false }));
+    const file = e.dataTransfer.files[0];
+    if (file) uploadCv(variant, file);
   };
 
   const handleChange = (e) => {
@@ -208,20 +278,140 @@ export default function Profile() {
             </div>
           </div>
 
-          <div className="profile-field" style={{ marginBottom: "12px" }}>
-            <label className="profile-label" htmlFor="resumeText">Resume Plain-Text</label>
+          {/* CV 1 — Backend */}
+          <div className="profile-field cv-upload-field" style={{ marginBottom: "16px" }}>
+            <label className="profile-label">CV 1 — Backend / Platform <span className="cv-badge cv-badge--primary">Primary</span></label>
             <p className="profile-field-desc">
-              Paste your plain text resume. The AI Copilot uses this to draft high-quality custom question answers.
+              Default CV. The extension uses this by default and auto-selects it for backend/platform roles.
             </p>
-            <textarea
-              id="resumeText"
-              name="resumeText"
-              className="profile-textarea"
-              rows={6}
-              value={profile.resumeText}
-              onChange={handleChange}
-              placeholder="Paste resume contents..."
+
+            <div
+              className={`cv-dropzone ${cvDragOver.backend ? "cv-dropzone--active" : ""} ${cvMeta.backend ? "cv-dropzone--uploaded" : ""}`}
+              onDragOver={(e) => { e.preventDefault(); setCvDragOver((p) => ({ ...p, backend: true })); }}
+              onDragLeave={() => setCvDragOver((p) => ({ ...p, backend: false }))}
+              onDrop={(e) => handleCvDrop("backend", e)}
+              onClick={() => !cvMeta.backend && cvInputBackend.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && !cvMeta.backend && cvInputBackend.current?.click()}
+              aria-label="Upload backend CV"
+            >
+              {cvMeta.backend ? (
+                <div className="cv-uploaded-state">
+                  <span className="cv-file-icon">📄</span>
+                  <div className="cv-file-info">
+                    <strong>{cvMeta.backend.fileName}</strong>
+                    <small>Uploaded {cvMeta.backend.uploadedAt ? new Date(cvMeta.backend.uploadedAt).toLocaleDateString() : ""}</small>
+                  </div>
+                  <div className="cv-uploaded-actions">
+                    <button className="btn-ghost cv-replace-btn" type="button" onClick={(e) => { e.stopPropagation(); cvInputBackend.current?.click(); }}>Replace</button>
+                    <button className="cv-remove-btn" type="button" onClick={(e) => { e.stopPropagation(); removeCv("backend"); }} aria-label="Remove CV">✕</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="cv-empty-state">
+                  <span className="cv-upload-icon">⬆</span>
+                  <span className="cv-upload-label">{cvUploading.backend ? "Uploading…" : "Drop PDF / DOCX here, or click to browse"}</span>
+                  <small>PDF · DOCX · DOC · TXT · max 5 MB</small>
+                </div>
+              )}
+            </div>
+
+            <input
+              ref={cvInputBackend}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              style={{ display: "none" }}
+              onChange={(e) => uploadCv("backend", e.target.files[0])}
             />
+
+            {cvFeedback.backend && (
+              <p className={`cv-feedback ${cvFeedback.backend.startsWith("Uploaded") ? "cv-feedback--ok" : "cv-feedback--err"}`}>
+                {cvFeedback.backend}
+              </p>
+            )}
+
+            <details className="cv-paste-fallback">
+              <summary>Or paste CV text instead</summary>
+              <textarea
+                id="resumeText"
+                name="resumeText"
+                className="profile-textarea"
+                rows={5}
+                value={profile.resumeText}
+                onChange={handleChange}
+                placeholder="Paste resume text as fallback for Gemma evaluation…"
+                style={{ marginTop: "8px" }}
+              />
+            </details>
+          </div>
+
+          {/* CV 2 — Architect */}
+          <div className="profile-field cv-upload-field" style={{ marginBottom: "12px" }}>
+            <label className="profile-label">CV 2 — Architect / Principal <span className="cv-badge cv-badge--secondary">Optional</span></label>
+            <p className="profile-field-desc">
+              Gemma auto-picks this for architect/principal/staff roles. Force it via the "📄 CV" button in the extension toolbar.
+            </p>
+
+            <div
+              className={`cv-dropzone ${cvDragOver.architect ? "cv-dropzone--active" : ""} ${cvMeta.architect ? "cv-dropzone--uploaded" : ""}`}
+              onDragOver={(e) => { e.preventDefault(); setCvDragOver((p) => ({ ...p, architect: true })); }}
+              onDragLeave={() => setCvDragOver((p) => ({ ...p, architect: false }))}
+              onDrop={(e) => handleCvDrop("architect", e)}
+              onClick={() => !cvMeta.architect && cvInputArchitect.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && !cvMeta.architect && cvInputArchitect.current?.click()}
+              aria-label="Upload architect CV"
+            >
+              {cvMeta.architect ? (
+                <div className="cv-uploaded-state">
+                  <span className="cv-file-icon">📄</span>
+                  <div className="cv-file-info">
+                    <strong>{cvMeta.architect.fileName}</strong>
+                    <small>Uploaded {cvMeta.architect.uploadedAt ? new Date(cvMeta.architect.uploadedAt).toLocaleDateString() : ""}</small>
+                  </div>
+                  <div className="cv-uploaded-actions">
+                    <button className="btn-ghost cv-replace-btn" type="button" onClick={(e) => { e.stopPropagation(); cvInputArchitect.current?.click(); }}>Replace</button>
+                    <button className="cv-remove-btn" type="button" onClick={(e) => { e.stopPropagation(); removeCv("architect"); }} aria-label="Remove CV">✕</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="cv-empty-state">
+                  <span className="cv-upload-icon">⬆</span>
+                  <span className="cv-upload-label">{cvUploading.architect ? "Uploading…" : "Drop PDF / DOCX here, or click to browse"}</span>
+                  <small>PDF · DOCX · DOC · TXT · max 5 MB</small>
+                </div>
+              )}
+            </div>
+
+            <input
+              ref={cvInputArchitect}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              style={{ display: "none" }}
+              onChange={(e) => uploadCv("architect", e.target.files[0])}
+            />
+
+            {cvFeedback.architect && (
+              <p className={`cv-feedback ${cvFeedback.architect.startsWith("Uploaded") ? "cv-feedback--ok" : "cv-feedback--err"}`}>
+                {cvFeedback.architect}
+              </p>
+            )}
+
+            <details className="cv-paste-fallback">
+              <summary>Or paste CV text instead</summary>
+              <textarea
+                id="resumeText2"
+                name="resumeText2"
+                className="profile-textarea"
+                rows={5}
+                value={profile.resumeText2 || ""}
+                onChange={handleChange}
+                placeholder="Paste architect/principal resume text as fallback…"
+                style={{ marginTop: "8px" }}
+              />
+            </details>
           </div>
 
           <hr className="profile-separator" style={{ border: 0, borderTop: "1px solid var(--md-outline-variant)", margin: "24px 0" }} />

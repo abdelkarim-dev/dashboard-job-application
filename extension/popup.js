@@ -55,11 +55,55 @@ async function init() {
     latestCapture = normalizeCapture(pageData);
     updateJobCard(latestCapture);
 
-    // Check if this URL is already tracked
+    // Match by exact URL first, then fall back to company name
     if (latestCapture.sourceUrl) {
       existingApp = allApps.find(
         (app) => app.sourceUrl && app.sourceUrl === latestCapture.sourceUrl,
       ) || null;
+    }
+
+    // Company-level match: show roles you've already applied to at this company
+    const capturedCompany = (latestCapture.company || "").trim().toLowerCase();
+    const companyApps = capturedCompany
+      ? allApps.filter((app) => (app.company || "").trim().toLowerCase() === capturedCompany)
+      : [];
+
+    const companyAppliedBadge = document.querySelector("#companyAppliedBadge");
+    const companyRolesList = document.querySelector("#companyRolesList");
+
+    if (companyApps.length > 0) {
+      // Show summary badge
+      if (companyAppliedBadge && !existingApp) {
+        const label = companyApps.length === 1
+          ? `${companyApps.length} role tracked here`
+          : `${companyApps.length} roles tracked here`;
+        companyAppliedBadge.textContent = `⚡ ${label}`;
+        companyAppliedBadge.hidden = false;
+        document.querySelector(".job-card")?.classList.add("is-tracked");
+      }
+
+      // Show each tracked role with its status — using DOM methods to avoid XSS
+      if (companyRolesList) {
+        companyRolesList.hidden = false;
+        companyRolesList.replaceChildren(
+          ...companyApps.map((app) => {
+            const row = document.createElement("div");
+            row.className = "company-role-row";
+
+            const title = document.createElement("span");
+            title.className = "company-role-title";
+            title.textContent = app.role || "Role";
+
+            const status = document.createElement("span");
+            const statusKey = (app.status || "applied").toLowerCase().replace(/\s+/g, "-");
+            status.className = `company-role-status status-${statusKey}`;
+            status.textContent = app.status || "Applied";
+
+            row.append(title, status);
+            return row;
+          })
+        );
+      }
     }
 
     if (existingApp) {
@@ -68,8 +112,12 @@ async function init() {
       setStateText("Already tracking this job.");
       openTrackerView(existingApp, true);
     } else {
-      setStateText("Ready — Gemma only runs when you click Evaluate.");
-      // Auto-open tracker so the user can see extracted data and save
+      const alreadyAtCompany = companyApps.length > 0;
+      setStateText(
+        alreadyAtCompany
+          ? `${companyApps.length} role${companyApps.length > 1 ? "s" : ""} tracked at this company.`
+          : "Ready — Gemma only runs when you click Evaluate."
+      );
       openTrackerView(latestCapture, false, { skipRefinement: true });
     }
   } catch {

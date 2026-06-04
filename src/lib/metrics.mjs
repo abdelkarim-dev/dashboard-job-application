@@ -1,4 +1,4 @@
-// Pure, dependency-free analytics + tracking helpers for the Job Hunt Cockpit.
+// Pure, dependency-free analytics + tracking helpers for Claire (job hunt copilot).
 //
 // This module is imported BOTH by the React dashboard (Board, Analytics) and by
 // the Node test runner (`node --test`), so it must stay free of any React/DOM
@@ -58,6 +58,38 @@ export function getAppliedTimestamp(app) {
 
 export function getRejectedTimestamp(app) {
   return (app && (app.rejectedAt || app.stageDateTimes?.Rejected)) || "";
+}
+
+// ── Stale detection (shared by Board + Analytics) ──
+// An application is "stale" when its CURRENT stage has not moved for
+// STALE_THRESHOLD_DAYS+ days. Terminal stages (Offer/Rejected) are never stale.
+// Both views import these so "stale" means exactly one thing across the app.
+export const STALE_THRESHOLD_DAYS = 10;
+export const NON_STALE_STATUSES = new Set(["Rejected", "Offer"]);
+
+// Best timestamp for the stage the application is currently sitting in, falling
+// back to applied time / rejection time / last-touched metadata.
+export function getCurrentStageTimestamp(app) {
+  if (!app) return "";
+  const status = app.status || "Applied";
+  return (app.stageDateTimes && app.stageDateTimes[status])
+    || (status === "Applied" ? getAppliedTimestamp(app) : "")
+    || (status === "Rejected" ? getRejectedTimestamp(app) : "")
+    || "";
+}
+
+// Whole days since the current stage was reached. null when nothing usable.
+export function daysSinceCurrentStage(app, now = new Date()) {
+  const stamp = getCurrentStageTimestamp(app) || getAppliedTimestamp(app) || (app && (app.updatedAt || app.createdAt));
+  const date = parseDateValue(stamp);
+  if (!date) return null;
+  return Math.floor((startOfDay(now).getTime() - startOfDay(date).getTime()) / 86400000);
+}
+
+export function isStale(app, { thresholdDays = STALE_THRESHOLD_DAYS, now = new Date() } = {}) {
+  if (!app || NON_STALE_STATUSES.has(app.status)) return false;
+  const days = daysSinceCurrentStage(app, now);
+  return days !== null && days >= thresholdDays;
 }
 
 // True if the application ever reached a post-Applied stage — either its current

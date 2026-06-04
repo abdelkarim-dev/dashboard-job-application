@@ -20,6 +20,7 @@ import {
   nextReviewDate,
   recordProblemAttempt,
   runPythonProblem,
+  runSolidJavaExercise,
   simplifyStatus,
   toCsv,
 } from "../server.mjs";
@@ -438,6 +439,54 @@ test("Python runner times out runaway code", async () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.error, "Python timed out.");
+});
+
+test("SOLID Java runner compiles and validates an OCP solution", async () => {
+  const code = `interface DiscountPolicy {
+    int apply(int subtotal);
+}
+final class RegularDiscount implements DiscountPolicy {
+    public int apply(int subtotal) { return subtotal; }
+}
+final class VipDiscount implements DiscountPolicy {
+    public int apply(int subtotal) { return subtotal * 80 / 100; }
+}
+public class Solution {
+    int total(int subtotal, DiscountPolicy policy) { return policy.apply(subtotal); }
+}
+`;
+  const result = await runSolidJavaExercise("ocp-discounts", code);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.passed, result.total);
+  assert.ok(result.results.some((item) => item.name === "Checkout delegates to any policy"));
+});
+
+test("SOLID Java runner reports compilation failures", async () => {
+  const result = await runSolidJavaExercise("ocp-discounts", "public class Solution {");
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Java compilation failed/);
+});
+
+test("SOLID Java runner catches structural LSP violations", async () => {
+  const code = `interface Bird { String move(); }
+interface FlyingBird extends Bird { String fly(); }
+final class Penguin implements FlyingBird {
+    public String move() { return "swim"; }
+    public String fly() { throw new UnsupportedOperationException(); }
+}
+final class Sparrow implements FlyingBird {
+    public String move() { return "fly"; }
+    public String fly() { return "fly"; }
+}
+public class Solution {}
+`;
+  const result = await runSolidJavaExercise("lsp-birds", code);
+
+  assert.equal(result.ok, true);
+  assert.ok(result.passed < result.total);
+  assert.equal(result.results.find((item) => item.name === "Penguin is not forced to fly")?.passed, false);
 });
 
 test("calendar review payload summarizes due problems without live credentials", () => {

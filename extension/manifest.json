@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Job Hunt Cockpit Capture",
-  "description": "Capture job posts into the local Job Hunt Cockpit tracker.",
+  "name": "Claire — Job Hunt Copilot",
+  "description": "Capture job posts into Claire, your local job-hunt copilot.",
   "version": "1.1.6",
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Toggle Job Hunt Copilot Toolbar"
+    "default_title": "Toggle Claire toolbar"
   },
   "permissions": ["activeTab", "scripting", "tabs"],
   "host_permissions": ["<all_urls>", "http://127.0.0.1:8787/*"],

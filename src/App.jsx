@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { lazy, Suspense, useState, useEffect } from "react";
 import Board from "./components/Board.jsx";
 import Analytics from "./components/Analytics.jsx";
 import Practice from "./components/Practice.jsx";
 import Profile from "./components/Profile.jsx";
 import SystemDesign from "./components/SystemDesign.jsx";
+import NewDashboard from "./components/NewDashboard.jsx";
 
-
+const SolidPractice = lazy(() => import("./components/SolidPractice.jsx"));
+const CleanArchitecture = lazy(() => import("./components/CleanArchitecture.jsx"));
 
 const REMINDERS_KEY = "jobHuntReminders";
 
@@ -31,11 +33,16 @@ export default function App() {
     const hash = window.location.hash;
     if (hash === "#/analytics") return "analytics";
     if (hash === "#/leetcode" || hash === "#/practice") return "leetcode";
+    if (hash === "#/solid-java" || hash === "#/solid") return "solidjava";
+    if (hash === "#/clean-architecture") return "cleanarchitecture";
     if (hash === "#/system-design") return "systemdesign";
     if (hash === "#/profile") return "profile";
-    return "board";
+    if (hash === "#/dashboard") return "newdashboard";
+    if (hash === "#/board") return "board";
+    return "newdashboard";
   });
   const [applications, setApplications] = useState([]);
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
   const [boardGrouping, setBoardGrouping] = useState("company");
   const [funnelFilter, setFunnelFilter] = useState("");
   // App ID to auto-open in the drawer — set from ?openApp= URL param or postMessage
@@ -93,6 +100,12 @@ export default function App() {
     persistReminders(reminders);
   }, [reminders]);
 
+  // Theme: apply + persist whenever it changes. Defaults to dark.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
   const addReminder = ({ applicationId = null, message, fireAt }) => {
     if (!message || !fireAt) return;
     const reminder = {
@@ -129,7 +142,7 @@ export default function App() {
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
               const app = applications.find((a) => a.id === r.applicationId);
-              const title = app ? `${app.company} — ${app.role}` : "Job Hunt Reminder";
+              const title = app ? `${app.company} — ${app.role}` : "Claire reminder";
               new Notification(title, { body: r.message, tag: r.id });
             } catch {}
           }
@@ -178,10 +191,6 @@ export default function App() {
   }, [pendingOpenAppId, applications]);
 
   useEffect(() => {
-    // Explicitly enforce premium pitch-black dark theme on load
-    document.documentElement.setAttribute("data-theme", "dark");
-    localStorage.setItem("theme", "dark");
-
     fetchApplications();
 
     // Set up quiet periodic syncing
@@ -191,8 +200,11 @@ export default function App() {
       const hash = window.location.hash;
       if (hash === "#/analytics") setActiveTab("analytics");
       else if (hash === "#/leetcode" || hash === "#/practice") setActiveTab("leetcode");
+      else if (hash === "#/solid-java" || hash === "#/solid") setActiveTab("solidjava");
+      else if (hash === "#/clean-architecture") setActiveTab("cleanarchitecture");
       else if (hash === "#/system-design") setActiveTab("systemdesign");
       else if (hash === "#/profile") setActiveTab("profile");
+      else if (hash === "#/dashboard") setActiveTab("newdashboard");
       else setActiveTab("board");
     };
 
@@ -200,7 +212,7 @@ export default function App() {
     
     // Ensure initial hash is set if it's empty
     if (!window.location.hash) {
-      window.location.hash = "#/board";
+      window.location.hash = "#/dashboard";
     }
 
     return () => {
@@ -213,8 +225,11 @@ export default function App() {
     board: "board",
     analytics: "analytics",
     leetcode: "leetcode",
+    solidjava: "solid-java",
+    cleanarchitecture: "clean-architecture",
     systemdesign: "system-design",
     profile: "profile",
+    newdashboard: "dashboard",
   };
 
   const handleTabChange = (tabName) => {
@@ -259,6 +274,14 @@ export default function App() {
     setDrawerOpen(true);
   };
 
+  // From the New Dashboard: navigate to Board and open the drawer for a specific app
+  const handleOpenAppFromDashboard = (appId) => {
+    setActiveTab("board");
+    window.location.hash = "#/board";
+    setDrawerAppId(appId);
+    setDrawerOpen(true);
+  };
+
   const handleCloseDrawer = () => {
     setDrawerOpen(false);
     setDrawerAppId(null);
@@ -269,14 +292,24 @@ export default function App() {
       {/* Sleek Desktop Sidebar */}
       <aside className="app-sidebar">
         <div className="sidebar-brand">
-          <div className="brand-mark">JH</div>
+          <div className="brand-mark" aria-hidden="true">C</div>
           <div>
-            <p className="eyebrow">Big hunt mode</p>
-            <h2>Job Hunt Cockpit</h2>
+            <h2>Claire</h2>
+            <p className="sidebar-app-count">
+              {applications.length} {applications.length === 1 ? "role" : "roles"} tracked
+            </p>
           </div>
         </div>
 
         <nav className="sidebar-nav" aria-label="Sidebar navigation">
+          <button
+            className={`sidebar-nav-btn ${activeTab === "newdashboard" ? "active" : ""}`}
+            onClick={() => handleTabChange("newdashboard")}
+            type="button"
+          >
+            <span className="sidebar-nav-icon">✦</span>
+            <span>Dashboard</span>
+          </button>
           <button
             className={`sidebar-nav-btn ${activeTab === "board" ? "active" : ""}`}
             onClick={() => handleTabChange("board")}
@@ -302,6 +335,22 @@ export default function App() {
             <span>LeetCode</span>
           </button>
           <button
+            className={`sidebar-nav-btn ${activeTab === "solidjava" ? "active" : ""}`}
+            onClick={() => handleTabChange("solidjava")}
+            type="button"
+          >
+            <span className="sidebar-nav-icon">◆</span>
+            <span>SOLID Lab</span>
+          </button>
+          <button
+            className={`sidebar-nav-btn ${activeTab === "cleanarchitecture" ? "active" : ""}`}
+            onClick={() => handleTabChange("cleanarchitecture")}
+            type="button"
+          >
+            <span className="sidebar-nav-icon">🧱</span>
+            <span>Clean Arch</span>
+          </button>
+          <button
             className={`sidebar-nav-btn ${activeTab === "systemdesign" ? "active" : ""}`}
             onClick={() => handleTabChange("systemdesign")}
             type="button"
@@ -319,19 +368,40 @@ export default function App() {
           </button>
         </nav>
 
+        <div className="sidebar-footer">
+          <button
+            className="sidebar-footer-btn"
+            type="button"
+            onClick={() => {
+              handleTabChange("board");
+              window.dispatchEvent(new CustomEvent("jh:openExtensionSetup"));
+            }}
+          >
+            ⚙ Extension setup
+          </button>
+        </div>
       </aside>
 
       <main className="workspace">
         {/* Mobile Topbar Brand & Nav */}
         <header className="topbar">
           <div className="topbar-brand">
-            <div className="brand-mark">JH</div>
+            <div className="brand-mark" aria-hidden="true">C</div>
             <div>
-              <p className="eyebrow">Big hunt mode</p>
-              <h2>Job Hunt Cockpit</h2>
+              <h2>Claire</h2>
+              <p className="sidebar-app-count">
+                {applications.length} {applications.length === 1 ? "role" : "roles"} tracked
+              </p>
             </div>
           </div>
           <nav className="topbar-tabs" aria-label="View switching">
+            <button
+              className={`tab-btn ${activeTab === "newdashboard" ? "active" : ""}`}
+              onClick={() => handleTabChange("newdashboard")}
+              type="button"
+            >
+              ✦ Dashboard
+            </button>
             <button
               className={`tab-btn ${activeTab === "board" ? "active" : ""}`}
               onClick={() => handleTabChange("board")}
@@ -352,6 +422,20 @@ export default function App() {
               type="button"
             >
               ⌨ LeetCode
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "solidjava" ? "active" : ""}`}
+              onClick={() => handleTabChange("solidjava")}
+              type="button"
+            >
+              ◆ SOLID Lab
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "cleanarchitecture" ? "active" : ""}`}
+              onClick={() => handleTabChange("cleanarchitecture")}
+              type="button"
+            >
+              🧱 Clean Arch
             </button>
             <button
               className={`tab-btn ${activeTab === "systemdesign" ? "active" : ""}`}
@@ -408,9 +492,29 @@ export default function App() {
           />
         )}
 
+        {activeTab === "solidjava" && (
+          <Suspense fallback={<div className="learning-empty"><strong>Loading Java lab...</strong></div>}>
+            <SolidPractice />
+          </Suspense>
+        )}
+
+        {activeTab === "cleanarchitecture" && (
+          <Suspense fallback={<div className="learning-empty"><strong>Loading Clean Architecture lab...</strong></div>}>
+            <CleanArchitecture />
+          </Suspense>
+        )}
+
         {activeTab === "systemdesign" && <SystemDesign />}
 
         {activeTab === "profile" && <Profile />}
+
+        {activeTab === "newdashboard" && (
+          <NewDashboard
+            applications={applications}
+            onOpenAppInBoard={handleOpenAppFromDashboard}
+            fetchApplications={fetchApplications}
+          />
+        )}
       </main>
     </div>
   );

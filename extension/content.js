@@ -33,6 +33,9 @@ const skillCatalog = [
 ];
 
 let localProfile = null;
+// CV selection: "backend" (resumeText) or "architect" (resumeText2). Gemma auto-selects;
+// user can override via the CV toggle button in the floating toolbar.
+let selectedCv = "auto"; // "auto" | "backend" | "architect"
 let lastFocusedInput = null;
 let currentFocusedElement = null;
 let inlineTrigger = null;
@@ -111,6 +114,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         widget.style.display = "none";
       }
     } else {
+      if (!looksLikeJobPosting()) {
+        showToast("Not a job page — open a job posting to use the toolbar.");
+        sendResponse({ ok: true });
+        return false;
+      }
       ensureProfileLoaded().then(() => {
         ensureCopilotPanel(localProfile);
         const newActions = document.getElementById("jh-floating-actions");
@@ -142,34 +150,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 })();
 
-// Start Copilot Drawer & Inline Trigger initialization on idle. The submit
-// listener is cheap, so attach it automatically on job pages; Gemma still only
-// runs after an explicit action or a real submit.
+// Reset job-page caches on SPA navigations so looksLikeJobPosting() re-evaluates
+// correctly after the URL changes. Nothing is injected automatically — the toolbar
+// only appears when the user clicks the extension icon.
 (function initCopilot() {
-  window.addEventListener("load", () => {
-    setTimeout(async () => {
-      if (looksLikeJobPosting()) {
-        const loaded = await ensureProfileLoaded();
-        if (loaded) attachFormSubmitTracker("auto listener ready", { silent: true });
-      }
-    }, 1500); // 1.5s delay to let page settle and reactive elements finish mounting
-  });
-
-  // Also handle SPA navigations (some ATS forms load content dynamically)
   let lastObservedUrl = locationHref();
-  const urlObserver = setInterval(() => {
+  setInterval(() => {
     const currentUrl = locationHref();
     if (currentUrl !== lastObservedUrl) {
       lastObservedUrl = currentUrl;
-      // Reset caches for new page
       isJobPageCache = null;
       lastCachedUrl = "";
-      setTimeout(async () => {
-        if (looksLikeJobPosting()) {
-          const loaded = await ensureProfileLoaded();
-          if (loaded) attachFormSubmitTracker("auto listener ready", { silent: true });
-        }
-      }, 1500);
     }
   }, 2000);
 })();
@@ -233,7 +224,7 @@ function attachFormSubmitTracker(reason = "manual", { silent = false } = {}) {
   updateSubmitListenerStatus(reason);
   updatePrefillButtonState();
   if (!wasAttached && !silent) {
-    showToast("Submit listener attached. Job Hunt will track the final submit.");
+    showToast("Submit listener attached. Claire will track the final submit.");
   }
 }
 
@@ -345,6 +336,7 @@ function showCopilotPanel(panelName) {
     eval: document.getElementById("jh-eval-panel"),
     autofill: document.getElementById("jh-autofill-panel"),
     track: document.getElementById("jh-track-panel"),
+    company: document.getElementById("jh-company-panel"),
   };
   Object.entries(panels).forEach(([name, panel]) => {
     if (panel) panel.hidden = name !== panelName;
@@ -412,6 +404,14 @@ function hasUserFilledForm() {
 
 async function trackJobApplication(trigger = "submit") {
   try {
+    // Guard: only show the panel + track when the form looks filled, unless manually triggered.
+    // This prevents accidental button clicks (e.g. "Apply" on a listing page) from
+    // forcibly re-opening the widget after the user closed it.
+    if (trigger !== "manual button" && !hasUserFilledForm()) {
+      updateSubmitListenerStatus(`ignored unfilled click (${trigger})`);
+      return;
+    }
+
     showCopilotPanel("autofill");
     updateWorkflowSteps("autofill", [
       { status: "done", label: `Submit detected`, detail: trigger },
@@ -419,19 +419,6 @@ async function trackJobApplication(trigger = "submit") {
       { status: "pending", label: "Saving to dashboard" },
       { status: "pending", label: "Evaluating role with Gemma" },
     ]);
-
-    // Only bypass if manually requested via popup/widget button
-    if (trigger !== "manual button" && !hasUserFilledForm()) {
-      console.log("Submit tracker ignored: Name and email fields are currently empty or incomplete.");
-      updateSubmitListenerStatus(`ignored unfilled click (${trigger})`);
-      updateWorkflowSteps("autofill", [
-        { status: "done", label: `Submit detected`, detail: trigger },
-        { status: "error", label: "Form looked incomplete", detail: "Name/email were not readable yet, so nothing was saved." },
-        { status: "pending", label: "Saving to dashboard" },
-        { status: "pending", label: "Evaluating role with Gemma" },
-      ]);
-      return;
-    }
 
     const jobData = extractJob();
     // Set today's date as the applied date (local timezone to match dashboard's todayString)
@@ -468,8 +455,8 @@ async function trackJobApplication(trigger = "submit") {
       if (!alreadyToasted) {
         if (jobData.sourceUrl) trackedAppUrls.add(jobData.sourceUrl);
         showToast(status === 200
-          ? "↻ Updated this application in Job Hunt Cockpit."
-          : "✅ Application tracked in Job Hunt Cockpit!");
+          ? "↻ Updated this application in Claire."
+          : "✅ Application tracked in Claire!");
       }
       updateSubmitListenerStatus(`tracked via ${trigger}`);
     } else {
@@ -565,12 +552,11 @@ document.addEventListener("focusin", (e) => {
   lastFocusedInput = el;
   updateActiveFieldLabel();
 
-  // Self-healing check: try to fetch profile on input focus in case server was started late
-  ensureProfileLoaded().then((loaded) => {
-    if (loaded) {
-      showInlineTriggerFor(el);
-    }
-  });
+  // Only show the inline ⚡ trigger if the user has already activated the
+  // extension (toolbar is present). Never auto-inject on focus.
+  if (localProfile && document.getElementById("jh-floating-actions")) {
+    showInlineTriggerFor(el);
+  }
 });
 
 // Delay removal of inline elements to allow click events to register
@@ -1327,6 +1313,24 @@ function findInputs() {
     } else if (matches(/(?:why[_\-\s]*company|why[_\-\s]*this[_\-\s]*role|why[_\-\s]*do[_\-\s]*you[_\-\s]*want[_\-\s]*to[_\-\s]*join|cover[_\-\s]*letter)/i) && input.tagName === "TEXTAREA") {
       mapped.whyCompany = mapped.whyCompany || [];
       mapped.whyCompany.push(input);
+    } else if (matches(/(?:gender|sex|pronouns)/i)) {
+      mapped.gender = mapped.gender || [];
+      mapped.gender.push(input);
+    } else if (matches(/(?:race|ethnicity|ethnic[_\-\s]*origin|racial[_\-\s]*identity)/i)) {
+      mapped.race = mapped.race || [];
+      mapped.race.push(input);
+    } else if (matches(/(?:veteran|military[_\-\s]*service|protected[_\-\s]*veteran)/i)) {
+      mapped.veteranStatus = mapped.veteranStatus || [];
+      mapped.veteranStatus.push(input);
+    } else if (matches(/(?:disability|disabilities|differently[_\-\s]*abled)/i)) {
+      mapped.disabilityStatus = mapped.disabilityStatus || [];
+      mapped.disabilityStatus.push(input);
+    } else if (matches(/(?:portfolio|website|personal[_\-\s]*site|personal[_\-\s]*url)/i)) {
+      mapped.portfolio = mapped.portfolio || [];
+      mapped.portfolio.push(input);
+    } else if (matches(/(?:github|gitlab|bitbucket)/i)) {
+      mapped.github = mapped.github || [];
+      mapped.github.push(input);
     }
   });
 
@@ -1702,6 +1706,20 @@ function setSelectValue(select, val, type) {
   }
 }
 
+function pickResumeText(profile) {
+  const cv2 = profile.resumeText2 || "";
+  const cv1 = profile.resumeText || "";
+  if (selectedCv === "architect") return { text: cv2 || cv1, label: cv2 ? "Architect CV" : "Backend CV (fallback)" };
+  if (selectedCv === "backend") return { text: cv1, label: "Backend CV" };
+  // "auto": use architect CV only when resumeText2 exists and the page text signals architect/cloud/principal roles
+  if (cv2) {
+    const pageText = (document.body?.textContent || "").toLowerCase();
+    const architectSignals = /\b(architect|principal|cloud architect|solution architect|platform architect|enterprise architect|staff engineer|distinguished)\b/.test(pageText);
+    if (architectSignals) return { text: cv2, label: "Architect CV (auto)" };
+  }
+  return { text: cv1, label: "Backend CV (auto)" };
+}
+
 async function autofillWebForm(profile, { useAi = false } = {}) {
   if (!profile) return;
   ensureCopilotPanel(profile);
@@ -1715,11 +1733,34 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (summaryEl) summaryEl.textContent = "Scanning visible form fields...";
   if (logContainer) logContainer.hidden = false;
   if (logList) logList.innerHTML = "";
+
+  // Pick CV before scanning
+  const { text: resumeText, label: cvLabel } = pickResumeText(profile);
+
+  // Update fill button to show which CV was selected (DOM methods, no innerHTML)
+  const fillBtn = document.getElementById("jh-btn-prefill");
+  if (fillBtn) {
+    fillBtn.replaceChildren();
+    const icon = document.createElement("span");
+    icon.className = "jh-icon";
+    icon.textContent = "⚡";
+    const lbl = document.createElement("span");
+    lbl.className = "jh-btn-label";
+    lbl.textContent = `Filled · ${cvLabel}`;
+    fillBtn.append(icon, lbl);
+    fillBtn.title = `Used: ${cvLabel}`;
+  }
+
+  // Show explicit details of what we're feeding to Gemma
+  const jobCtxForLog = extractJob();
+  const gemmaFeedDetail = `${jobCtxForLog.pageText.length} chars of cleaned page text + your profile prompt + ${cvLabel}`;
+
   updateWorkflowSteps("autofill", [
     { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
+    { status: "done", label: `CV selected: ${cvLabel}`, detail: resumeText ? `${resumeText.length} chars` : "No CV text in profile" },
     { status: "active", label: "Scanning visible form controls" },
     { status: "pending", label: "Filling profile fields" },
-    { status: useAi ? "pending" : "done", label: "Gemma custom-field pass", detail: useAi ? "" : "Skipped by request." },
+    { status: useAi ? "pending" : "done", label: "Gemma custom-field pass", detail: useAi ? `Will feed: ${gemmaFeedDetail}` : "Skipped by request." },
   ]);
 
   const mapped = findInputs();
@@ -1738,6 +1779,8 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   // Track which DOM elements were already filled by regex
   const regexFilledElements = new Set();
 
+  // Audit log stores plain objects — rendered via DOM methods to avoid XSS from
+  // third-party page label text landing in innerHTML.
   const auditLog = [];
 
   const fillList = (inputs, val, type) => {
@@ -1754,8 +1797,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
       if (!didFill) return;
       markFieldFilled(regexFilledElements, input);
       filledCount++;
-      const label = getAutofillFieldLabel(input).slice(0, 40);
-      auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #FFB300;">${label}</strong>: <span style="opacity: 0.8;">${val}</span></li>`);
+      auditLog.push({ label: getAutofillFieldLabel(input).slice(0, 60), value: String(val).slice(0, 80), ai: false });
     });
   };
 
@@ -1772,6 +1814,35 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (mapped.noticePeriod) fillList(mapped.noticePeriod, profile.noticePeriod);
   if (mapped.introOneLiner) fillList(mapped.introOneLiner, profile.introOneLiner);
   if (mapped.whyCompany) fillList(mapped.whyCompany, profile.whyCompany);
+  if (mapped.gender) fillList(mapped.gender, profile.gender || "Decline to Self-Identify", "gender");
+  if (mapped.race) fillList(mapped.race, profile.race || "Decline to Self-Identify", "race");
+  if (mapped.veteranStatus) fillList(mapped.veteranStatus, profile.veteranStatus || "No", "veteranStatus");
+  if (mapped.disabilityStatus) fillList(mapped.disabilityStatus, profile.disabilityStatus || "No, I don't have a disability", "disabilityStatus");
+  if (mapped.portfolio) fillList(mapped.portfolio, profile.portfolio);
+  if (mapped.github) fillList(mapped.github, profile.github);
+
+  // ── CV text injection: paste resume text into visible textareas ──
+  if (resumeText) {
+    const allInputs = collectFillableElements({ visibleOnly: true });
+    allInputs.forEach((el) => {
+      if (el.tagName !== "TEXTAREA") return;
+      if (wasFieldFilled(regexFilledElements, el)) return;
+      if (isFieldAlreadyAnswered(el)) return;
+      const label = getAutofillFieldLabel(el).toLowerCase();
+      if (/\b(resume|cv|curriculum\s*vitae|paste\s*resume|copy\s*paste\s*(your\s*)?resume)\b/.test(label)) {
+        setInputValue(el, resumeText);
+        markFieldFilled(regexFilledElements, el);
+        filledCount++;
+        auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `[${cvLabel} — ${resumeText.length} chars]`, ai: false });
+      }
+    });
+  }
+
+  // ── CV file injection: inject uploaded PDF/DOCX into file inputs ──
+  const cvVariantForFile = selectedCv === "architect" ? "architect" : "backend";
+  const fileInjected = await injectCvFileToInputs(cvVariantForFile, auditLog);
+  if (fileInjected) filledCount++;
+
   updateWorkflowSteps("autofill", [
     { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
     { status: "done", label: "Scanned visible form controls" },
@@ -1865,21 +1936,18 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
             if (matchIdx !== -1) {
               applySelectIndex(el, matchIdx);
               aiFilledCount++;
-              const label = getAutofillFieldLabel(el).slice(0, 40);
-              auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #00C853;">[AI] ${label}</strong>: <span style="opacity: 0.8;">${value}</span></li>`);
+              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
             }
           } else if (isChoiceInput(el)) {
             if (setChoiceValue(el, value)) {
               aiFilledCount++;
               markFieldFilled(regexFilledElements, el);
-              const label = getAutofillFieldLabel(el).slice(0, 40);
-              auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #00C853;">[AI] ${label}</strong>: <span style="opacity: 0.8;">${value}</span></li>`);
+              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
             }
           } else {
             setInputValue(el, value);
             aiFilledCount++;
-            const label = getAutofillFieldLabel(el).slice(0, 40);
-            auditLog.push(`<li style="margin-bottom: 2px;"><strong style="color: #00C853;">[AI] ${label}</strong>: <span style="opacity: 0.8;">${value}</span></li>`);
+            auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
           }
         });
       filledCount += aiFilledCount;
@@ -1935,12 +2003,34 @@ function renderAutofillAudit(auditLog) {
       : "No supported empty form fields were found on this page.";
   }
 
-  if (logContainer && logList) {
-    logContainer.hidden = false;
-    logList.innerHTML = auditLog.length
-      ? auditLog.join("")
-      : `<li style="margin-bottom: 2px;">No fields changed.</li>`;
+  if (!logContainer || !logList) return;
+  logContainer.hidden = false;
+  logList.replaceChildren();
+
+  if (!auditLog.length) {
+    const li = document.createElement("li");
+    li.textContent = "No fields changed.";
+    logList.appendChild(li);
+    return;
   }
+
+  auditLog.forEach(({ label, value, ai }) => {
+    const li = document.createElement("li");
+    li.style.marginBottom = "2px";
+
+    const strong = document.createElement("strong");
+    strong.style.color = ai ? "#00C853" : "#FFB300";
+    strong.textContent = ai ? `[AI] ${label}` : label;
+
+    const sep = document.createTextNode(": ");
+
+    const val = document.createElement("span");
+    val.style.opacity = "0.8";
+    val.textContent = value;
+
+    li.append(strong, sep, val);
+    logList.appendChild(li);
+  });
 }
 
 
@@ -2083,6 +2173,35 @@ function toggleInlineDropdown(input, trigger) {
       fieldValue = localProfile.whyCompany;
       fieldLabel = "Why Company Snippet";
       fieldType = "whyCompany";
+    } else if (matches(/(?:gender|sex|pronouns)/i)) {
+      fieldValue = localProfile.gender || "Decline to Self-Identify";
+      fieldLabel = "Gender";
+      fieldType = "gender";
+    } else if (matches(/(?:race|ethnicity|ethnic[_\-\s]*origin)/i)) {
+      fieldValue = localProfile.race || "Decline to Self-Identify";
+      fieldLabel = "Ethnicity";
+      fieldType = "race";
+    } else if (matches(/(?:veteran|military[_\-\s]*service|protected[_\-\s]*veteran)/i)) {
+      fieldValue = localProfile.veteranStatus || "No";
+      fieldLabel = "Veteran Status";
+      fieldType = "veteranStatus";
+    } else if (matches(/(?:disability|disabilities)/i)) {
+      fieldValue = localProfile.disabilityStatus || "No, I don't have a disability";
+      fieldLabel = "Disability Status";
+      fieldType = "disabilityStatus";
+    } else if (matches(/(?:portfolio|personal[_\-\s]*site|personal[_\-\s]*url)/i)) {
+      fieldValue = localProfile.portfolio;
+      fieldLabel = "Portfolio URL";
+      fieldType = "portfolio";
+    } else if (matches(/(?:github|gitlab|bitbucket)/i)) {
+      fieldValue = localProfile.github;
+      fieldLabel = "GitHub URL";
+      fieldType = "github";
+    } else if (matches(/(?:resume|cv|curriculum\s*vitae|paste\s*resume)/i) && input.tagName === "TEXTAREA") {
+      const { text, label: cvLbl } = pickResumeText(localProfile);
+      fieldValue = text;
+      fieldLabel = cvLbl;
+      fieldType = "resumeText";
     }
   }
 
@@ -2190,7 +2309,7 @@ function injectWebCopilot(profile) {
   // Create floating actions bar container
   const actionsBar = document.createElement("div");
   actionsBar.id = "jh-floating-actions";
-  actionsBar.title = "Drag to move Job Hunt buttons";
+  actionsBar.title = "Drag to move Claire buttons";
 
   // Create Prefill Form button
   const prefillBtn = document.createElement("button");
@@ -2198,7 +2317,31 @@ function injectWebCopilot(profile) {
   prefillBtn.type = "button";
   prefillBtn.className = "jh-floating-btn jh-prefill-btn";
   prefillBtn.setAttribute("aria-label", "Scan and prefill form");
-  prefillBtn.innerHTML = `<span class="jh-icon">⚡</span>`;
+  prefillBtn.innerHTML = `<span class="jh-icon">⚡</span><span class="jh-btn-label">Fill</span>`;
+
+  // CV toggle button — cycles through auto / backend / architect
+  const cvBtn = document.createElement("button");
+  cvBtn.id = "jh-btn-cv";
+  cvBtn.type = "button";
+  cvBtn.className = "jh-floating-btn jh-cv-btn";
+  cvBtn.setAttribute("aria-label", "Switch CV");
+  const updateCvBtnLabel = () => {
+    cvBtn.replaceChildren();
+    const icon = document.createElement("span");
+    icon.className = "jh-icon";
+    icon.textContent = "📄";
+    const lbl = document.createElement("span");
+    lbl.className = "jh-btn-label";
+    lbl.textContent = selectedCv === "architect" ? "Arch CV" : selectedCv === "backend" ? "Backend CV" : "Auto CV";
+    cvBtn.append(icon, lbl);
+    cvBtn.title = `CV: ${selectedCv} — click to switch`;
+  };
+  updateCvBtnLabel();
+  cvBtn.addEventListener("click", () => {
+    selectedCv = selectedCv === "auto" ? "backend" : selectedCv === "backend" ? "architect" : "auto";
+    updateCvBtnLabel();
+    showToast(`CV switched to: ${selectedCv === "auto" ? "Auto (Gemma picks)" : selectedCv === "architect" ? "Architect CV" : "Backend CV"}`);
+  });
 
   // Create Evaluate Job button
   const evalBtn = document.createElement("button");
@@ -2207,7 +2350,16 @@ function injectWebCopilot(profile) {
   evalBtn.className = "jh-floating-btn jh-evaluate-btn";
   evalBtn.title = "Evaluate job with Gemma";
   evalBtn.setAttribute("aria-label", "Evaluate job with Gemma");
-  evalBtn.innerHTML = `<span class="jh-icon">🧠</span>`;
+  evalBtn.innerHTML = `<span class="jh-icon">🧠</span><span class="jh-btn-label">Evaluate</span>`;
+
+  // Create Company Check button
+  const companyBtn = document.createElement("button");
+  companyBtn.id = "jh-btn-company";
+  companyBtn.type = "button";
+  companyBtn.className = "jh-floating-btn jh-company-btn";
+  companyBtn.title = "Check if you've applied to this company before";
+  companyBtn.setAttribute("aria-label", "Check previous applications at this company");
+  companyBtn.innerHTML = `<span class="jh-icon">🏢</span><span class="jh-btn-label">Applied?</span>`;
 
   // Create Manual Track button for ATS pages whose submit event cannot be observed
   const trackBtn = document.createElement("button");
@@ -2216,7 +2368,7 @@ function injectWebCopilot(profile) {
   trackBtn.className = "jh-floating-btn jh-track-btn";
   trackBtn.title = "Manually add this application now";
   trackBtn.setAttribute("aria-label", "Manually add this application now");
-  trackBtn.innerHTML = `<span class="jh-icon">＋</span>`;
+  trackBtn.innerHTML = `<span class="jh-icon">＋</span><span class="jh-btn-label">Track</span>`;
 
   // Create Close/Hide button
   const hideBtn = document.createElement("button");
@@ -2233,7 +2385,9 @@ function injectWebCopilot(profile) {
   });
 
   actionsBar.appendChild(prefillBtn);
+  actionsBar.appendChild(cvBtn);
   actionsBar.appendChild(evalBtn);
+  actionsBar.appendChild(companyBtn);
   actionsBar.appendChild(trackBtn);
   actionsBar.appendChild(hideBtn);
   document.body.appendChild(actionsBar);
@@ -2264,9 +2418,9 @@ function injectWebCopilot(profile) {
   widget.innerHTML = `
     <div class="jh-widget-header">
       <div class="jh-widget-brand">
-        <div class="jh-brand-icon">JH</div>
+        <div class="jh-brand-icon">C</div>
         <div>
-          <div class="jh-brand-subtitle">Job Hunt Copilot</div>
+          <div class="jh-brand-subtitle">Claire</div>
           <div class="jh-brand-title">Web Assistant</div>
         </div>
       </div>
@@ -2349,16 +2503,19 @@ function injectWebCopilot(profile) {
             <label class="jh-form-label" for="jh-f-skills">Skills</label>
             <input id="jh-f-skills" name="skills" class="jh-form-input" placeholder="Python, TypeScript..." autocomplete="off" />
           </div>
-          <div class="jh-form-field">
-            <label class="jh-form-label" for="jh-f-group">Group / Category</label>
-            <input id="jh-f-group" name="group" class="jh-form-input" placeholder="e.g., Tier 1, Warm Leads" autocomplete="off" />
-          </div>
-          <div class="jh-form-field">
-            <label class="jh-form-label" for="jh-f-notes">Notes</label>
-            <textarea id="jh-f-notes" name="notes" rows="2" class="jh-form-input"></textarea>
-          </div>
           <button class="jh-form-submit-btn" type="submit">Save to Tracker</button>
         </form>
+      </div>
+
+      <!-- Company Check View -->
+      <div id="jh-company-panel" class="jh-panel-section" hidden>
+        <h3 class="jh-section-title">🏢 Applied Here?</h3>
+        <div class="jh-company-detected" id="jh-company-detected-name"></div>
+        <div class="jh-draft-loading" id="jh-company-loading">
+          <div class="jh-spinner"></div>
+          <span style="color:#A5A5AB;">Checking your applications...</span>
+        </div>
+        <div id="jh-company-result"></div>
       </div>
     </div>
   `;
@@ -2487,8 +2644,6 @@ function injectWebCopilot(profile) {
       document.getElementById("jh-f-location").value = finalData.location || "";
       document.getElementById("jh-f-salary").value = finalData.salary || "";
       document.getElementById("jh-f-skills").value = Array.isArray(finalData.skills) ? finalData.skills.join(", ") : finalData.skills || "";
-      document.getElementById("jh-f-group").value = finalData.group || "";
-      document.getElementById("jh-f-notes").value = finalData.notes || "";
     } catch (err) {
       console.warn("AI extraction failed:", err);
       updateWorkflowSteps("track", [
@@ -2504,8 +2659,6 @@ function injectWebCopilot(profile) {
       document.getElementById("jh-f-location").value = rulesGuess.location || "";
       document.getElementById("jh-f-salary").value = rulesGuess.salary || "";
       document.getElementById("jh-f-skills").value = Array.isArray(rulesGuess.skills) ? rulesGuess.skills.join(", ") : rulesGuess.skills || "";
-      document.getElementById("jh-f-group").value = rulesGuess.group || "";
-      document.getElementById("jh-f-notes").value = rulesGuess.notes || "";
     } finally {
       loading.classList.remove("visible");
       form.hidden = false;
@@ -2543,8 +2696,6 @@ function injectWebCopilot(profile) {
       location: document.getElementById("jh-f-location").value.trim(),
       salary: document.getElementById("jh-f-salary").value.trim(),
       skills: document.getElementById("jh-f-skills").value.split(/[,;]+/).map((s) => s.trim()).filter(Boolean),
-      group: document.getElementById("jh-f-group").value.trim(),
-      notes: document.getElementById("jh-f-notes").value.trim(),
       dateApplied: isSaved ? "" : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
       appliedAt: isSaved ? "" : appliedAt,
       stageDateTimes: isSaved ? {} : { Applied: appliedAt },
@@ -2576,8 +2727,8 @@ function injectWebCopilot(profile) {
       ]);
       showToast(
         isSaved
-          ? (status === 200 ? "↻ Updated — saved for later (not marked applied)." : "🔖 Saved for later in Job Hunt Cockpit.")
-          : (status === 200 ? "↻ Updated the existing entry for this job in your tracker." : "✅ New application saved to Job Hunt Cockpit!")
+          ? (status === 200 ? "↻ Updated — saved for later (not marked applied)." : "🔖 Saved for later in Claire.")
+          : (status === 200 ? "↻ Updated the existing entry for this job in your tracker." : "✅ New application saved to Claire!")
       );
       // Open or focus the dashboard and show the newly saved application's drawer.
       chrome.runtime.sendMessage({
@@ -2595,6 +2746,48 @@ function injectWebCopilot(profile) {
     } finally {
       saveBtn.disabled = false;
       saveBtn.textContent = "Save to Tracker";
+    }
+  });
+
+  // Company Check Button Handler
+  companyBtn.addEventListener("click", async () => {
+    showCopilotPanel("company");
+
+    const detectedEl = document.getElementById("jh-company-detected-name");
+    const loadingEl = document.getElementById("jh-company-loading");
+    const resultEl = document.getElementById("jh-company-result");
+
+    const detectedCompany = extractJob().company;
+
+    if (detectedEl) {
+      detectedEl.textContent = detectedCompany
+        ? `Checking: ${detectedCompany}`
+        : "No company name detected on this page.";
+    }
+
+    if (!detectedCompany) {
+      if (loadingEl) loadingEl.classList.remove("visible");
+      renderCompanyPanel(resultEl, "", []);
+      return;
+    }
+
+    if (loadingEl) loadingEl.classList.add("visible");
+    if (resultEl) resultEl.innerHTML = "";
+
+    try {
+      const apps = await apiProxy("http://127.0.0.1:8787/api/applications");
+      const normalize = (s) => (s || "").toLowerCase().trim().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+      const nb = normalize(detectedCompany);
+      const matches = (apps || []).filter((app) => {
+        if (!app.company) return false;
+        const na = normalize(app.company);
+        return na === nb || na.includes(nb) || nb.includes(na);
+      });
+      if (loadingEl) loadingEl.classList.remove("visible");
+      renderCompanyPanel(resultEl, detectedCompany, matches);
+    } catch (err) {
+      if (loadingEl) loadingEl.classList.remove("visible");
+      renderCompanyPanel(resultEl, detectedCompany, null);
     }
   });
 
@@ -2710,8 +2903,8 @@ function readFloatingActionsPosition() {
     const parsed = JSON.parse(raw);
     if (!Number.isFinite(parsed.x) || !Number.isFinite(parsed.y)) return null;
     return {
-      x: clamp(parsed.x, 8, Math.max(8, window.innerWidth - 96)),
-      y: clamp(parsed.y, 8, Math.max(8, window.innerHeight - 96)),
+      x: clamp(parsed.x, 8, Math.max(8, window.innerWidth - 396)),
+      y: clamp(parsed.y, 8, Math.max(8, window.innerHeight - 80)),
     };
   } catch {
     return null;
@@ -2885,45 +3078,54 @@ function injectStyles() {
       position: fixed;
       bottom: 24px;
       right: 24px;
+      width: 380px;
       display: flex;
-      gap: 8px;
+      gap: 6px;
       z-index: 1000000;
-      align-items: center;
+      align-items: stretch;
       pointer-events: auto;
       font-family: 'Outfit', system-ui, -apple-system, sans-serif;
       padding: 8px;
-      border-radius: 999px;
-      background: rgba(18, 20, 24, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
-      backdrop-filter: blur(20px) saturate(170%);
-      -webkit-backdrop-filter: blur(20px) saturate(170%);
+      border-radius: 16px;
+      background: rgba(18, 20, 24, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255,255,255,0.04) inset;
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
       cursor: grab;
       touch-action: none;
       user-select: none;
       transition: box-shadow 0.3s, border-color 0.3s;
+      animation: jh-bar-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes jh-bar-enter {
+      from { opacity: 0; transform: translateY(14px) scale(0.97); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     #jh-floating-actions.jh-dragging {
       cursor: grabbing;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
     }
 
     .jh-floating-btn {
-      width: 36px;
-      height: 36px;
-      padding: 0;
-      border-radius: 999px;
+      flex: 1;
+      height: 48px;
+      padding: 0 4px;
+      border-radius: 10px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       font-family: 'Outfit', sans-serif;
-      font-size: 15px;
+      font-size: 18px;
       font-weight: 600;
       cursor: pointer;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
-      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s, filter 0.2s;
+      gap: 3px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s, filter 0.2s, opacity 0.2s;
       color: #FFFFFF;
     }
 
@@ -2931,62 +3133,98 @@ function injectStyles() {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 1em;
-      height: 1em;
+      line-height: 1;
+      pointer-events: none;
+      font-size: 16px;
+    }
+
+    .jh-btn-label {
+      font-size: 8.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      opacity: 0.82;
       line-height: 1;
       pointer-events: none;
     }
 
     .jh-floating-btn:hover {
-      transform: scale(1.08) translateY(-1px);
-      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
-      filter: brightness(1.1);
+      transform: translateY(-2px) scale(1.04);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+      filter: brightness(1.12);
     }
 
     .jh-floating-btn:active {
-      transform: scale(0.98) translateY(0);
+      transform: translateY(0) scale(0.97);
+      filter: brightness(0.95);
     }
 
     .jh-prefill-btn {
-      background: linear-gradient(135deg, #FFB300, #F57C00);
-      border-color: rgba(255, 179, 0, 0.3);
-      color: #000000;
+      background: linear-gradient(145deg, #FFB300, #F57C00);
+      border-color: rgba(255, 179, 0, 0.25);
+      color: #1A0C00;
       font-weight: 700;
     }
 
+    .jh-prefill-btn .jh-btn-label { color: rgba(26,12,0,0.75); }
+
     .jh-prefill-btn.jh-no-form {
-      background: linear-gradient(135deg, #FFE082, #FFB300);
-      opacity: 0.92;
+      background: linear-gradient(145deg, #FFE082, #FFB300);
+      opacity: 0.88;
     }
 
     .jh-evaluate-btn {
-      background: linear-gradient(135deg, #7C4DFF, #536DFE);
-      border-color: rgba(124, 77, 255, 0.3);
+      background: linear-gradient(145deg, #7C4DFF, #536DFE);
+      border-color: rgba(124, 77, 255, 0.25);
+    }
+
+    .jh-company-btn {
+      background: linear-gradient(145deg, #00B4DB, #0077B6);
+      border-color: rgba(0, 180, 219, 0.25);
     }
 
     .jh-track-btn {
-      background: linear-gradient(135deg, #00C853, #00A86B);
-      border-color: rgba(0, 200, 83, 0.3);
+      background: linear-gradient(145deg, #00C853, #00A86B);
+      border-color: rgba(0, 200, 83, 0.25);
       color: #001B0C;
       font-weight: 800;
     }
 
+    .jh-track-btn .jh-btn-label { color: rgba(0,27,12,0.7); }
+
     .jh-hide-btn {
-      background: rgba(30, 31, 36, 0.8);
-      border-color: rgba(255, 255, 255, 0.15);
-      color: rgba(255, 255, 255, 0.7);
+      flex: 0 0 44px;
+      background: rgba(40, 42, 48, 0.9);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+    }
+
+    .jh-hide-btn:hover {
+      color: #FFF;
+      background: rgba(60, 62, 70, 0.95);
     }
 
     .jh-floating-btn:disabled {
-      opacity: 0.7;
+      opacity: 0.6;
       cursor: wait;
-      transform: none;
+      transform: none !important;
+    }
+
+    /* Panel slide-in animation */
+    @keyframes jh-panel-slide {
+      from { opacity: 0; transform: translateX(6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .jh-panel-section:not([hidden]) {
+      animation: jh-panel-slide 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     /* Glassmorphic card widget */
     #jh-copilot-widget {
       position: fixed;
-      bottom: 84px;
+      bottom: 100px;
       right: 24px;
       width: 380px;
       max-height: calc(100vh - 120px);
@@ -3419,6 +3657,112 @@ function injectStyles() {
     .jh-form-submit-btn:active {
       transform: translateY(0) !important;
     }
+
+    /* Company Check Panel */
+    .jh-company-detected {
+      font-size: 11.5px;
+      color: #A5A5AB;
+      margin-bottom: 12px;
+      padding: 8px 12px;
+      background: rgba(0, 180, 219, 0.06);
+      border: 1px solid rgba(0, 180, 219, 0.18);
+      border-radius: 8px;
+      font-weight: 500;
+    }
+
+    .jh-company-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: 0.4px;
+    }
+
+    .jh-company-badge.applied {
+      background: rgba(0, 200, 83, 0.12);
+      color: #65D99A;
+      border: 1px solid rgba(0, 200, 83, 0.3);
+    }
+
+    .jh-company-badge.new {
+      background: rgba(124, 77, 255, 0.12);
+      color: #B39DDB;
+      border: 1px solid rgba(124, 77, 255, 0.3);
+    }
+
+    .jh-company-badge.error {
+      background: rgba(255, 61, 0, 0.1);
+      color: #FF8A65;
+      border: 1px solid rgba(255, 61, 0, 0.3);
+    }
+
+    .jh-company-empty {
+      font-size: 12px;
+      color: #A5A5AB;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .jh-company-apps {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .jh-app-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 11px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 9px;
+      gap: 10px;
+      transition: background 0.2s;
+    }
+
+    .jh-app-row:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .jh-app-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .jh-app-role {
+      display: block !important;
+      font-size: 12.5px !important;
+      font-weight: 600 !important;
+      color: #E2E2E6 !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      max-width: 100% !important;
+    }
+
+    .jh-app-date {
+      display: block !important;
+      font-size: 10px !important;
+      color: #8E8E96 !important;
+    }
+
+    .jh-app-status {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -3484,4 +3828,159 @@ function renderInlineEvaluation(evaluation, parentDiv) {
   }
 
   parentDiv.innerHTML = html;
+}
+
+function renderCompanyPanel(container, company, matches) {
+  if (!container) return;
+
+  // null matches = API error
+  if (matches === null) {
+    const badge = document.createElement("span");
+    badge.className = "jh-company-badge error";
+    badge.textContent = "⚠ Connection error";
+    const msg = document.createElement("p");
+    msg.className = "jh-company-empty";
+    msg.textContent = "Could not connect to the local dashboard. Make sure the app is running at http://127.0.0.1:8787.";
+    container.replaceChildren(badge, msg);
+    return;
+  }
+
+  // No company detected
+  if (!company) {
+    const badge = document.createElement("span");
+    badge.className = "jh-company-badge new";
+    badge.textContent = "No company detected";
+    const msg = document.createElement("p");
+    msg.className = "jh-company-empty";
+    msg.textContent = "Could not detect the company name on this page. Navigate to the company's job posting page and try again.";
+    container.replaceChildren(badge, msg);
+    return;
+  }
+
+  // No previous applications
+  if (matches.length === 0) {
+    const badge = document.createElement("span");
+    badge.className = "jh-company-badge new";
+    badge.textContent = "✨ First application";
+    const msg = document.createElement("p");
+    msg.className = "jh-company-empty";
+    msg.textContent = "No previous applications found for this company. This would be your first time applying!";
+    container.replaceChildren(badge, msg);
+    return;
+  }
+
+  const statusColors = {
+    Applied: "#FFB300",
+    Interview: "#7C4DFF",
+    Offer: "#00C853",
+    Rejected: "#FF6B6B",
+    Saved: "#64B5F6",
+    "OA / Assessment": "#FF9800",
+    "Recruiter Screen": "#AB47BC",
+  };
+
+  const sorted = [...matches].sort((a, b) =>
+    new Date(b.dateApplied || b.appliedAt || 0) - new Date(a.dateApplied || a.appliedAt || 0)
+  );
+
+  const badge = document.createElement("span");
+  badge.className = "jh-company-badge applied";
+  badge.textContent = `Applied ✓  ×${matches.length}`;
+
+  const appsDiv = document.createElement("div");
+  appsDiv.className = "jh-company-apps";
+
+  sorted.forEach((app) => {
+    const color = statusColors[app.status] || "#A5A5AB";
+    const row = document.createElement("div");
+    row.className = "jh-app-row";
+
+    const info = document.createElement("div");
+    info.className = "jh-app-info";
+
+    const roleEl = document.createElement("span");
+    roleEl.className = "jh-app-role";
+    roleEl.textContent = (app.role || "").trim() || "Unknown Role";
+    // Inline styles override any page CSS that might hide or recolour the text
+    roleEl.style.cssText = "display:block;font-size:12.5px;font-weight:600;color:#E2E2E6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;";
+
+    const dateEl = document.createElement("span");
+    dateEl.className = "jh-app-date";
+    const dateStr = (app.appliedAt || app.dateApplied)
+      ? new Date(app.appliedAt || app.dateApplied).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+      : "";
+    dateEl.textContent = dateStr;
+    dateEl.style.cssText = "display:block;font-size:10px;color:#8E8E96;";
+
+    info.appendChild(roleEl);
+    if (dateEl.textContent) info.appendChild(dateEl);
+
+    const statusEl = document.createElement("span");
+    statusEl.className = "jh-app-status";
+    statusEl.textContent = app.status || "";
+    statusEl.style.cssText = `background:${color}1a; color:${color}; border-color:${color}40;`;
+
+    row.appendChild(info);
+    row.appendChild(statusEl);
+    appsDiv.appendChild(row);
+  });
+
+  container.replaceChildren(badge, appsDiv);
+}
+
+// ── CV file injection ───────────────────────────────────────────
+// Fetches the uploaded CV from the cockpit server and injects it into the first
+// file input on the page that looks like a resume/CV upload field.
+// Returns true if a file was successfully injected, false otherwise.
+async function injectCvFileToInputs(variant, auditLog = []) {
+  try {
+    // Find file inputs that look like resume/CV upload fields
+    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]')).filter((el) => {
+      if (isInCopilotUi(el)) return false;
+      const label = getLabelText(el).toLowerCase();
+      const name = (el.name || "").toLowerCase();
+      const id = (el.id || "").toLowerCase();
+      const accept = (el.accept || "").toLowerCase();
+      const combined = `${label} ${name} ${id}`;
+      const looksLikeResume = /\b(resume|cv|curriculum|upload.*resume|attach.*resume|resume.*upload|upload.*cv)\b/i.test(combined);
+      const acceptsPdf = !accept || accept.includes("pdf") || accept.includes("doc") || accept.includes("*");
+      return looksLikeResume && acceptsPdf;
+    });
+
+    if (fileInputs.length === 0) return false;
+
+    // Fetch the CV data from the cockpit server
+    const cvData = await apiProxy(`/api/profile/cv/${variant}`);
+    if (!cvData || !cvData.data || !cvData.fileName) return false;
+
+    // Decode base64 → Uint8Array → Blob → File
+    const byteChars = atob(cvData.data);
+    const byteArr = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([byteArr], { type: cvData.mimeType || "application/pdf" });
+    const file = new File([blob], cvData.fileName, { type: cvData.mimeType || "application/pdf" });
+
+    // Use DataTransfer to set the file on the input element
+    const dt = new DataTransfer();
+    dt.items.add(file);
+
+    let injected = false;
+    for (const input of fileInputs) {
+      try {
+        Object.defineProperty(input, "files", { value: dt.files, writable: true, configurable: true });
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        auditLog.push({ label: getLabelText(input).slice(0, 60) || "resume file input", value: `[CV file: ${cvData.fileName}]`, ai: false });
+        injected = true;
+        break; // Inject only into the first matching file input
+      } catch {}
+    }
+
+    if (injected) {
+      showToast(`CV file injected: ${cvData.fileName}`);
+    }
+    return injected;
+  } catch {
+    return false;
+  }
 }

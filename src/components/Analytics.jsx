@@ -1,4 +1,12 @@
 import React, { useState } from "react";
+import {
+  weeklyApplicationCounts,
+  computeResponseStats,
+  avgDaysToFirstResponse,
+  isStale,
+  getCurrentStageTimestamp,
+  STALE_THRESHOLD_DAYS,
+} from "../lib/metrics.mjs";
 
 export default function Analytics({
   applications,
@@ -183,20 +191,22 @@ export default function Analytics({
   }).length;
   const companyOfferRateVal = totalCompaniesCount > 0 ? Math.round((companyOfferCount / totalCompaniesCount) * 100) : 0;
 
-  // Stale Roles
-  const fourteenDaysAgo = new Date();
-  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-
-  const staleRoles = applications.filter((a) => {
-    if (a.status !== "Applied") return false;
-    const appliedTime = parseDateTime(getAppliedTimestamp(a) || a.dateApplied);
-    return appliedTime > 0 && appliedTime < fourteenDaysAgo.getTime();
-  });
+  // Stale Roles — uses the SAME shared definition as the Board's "Stalled"
+  // column and "Needs follow-up" stat: any active (non-Offer/Rejected) role
+  // whose current stage hasn't moved in STALE_THRESHOLD_DAYS+ days. Previously
+  // this only counted "Applied" roles, so it silently under-reported.
+  const staleRoles = applications.filter((a) => isStale(a));
 
   const activeCount = Object.values(companyGroups).filter((apps) => getCompanyHighestStatus(apps) !== "Rejected").length;
   const closedCount = totalCompaniesCount - activeCount;
   const activePct = totalCompaniesCount > 0 ? Math.round((activeCount / totalCompaniesCount) * 100) : 0;
   const closedPct = totalCompaniesCount > 0 ? Math.round((closedCount / totalCompaniesCount) * 100) : 0;
+
+  // ── Response & momentum analytics (computed per application) ──
+  const responseStats = computeResponseStats(applications);
+  const avgResponseDays = avgDaysToFirstResponse(applications);
+  const momentum = weeklyApplicationCounts(applications, { weeks: 8 });
+  const maxWeek = Math.max(1, ...momentum.map((w) => w.count));
 
   const handleCategorize = async () => {
     setClassifying(true);
@@ -279,7 +289,7 @@ export default function Analytics({
                 <span className="metric-card-icon">⏳</span>
               </div>
               <strong className="metric-card-value" id="analyticStaleCount">{staleRoles.length}</strong>
-              <p className="metric-card-desc">No updates in 14+ days</p>
+              <p className="metric-card-desc">No movement in {STALE_THRESHOLD_DAYS}+ days</p>
             </article>
 
             <article className="metric-card" id="cardAppliedToday">
@@ -332,6 +342,46 @@ export default function Analytics({
               <strong className="metric-card-value" id="analyticTotalApplications">{totalCompaniesCount}</strong>
               <p className="metric-card-desc">Unique companies targeted</p>
             </article>
+          </div>
+
+          <div className="analytics-panel-card response-card">
+            <h3>Response & Momentum</h3>
+            <p style={{ fontSize: "11px", color: "var(--md-on-surface-variant)", marginTop: "-6px", marginBottom: "12px" }}>
+              How often you hear back, how fast, and your weekly application pace.
+            </p>
+            <div className="response-stat-row">
+              <div className="response-stat" title="Share of applications that advanced past Applied or were explicitly rejected">
+                <strong>{responseStats.responseRate}%</strong>
+                <span>Response rate</span>
+              </div>
+              <div className="response-stat" title="Share of applications that advanced past Applied (positive signal)">
+                <strong>{responseStats.positiveRate}%</strong>
+                <span>Positive rate</span>
+              </div>
+              <div className={`response-stat ${responseStats.ghosted > 0 ? "warn" : ""}`} title="Still in Applied with no movement for 14+ days">
+                <strong>{responseStats.ghosted}</strong>
+                <span>Ghosted</span>
+              </div>
+              <div className="response-stat" title="Average whole days from applying to the first post-Applied stage">
+                <strong>{avgResponseDays === null ? "—" : `${avgResponseDays}d`}</strong>
+                <span>Avg to reply</span>
+              </div>
+            </div>
+            <div className="momentum-chart" aria-label="Applications submitted per week over the last 8 weeks">
+              {momentum.map((week) => {
+                const pct = Math.round((week.count / maxWeek) * 100);
+                const label = new Date(`${week.weekStart}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                return (
+                  <div className="momentum-col" key={week.weekStart} title={`Week of ${label}: ${week.count} ${week.count === 1 ? "application" : "applications"}`}>
+                    <div className="momentum-bar-track">
+                      <div className="momentum-bar-fill" style={{ height: `${week.count ? Math.max(6, pct) : 0}%` }} />
+                    </div>
+                    <span className="momentum-count">{week.count}</span>
+                    <span className="momentum-week">{label}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="analytics-panel-card funnel-card">
@@ -438,19 +488,21 @@ export default function Analytics({
                     <tr>
                       <th>Company</th>
                       <th>Role</th>
-                      <th>Applied</th>
+                      <th>Stage</th>
+                      <th>Idle</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody id="staleRolesList">
                     {staleRoles
-                      .sort((a, b) => parseDateTime(getAppliedTimestamp(a) || a.dateApplied) - parseDateTime(getAppliedTimestamp(b) || b.dateApplied))
+                      .sort((a, b) => parseDateTime(getCurrentStageTimestamp(a) || getAppliedTimestamp(a)) - parseDateTime(getCurrentStageTimestamp(b) || getAppliedTimestamp(b)))
                       .map((app) => (
                         <tr key={app.id}>
                           <td style={{ fontWeight: "bold" }}>{app.company}</td>
                           <td>{app.role}</td>
-                          <td title={formatDateTimeLong(getAppliedTimestamp(app) || app.dateApplied)}>
-                            {formatAge(getAppliedTimestamp(app) || app.dateApplied)}
+                          <td>{app.status}</td>
+                          <td title={formatDateTimeLong(getCurrentStageTimestamp(app) || getAppliedTimestamp(app))}>
+                            {formatAge(getCurrentStageTimestamp(app) || getAppliedTimestamp(app))}
                           </td>
                           <td>
                             <button className="stale-action-btn" type="button" onClick={() => onOpenDrawer(app.id)}>
