@@ -791,7 +791,14 @@ function SearchTags({ fieldFilters, searchRaw, onRemove }) {
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function Dashboard({ applications, onOpenAppInBoard, fetchApplications }) {
+export default function Dashboard({
+  applications,
+  fetchApplications,
+  openAppId,
+  onOpenAppHandled,
+  statusFilterOverride,
+  onStatusFilterOverrideHandled,
+}) {
   const [searchRaw, setSearchRaw] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApp, setSelectedApp] = useState(null);
@@ -813,6 +820,20 @@ export default function Dashboard({ applications, onOpenAppInBoard, fetchApplica
     const fresh = applications.find((a) => a.id === selectedApp.id);
     if (fresh) setSelectedApp(fresh);
   }, [applications]);
+
+  useEffect(() => {
+    if (!openAppId) return;
+    const app = applications.find((a) => a.id === openAppId);
+    if (!app) return;
+    setSelectedApp(app);
+    onOpenAppHandled?.();
+  }, [openAppId, applications, onOpenAppHandled]);
+
+  useEffect(() => {
+    if (!statusFilterOverride) return;
+    setStatusFilter(statusFilterOverride);
+    onStatusFilterOverrideHandled?.();
+  }, [statusFilterOverride, onStatusFilterOverrideHandled]);
 
   const { fieldFilters, globalText } = useMemo(() => parseOmniSearch(searchRaw), [searchRaw]);
 
@@ -1091,6 +1112,18 @@ export default function Dashboard({ applications, onOpenAppInBoard, fetchApplica
             {searchRaw && (
               <button className="ndash-search-clear" onClick={() => setSearchRaw("")} type="button" aria-label="Clear search">✕</button>
             )}
+          </div>
+          <div className="ndash-topbar-actions">
+            <a
+              className="ndash-export-btn"
+              href="/api/export.json"
+              download
+              title="Export applications as JSON"
+              aria-label="Export applications as JSON"
+            >
+              <span className="ndash-export-icon" aria-hidden="true">⇩</span>
+              <span>JSON</span>
+            </a>
           </div>
         </div>
 

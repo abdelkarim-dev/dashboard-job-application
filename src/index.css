@@ -1402,7 +1402,7 @@ button, input, select, textarea { font: inherit; }
   display: flex;
 }
 
-/* Board cards list */
+/* Legacy card list */
 .board-cards {
   flex: 1;
   overflow-y: auto;
@@ -1811,7 +1811,7 @@ textarea.drawer-input {
 
 .drawer-save-btn:hover { box-shadow: var(--shadow-2); }
 
-/* Wide 2-pane drawer variant (used on the Board) */
+/* Wide 2-pane drawer variant */
 .detail-drawer.detail-drawer-wide {
   width: min(1100px, 96vw);
   left: 50%;
@@ -6528,6 +6528,40 @@ body.pane-resizing {
   transition: color 0.15s;
 }
 .ndash-search-clear:hover { color: var(--md-on-surface); }
+.ndash-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.ndash-export-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 10px;
+  background: var(--md-surface-2);
+  color: var(--md-on-surface);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.ndash-export-btn:hover {
+  background: var(--ndash-fill-hover);
+  border-color: var(--md-outline);
+  transform: translateY(-1px);
+}
+.ndash-export-btn:active { transform: none; }
+.ndash-export-icon {
+  font-size: 16px;
+  line-height: 1;
+}
 
 /* ── Filter bar ──────────────────────────────────── */
 .ndash-filterbar {
@@ -6898,7 +6932,12 @@ body.pane-resizing {
 @media (max-width: 600px) {
   .ndash-grid { grid-template-columns: 1fr; }
   .ndash-topbar-left { width: 100%; }
-  .ndash-search-wrap { max-width: 100%; width: 100%; }
+  .ndash-search-wrap { max-width: none; width: calc(100% - 76px); margin: 0; }
+  .ndash-topbar-actions { margin-left: auto; }
+  .ndash-export-btn {
+    width: 60px;
+    padding: 0;
+  }
 }
 
 /* ════════════════════════════════════════════════════
@@ -8050,7 +8089,7 @@ body.pane-resizing {
   background: #ffffff;
 }
 
-/* Board surfaces */
+/* Legacy card surfaces */
 :root:not([data-theme="dark"]) .board-card,
 :root:not([data-theme="dark"]) .board-card-standard {
   background: #ffffff !important;

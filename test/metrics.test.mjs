@@ -91,7 +91,7 @@ test("getCurrentStageTimestamp resolves the timestamp of the app's current stage
   assert.equal(getCurrentStageTimestamp(null), "");
 });
 
-test("isStale matches the Board definition: active roles idle for the threshold", () => {
+test("isStale matches the dashboard definition: active roles idle for the threshold", () => {
   assert.equal(STALE_THRESHOLD_DAYS, 10);
   assert.ok(NON_STALE_STATUSES.has("Offer") && NON_STALE_STATUSES.has("Rejected"));
 

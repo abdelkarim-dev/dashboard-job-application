@@ -1,6 +1,6 @@
 // Pure, dependency-free analytics + tracking helpers for Claire (job hunt copilot).
 //
-// This module is imported BOTH by the React dashboard (Board, Analytics) and by
+// This module is imported BOTH by the React dashboard (Dashboard, Analytics) and by
 // the Node test runner (`node --test`), so it must stay free of any React/DOM
 // references. Every time-based helper takes an injectable `now` so the behaviour
 // is deterministic under test.
@@ -60,7 +60,7 @@ export function getRejectedTimestamp(app) {
   return (app && (app.rejectedAt || app.stageDateTimes?.Rejected)) || "";
 }
 
-// ── Stale detection (shared by Board + Analytics) ──
+// ── Stale detection (shared by Dashboard + Analytics) ──
 // An application is "stale" when its CURRENT stage has not moved for
 // STALE_THRESHOLD_DAYS+ days. Terminal stages (Offer/Rejected) are never stale.
 // Both views import these so "stale" means exactly one thing across the app.

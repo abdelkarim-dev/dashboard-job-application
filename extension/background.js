@@ -9,7 +9,7 @@ let lastFetch = 0;
 // Tabs where content.js flagged a likely job posting. Cleared on tab close.
 const jobPageTabs = new Set();
 
-// "Applied" mirrors the dashboard's own definition (metrics.mjs / Board.jsx):
+// "Applied" mirrors the dashboard's own definition (metrics.mjs):
 // a record counts as applied once it has an applied timestamp. A tracked record
 // without one is merely saved/captured for later.
 function isApplied(app) {
@@ -187,7 +187,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // Sent by the extension "+" form after saving an application. Opens or focuses
-  // the dashboard and tells it to open the drawer for the saved application.
+  // the dashboard and tells it to open the panel for the saved application.
   if (msg?.type === "OPEN_DASHBOARD") {
     const appId = msg.appId || "";
     chrome.tabs.query({ url: "http://127.0.0.1:8787/*" }, (tabs) => {
@@ -196,7 +196,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.tabs.update(tab.id, { active: true });
         chrome.windows.update(tab.windowId, { focused: true });
         if (appId) {
-          // Relay to the page via content.js so the React drawer opens without
+          // Relay to the page via content.js so the React panel opens without
           // a full reload (avoids disrupting an in-progress edit session).
           setTimeout(() => {
             chrome.tabs.sendMessage(tab.id, { type: "OPEN_APP_DRAWER", appId }).catch(() => {});
@@ -204,8 +204,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       } else {
         const url = appId
-          ? `http://127.0.0.1:8787/?openApp=${encodeURIComponent(appId)}#/board`
-          : "http://127.0.0.1:8787/#/board";
+          ? `http://127.0.0.1:8787/?openApp=${encodeURIComponent(appId)}#/dashboard`
+          : "http://127.0.0.1:8787/#/dashboard";
         chrome.tabs.create({ url });
       }
     });

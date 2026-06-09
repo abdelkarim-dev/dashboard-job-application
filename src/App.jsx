@@ -1,5 +1,4 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
-import Board from "./components/Board.jsx";
 import Analytics from "./components/Analytics.jsx";
 import Practice from "./components/Practice.jsx";
 import Profile from "./components/Profile.jsx";
@@ -38,18 +37,14 @@ export default function App() {
     if (hash === "#/system-design") return "systemdesign";
     if (hash === "#/profile") return "profile";
     if (hash === "#/dashboard") return "newdashboard";
-    if (hash === "#/board") return "board";
+    if (hash === "#/board") return "newdashboard";
     return "newdashboard";
   });
   const [applications, setApplications] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
-  const [boardGrouping, setBoardGrouping] = useState("company");
-  const [funnelFilter, setFunnelFilter] = useState("");
-  // App ID to auto-open in the drawer — set from ?openApp= URL param or postMessage
+  const [dashboardStatusFilter, setDashboardStatusFilter] = useState("");
+  // App ID to auto-open in the dashboard panel — set from ?openApp= URL param or postMessage
   const [pendingOpenAppId, setPendingOpenAppId] = useState(null);
-  // Detail Drawer state shared between Board and Analytics
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerAppId, setDrawerAppId] = useState(null);
 
   // LeetCode focus timer — lifted here so it survives tab switches.
   const [timerState, setTimerState] = useState(() => {
@@ -158,7 +153,7 @@ export default function App() {
     return () => clearInterval(id);
   }, [reminders, applications]);
 
-  // Open the dashboard drawer for a specific app when directed from the extension.
+  // Open the dashboard panel for a specific app when directed from the extension.
   // Two entry points: ?openApp=<id> query param (new tab) or JH_OPEN_DRAWER
   // postMessage (existing tab focused by background.js).
   useEffect(() => {
@@ -172,7 +167,8 @@ export default function App() {
     const handleMsg = (event) => {
       if (event.data?.type === "JH_OPEN_DRAWER" && event.data?.appId) {
         setPendingOpenAppId(event.data.appId);
-        setActiveTab("board");
+        setActiveTab("newdashboard");
+        window.location.hash = "#/dashboard";
       }
     };
     window.addEventListener("message", handleMsg);
@@ -180,15 +176,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!pendingOpenAppId || applications.length === 0) return;
-    const app = applications.find((a) => a.id === pendingOpenAppId);
-    if (app) {
-      setActiveTab("board");
-      setDrawerAppId(pendingOpenAppId);
-      setDrawerOpen(true);
-      setPendingOpenAppId(null);
+    if (!pendingOpenAppId) return;
+    setActiveTab("newdashboard");
+    if (window.location.hash !== "#/dashboard") {
+      window.location.hash = "#/dashboard";
     }
-  }, [pendingOpenAppId, applications]);
+  }, [pendingOpenAppId]);
 
   useEffect(() => {
     fetchApplications();
@@ -205,7 +198,10 @@ export default function App() {
       else if (hash === "#/system-design") setActiveTab("systemdesign");
       else if (hash === "#/profile") setActiveTab("profile");
       else if (hash === "#/dashboard") setActiveTab("newdashboard");
-      else setActiveTab("board");
+      else if (hash === "#/board") {
+        window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#/dashboard`);
+        setActiveTab("newdashboard");
+      } else setActiveTab("newdashboard");
     };
 
     window.addEventListener("hashchange", handleHashChange);
@@ -213,6 +209,8 @@ export default function App() {
     // Ensure initial hash is set if it's empty
     if (!window.location.hash) {
       window.location.hash = "#/dashboard";
+    } else if (window.location.hash === "#/board") {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#/dashboard`);
     }
 
     return () => {
@@ -222,7 +220,6 @@ export default function App() {
   }, []);
 
   const TAB_HASHES = {
-    board: "board",
     analytics: "analytics",
     leetcode: "leetcode",
     solidjava: "solid-java",
@@ -233,8 +230,9 @@ export default function App() {
   };
 
   const handleTabChange = (tabName) => {
-    window.location.hash = `#/${TAB_HASHES[tabName] || tabName}`;
-    setActiveTab(tabName);
+    const normalizedTab = tabName === "board" ? "newdashboard" : tabName;
+    window.location.hash = `#/${TAB_HASHES[normalizedTab] || normalizedTab}`;
+    setActiveTab(normalizedTab);
   };
 
   const fetchApplications = async () => {
@@ -269,22 +267,9 @@ export default function App() {
     }
   };
 
-  const handleOpenDrawer = (appId = null) => {
-    setDrawerAppId(appId);
-    setDrawerOpen(true);
-  };
-
-  // From the New Dashboard: navigate to Board and open the drawer for a specific app
-  const handleOpenAppFromDashboard = (appId) => {
-    setActiveTab("board");
-    window.location.hash = "#/board";
-    setDrawerAppId(appId);
-    setDrawerOpen(true);
-  };
-
-  const handleCloseDrawer = () => {
-    setDrawerOpen(false);
-    setDrawerAppId(null);
+  const handleOpenApplicationInDashboard = (appId = null) => {
+    if (appId) setPendingOpenAppId(appId);
+    handleTabChange("newdashboard");
   };
 
   return (
@@ -309,14 +294,6 @@ export default function App() {
           >
             <span className="sidebar-nav-icon">✦</span>
             <span>Dashboard</span>
-          </button>
-          <button
-            className={`sidebar-nav-btn ${activeTab === "board" ? "active" : ""}`}
-            onClick={() => handleTabChange("board")}
-            type="button"
-          >
-            <span className="sidebar-nav-icon">📋</span>
-            <span>Board</span>
           </button>
           <button
             className={`sidebar-nav-btn ${activeTab === "analytics" ? "active" : ""}`}
@@ -367,19 +344,6 @@ export default function App() {
             <span>Profile</span>
           </button>
         </nav>
-
-        <div className="sidebar-footer">
-          <button
-            className="sidebar-footer-btn"
-            type="button"
-            onClick={() => {
-              handleTabChange("board");
-              window.dispatchEvent(new CustomEvent("jh:openExtensionSetup"));
-            }}
-          >
-            ⚙ Extension setup
-          </button>
-        </div>
       </aside>
 
       <main className="workspace">
@@ -401,13 +365,6 @@ export default function App() {
               type="button"
             >
               ✦ Dashboard
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "board" ? "active" : ""}`}
-              onClick={() => handleTabChange("board")}
-              type="button"
-            >
-              📋 Board
             </button>
             <button
               className={`tab-btn ${activeTab === "analytics" ? "active" : ""}`}
@@ -455,32 +412,12 @@ export default function App() {
         </header>
 
         {/* Content View Switching */}
-        {activeTab === "board" && (
-          <Board
-            applications={applications}
-            fetchApplications={fetchApplications}
-            onOpenDrawer={handleOpenDrawer}
-            drawerOpen={drawerOpen}
-            drawerAppId={drawerAppId}
-            onCloseDrawer={handleCloseDrawer}
-            reminders={reminders}
-            addReminder={addReminder}
-            deleteReminder={deleteReminder}
-            notificationPermission={notificationPermission}
-            requestNotificationPermission={requestNotificationPermission}
-            boardGrouping={boardGrouping}
-            setBoardGrouping={setBoardGrouping}
-            funnelFilter={funnelFilter}
-            setFunnelFilter={setFunnelFilter}
-          />
-        )}
-
         {activeTab === "analytics" && (
           <Analytics
             applications={applications}
             fetchApplications={fetchApplications}
-            onOpenDrawer={handleOpenDrawer}
-            setFunnelFilter={setFunnelFilter}
+            onOpenApplication={handleOpenApplicationInDashboard}
+            setDashboardStatusFilter={setDashboardStatusFilter}
             setActiveTab={handleTabChange}
           />
         )}
@@ -511,8 +448,11 @@ export default function App() {
         {activeTab === "newdashboard" && (
           <Dashboard
             applications={applications}
-            onOpenAppInBoard={handleOpenAppFromDashboard}
             fetchApplications={fetchApplications}
+            openAppId={pendingOpenAppId}
+            onOpenAppHandled={() => setPendingOpenAppId(null)}
+            statusFilterOverride={dashboardStatusFilter}
+            onStatusFilterOverrideHandled={() => setDashboardStatusFilter("")}
           />
         )}
       </main>

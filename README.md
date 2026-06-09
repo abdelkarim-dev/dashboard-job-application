@@ -80,4 +80,4 @@ If Gemma is unavailable, the extension still works with rules-based extraction. 
 
 ## Export
 
-Use the Export CSV button in the app. The CSV opens cleanly in Excel, Google Sheets, and Numbers.
+Use the Export JSON button in the app. The download includes export metadata and the full application records.

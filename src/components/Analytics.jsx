@@ -11,16 +11,16 @@ import {
 export default function Analytics({
   applications,
   fetchApplications,
-  onOpenDrawer,
-  setFunnelFilter,
+  onOpenApplication,
+  setDashboardStatusFilter,
   setActiveTab,
 }) {
   const [classifying, setClassifying] = useState(false);
 
   const handleFunnelStageClick = (statusName) => {
-    if (setFunnelFilter && setActiveTab) {
-      setFunnelFilter(statusName);
-      setActiveTab("board");
+    if (setDashboardStatusFilter && setActiveTab) {
+      setDashboardStatusFilter(statusName);
+      setActiveTab("newdashboard");
     }
   };
 
@@ -191,7 +191,7 @@ export default function Analytics({
   }).length;
   const companyOfferRateVal = totalCompaniesCount > 0 ? Math.round((companyOfferCount / totalCompaniesCount) * 100) : 0;
 
-  // Stale Roles — uses the SAME shared definition as the Board's "Stalled"
+  // Stale Roles — uses the SAME shared definition as the Dashboard's "Stalled"
   // column and "Needs follow-up" stat: any active (non-Offer/Rejected) role
   // whose current stage hasn't moved in STALE_THRESHOLD_DAYS+ days. Previously
   // this only counted "Applied" roles, so it silently under-reported.
@@ -387,13 +387,13 @@ export default function Analytics({
           <div className="analytics-panel-card funnel-card">
             <h3>Conversion Funnel (by Company)</h3>
             <p style={{ fontSize: "11px", color: "var(--md-on-surface-variant)", marginTop: "-6px", marginBottom: "12px" }}>
-              💡 Click on any funnel stage below to view those specific roles on your Board.
+              💡 Click on any funnel stage below to view those specific roles on your Dashboard.
             </p>
             <div className="funnel-container">
               <div
                 className="funnel-stage stage-applied"
                 onClick={() => handleFunnelStageClick("Applied")}
-                title="Click to view all Applied roles on Board"
+                title="Click to view all Applied roles on Dashboard"
               >
                 <div className="funnel-label">Applied</div>
                 <div className="funnel-bar">
@@ -404,7 +404,7 @@ export default function Analytics({
               <div
                 className="funnel-stage stage-oa"
                 onClick={() => handleFunnelStageClick("Online Assessment")}
-                title="Click to view all Online Assessment roles on Board"
+                title="Click to view all Online Assessment roles on Dashboard"
               >
                 <div className="funnel-label">OA Invited</div>
                 <div className="funnel-bar">
@@ -421,7 +421,7 @@ export default function Analytics({
               <div
                 className="funnel-stage stage-screen"
                 onClick={() => handleFunnelStageClick("Recruiter Screen")}
-                title="Click to view all Recruiter Screen roles on Board"
+                title="Click to view all Recruiter Screen roles on Dashboard"
               >
                 <div className="funnel-label">Recruiter Screen</div>
                 <div className="funnel-bar">
@@ -438,7 +438,7 @@ export default function Analytics({
               <div
                 className="funnel-stage stage-interview"
                 onClick={() => handleFunnelStageClick("Interview")}
-                title="Click to view all Interviewing roles on Board"
+                title="Click to view all Interviewing roles on Dashboard"
               >
                 <div className="funnel-label">Interviewing</div>
                 <div className="funnel-bar">
@@ -455,7 +455,7 @@ export default function Analytics({
               <div
                 className="funnel-stage stage-offer"
                 onClick={() => handleFunnelStageClick("Offer")}
-                title="Click to view all Offer roles on Board"
+                title="Click to view all Offer roles on Dashboard"
               >
                 <div className="funnel-label">Offers</div>
                 <div className="funnel-bar">
@@ -476,7 +476,7 @@ export default function Analytics({
         {/* Right column: Tables and Distributions */}
         <div className="analytics-right">
           <div className="analytics-panel-card stale-table-card">
-            <h3>Stale Roles Action Board</h3>
+            <h3>Stale Roles Action Dashboard</h3>
             <div className="stale-table-container">
               {staleRoles.length === 0 ? (
                 <p className="empty-placeholder" id="staleEmptyPlaceholder" style={{ display: "block" }}>
@@ -505,7 +505,7 @@ export default function Analytics({
                             {formatAge(getCurrentStageTimestamp(app) || getAppliedTimestamp(app))}
                           </td>
                           <td>
-                            <button className="stale-action-btn" type="button" onClick={() => onOpenDrawer(app.id)}>
+                            <button className="stale-action-btn" type="button" onClick={() => onOpenApplication?.(app.id)}>
                               Open
                             </button>
                           </td>

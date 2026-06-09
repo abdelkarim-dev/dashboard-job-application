@@ -2538,6 +2538,14 @@ function toCsv(applications) {
     .join("\n");
 }
 
+function toJson(applications, { exportedAt = new Date().toISOString() } = {}) {
+  return JSON.stringify({
+    exportedAt,
+    count: applications.length,
+    applications,
+  }, null, 2);
+}
+
 function formatSkillsForCsv(skills) {
   if (Array.isArray(skills)) return skills.map(clean).filter(Boolean).join("; ");
   return String(skills || "")
@@ -4106,6 +4114,15 @@ async function handleApi(req, res, url) {
     });
   }
 
+  if (url.pathname === "/api/export.json" && req.method === "GET") {
+    const json = toJson(await loadApplications());
+    const stamp = getLocalDateString(new Date());
+    return send(res, 200, json, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="job-applications-${stamp}.json"`,
+    });
+  }
+
   return sendJson(res, 404, { error: "Not found" });
 }
 
@@ -4174,6 +4191,7 @@ export {
   simplifyStatus,
   startServer,
   toCsv,
+  toJson,
 };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

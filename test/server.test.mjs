@@ -23,6 +23,7 @@ import {
   runSolidJavaExercise,
   simplifyStatus,
   toCsv,
+  toJson,
 } from "../server.mjs";
 
 test("normalizeApplication stores precise applied timestamps", () => {
@@ -171,6 +172,25 @@ test("CSV export handles legacy string skills", () => {
   ]);
 
   assert.match(csv, /"Python; TypeScript; PostgreSQL"/);
+});
+
+test("JSON export includes metadata and full application data", () => {
+  const app = normalizeApplication({
+    company: "Asana",
+    role: "Staff Software Engineer, API",
+    status: "Online Assessment",
+    appliedAt: "2026-05-20T18:30:00.000Z",
+    oaDeadline: "2026-05-22T16:30:00.000Z",
+    skills: ["Scala", "TypeScript"],
+  });
+  const json = toJson([app], { exportedAt: "2026-06-09T12:00:00.000Z" });
+  const payload = JSON.parse(json);
+
+  assert.equal(payload.exportedAt, "2026-06-09T12:00:00.000Z");
+  assert.equal(payload.count, 1);
+  assert.equal(payload.applications[0].company, "Asana");
+  assert.equal(payload.applications[0].stageDateTimes.Applied, "2026-05-20T18:30:00.000Z");
+  assert.deepEqual(payload.applications[0].skills, ["Scala", "TypeScript"]);
 });
 
 test("simplifyStatus keeps dashboard status vocabulary small", () => {
