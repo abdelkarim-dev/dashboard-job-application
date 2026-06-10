@@ -212,6 +212,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  // Relay a toast from an embedded-frame content script to the top frame,
+  // which owns the visible toast UI.
+  if (msg?.type === "JH_RELAY_TOAST" && sender?.tab?.id) {
+    chrome.tabs.sendMessage(sender.tab.id, { type: "SHOW_TOAST", text: msg.text }).catch(() => {});
+    return;
+  }
+
+  // Relay an autofill request from the top frame to every frame in the tab —
+  // ATS application forms are frequently embedded as cross-origin iframes that
+  // the top document cannot script directly.
+  if (msg?.type === "JH_BROADCAST_AUTOFILL" && sender?.tab?.id) {
+    chrome.tabs
+      .sendMessage(sender.tab.id, { type: "AUTOFILL_FRAME", profile: msg.profile, useAi: msg.useAi, cv: msg.cv })
+      .catch(() => {});
+    return;
+  }
+
   if (msg?.type === "TRACK_APPLICATION") {
     trackApplicationFromBackground(msg, sender)
       .then((result) => sendResponse(result))

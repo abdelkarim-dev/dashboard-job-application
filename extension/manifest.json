@@ -2,12 +2,13 @@
   "manifest_version": 3,
   "name": "Claire — Job Hunt Copilot",
   "description": "Capture job posts into Claire, your local job-hunt copilot.",
-  "version": "1.1.6",
+  "version": "1.2.0",
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Toggle Claire toolbar"
+    "default_title": "Claire — job hunt copilot",
+    "default_popup": "popup.html"
   },
   "permissions": ["activeTab", "scripting", "tabs"],
   "host_permissions": ["<all_urls>", "http://127.0.0.1:8787/*"],
@@ -15,7 +16,8 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }

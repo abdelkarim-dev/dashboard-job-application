@@ -48,6 +48,20 @@ let submitTrackerLastTrackedAt = 0;
 // a multi-step ATS form fires multiple submit-like events for the same application.
 const trackedAppUrls = new Set();
 let dragFloatingActionsState = null;
+// ATS providers (Greenhouse, Lever, Ashby embeds…) often render the application
+// form inside a cross-origin iframe. The content script runs in every frame
+// ("all_frames" in the manifest), but only the top frame owns visible UI
+// (toolbar, panel, toasts); subframes fill silently and relay messages up.
+const IS_TOP_FRAME = (() => {
+  try {
+    return window.self === window.top;
+  } catch {
+    return false;
+  }
+})();
+// Last time this subframe ran an autofill pass — guards against double fills
+// when both a direct popup message and the top-frame broadcast arrive.
+let lastFrameAutofillAt = 0;
 
 // ── API Proxy helper ───────────────────────────────────────────
 // Content scripts inherit the web page's origin for network requests.
@@ -83,24 +97,47 @@ async function apiProxy(url, method = "GET", body = null) {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "EXTRACT_JOB") {
+    // Only the top document answers — the popup wants the job posting, not an
+    // embedded ATS iframe's form chrome.
+    if (!IS_TOP_FRAME) return false;
     sendResponse(extractJob());
     return false;
   }
   if (message?.type === "AUTOFILL_FORM") {
-    ensureCopilotPanel(message.profile);
-    expandWidget();
-    autofillWebForm(message.profile, { useAi: true });
+    if (IS_TOP_FRAME) {
+      ensureCopilotPanel(message.profile);
+      expandWidget();
+      autofillWebForm(message.profile, { useAi: true });
+    } else {
+      runFrameAutofill(message.profile, { useAi: true });
+    }
+    return false;
+  }
+  // Relay from the top frame (via background): fill embedded ATS iframes that
+  // the top document cannot script directly.
+  if (message?.type === "AUTOFILL_FRAME") {
+    if (!IS_TOP_FRAME) {
+      if (message.cv) selectedCv = message.cv;
+      runFrameAutofill(message.profile, { useAi: Boolean(message.useAi) });
+    }
+    return false;
+  }
+  // Toast relayed up from a subframe — only the top frame renders toasts.
+  if (message?.type === "SHOW_TOAST") {
+    if (IS_TOP_FRAME && message.text) showToast(message.text);
     return false;
   }
   // Received from background.js when an application was just saved via the
   // extension "+" form. Relay to the dashboard React app via window.postMessage
   // so the drawer opens for the newly-created application.
   if (message?.type === "OPEN_APP_DRAWER") {
+    if (!IS_TOP_FRAME) return false;
     window.postMessage({ type: "JH_OPEN_DRAWER", appId: message.appId }, "*");
     sendResponse({ ok: true });
     return false;
   }
   if (message?.type === "TOGGLE_TOOLBAR") {
+    if (!IS_TOP_FRAME) return false;
     const actionsBar = document.getElementById("jh-floating-actions");
     const widget = document.getElementById("jh-copilot-widget");
     if (actionsBar && widget) {
@@ -114,12 +151,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         widget.style.display = "none";
       }
     } else {
-      if (!looksLikeJobPosting()) {
-        showToast("Not a job page — open a job posting to use the toolbar.");
-        sendResponse({ ok: true });
-        return false;
-      }
-      ensureProfileLoaded().then(() => {
+      // Explicit user intent (icon/popup click) always wins — never refuse the
+      // toolbar just because the page heuristics didn't recognise a job posting.
+      ensureProfileLoaded().then((ok) => {
+        if (!ok) {
+          showToast("Claire can't reach the cockpit server (127.0.0.1:8787). Start it, then retry.");
+          return;
+        }
         ensureCopilotPanel(localProfile);
         const newActions = document.getElementById("jh-floating-actions");
         const newWidget = document.getElementById("jh-copilot-widget");
@@ -127,6 +165,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           newActions.style.display = "flex";
           newWidget.style.display = "flex";
           newWidget.classList.remove("minimized");
+        }
+        if (!looksLikeJobPosting()) {
+          showToast("This page doesn't look like a job posting — toolbar enabled anyway.");
         }
       });
     }
@@ -140,10 +181,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // before the user even opens the popup.
 (function signalIfJobPage() {
   try {
-    if (looksLikeJobPosting()) {
+    // Subframes count too: ATS embeds (Greenhouse/Lever/Ashby) put the actual
+    // application form in an iframe while the host page is a plain career site.
+    if (looksLikeJobPosting() || (!IS_TOP_FRAME && looksLikeApplicationForm())) {
       chrome.runtime
         .sendMessage({ type: "JOB_PAGE_DETECTED", url: locationHref() })
         .catch(() => {});
+    }
+    // Track final submits even when the user never used autofill: attach the
+    // listener as soon as the page/frame contains an application form. The
+    // filled-form guard in trackJobApplication keeps stray clicks from
+    // creating junk records.
+    if (looksLikeApplicationForm()) {
+      attachFormSubmitTracker("application form detected", { silent: true });
     }
   } catch {
     // background not ready yet — silent
@@ -155,12 +205,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // only appears when the user clicks the extension icon.
 (function initCopilot() {
   let lastObservedUrl = locationHref();
+  let formScanTick = 0;
   setInterval(() => {
     const currentUrl = locationHref();
     if (currentUrl !== lastObservedUrl) {
       lastObservedUrl = currentUrl;
       isJobPageCache = null;
       lastCachedUrl = "";
+    }
+    // SPA ATS flows render the form well after document_idle — keep watching
+    // (cheap check, and only until the tracker is attached).
+    formScanTick += 1;
+    if (!submitTrackerAttached && formScanTick % 2 === 0 && looksLikeApplicationForm()) {
+      attachFormSubmitTracker("application form appeared", { silent: true });
     }
   }, 2000);
 })();
@@ -518,9 +575,24 @@ async function ensureProfileLoaded() {
 }
 
 function ensureCopilotPanel(profile = localProfile) {
+  if (!IS_TOP_FRAME) return;
   if (!document.getElementById("jh-copilot-widget") && profile) {
     injectWebCopilot(profile);
   }
+}
+
+// Lean autofill used inside ATS iframes: no toolbar/panel UI, just fill the
+// fields + CV and let toasts relay up to the top frame. Debounced because a
+// popup-triggered AUTOFILL_FORM and the top frame's broadcast both arrive.
+async function runFrameAutofill(profile, { useAi = false } = {}) {
+  if (!profile || IS_TOP_FRAME) return;
+  const now = Date.now();
+  if (now - lastFrameAutofillAt < 4000) return;
+  lastFrameAutofillAt = now;
+  // Skip frames with nothing fillable (ad/analytics iframes).
+  if (!collectFillableElements().length && !document.querySelector('input[type="file"]')) return;
+  localProfile = profile;
+  await autofillWebForm(profile, { useAi });
 }
 
 function expandWidget() {
@@ -644,7 +716,7 @@ function looksLikeJobPosting() {
   let result = false;
   try {
     // 1. Check common ATS domain/URL patterns to cover forms directly
-    if (/\b(greenhouse\.io|lever\.co|ashbyhq\.com|smartrecruiters\.com|bamboohr\.com|workable\.com|myworkdayjobs\.com)\b/.test(url)) {
+    if (/\b(greenhouse\.io|lever\.co|ashbyhq\.com|smartrecruiters\.com|bamboohr\.com|workable\.com|myworkdayjobs\.com|myworkdaysite\.com|icims\.com|taleo\.net|successfactors\.(?:com|eu)|oraclecloud\.com|jobvite\.com|jazz\.co|jazzhr\.com|applytojob\.com|breezy\.hr|recruitee\.com|personio\.(?:de|com)|teamtailor\.com|pinpointhq\.com|dover\.com|rippling\.com|paylocity\.com|paycomonline\.net|workforcenow\.adp\.com|eightfold\.ai|avature\.net|csod\.com|comeet\.co|hibob\.com|jobs\.sap\.com|wellfound\.com|otta\.com)\b/.test(url)) {
       result = true;
     } else if (/\b(job|jobs|careers?|posting|apply|application|requisition|gh_jid)\b/.test(url)) {
       result = true;
@@ -1727,6 +1799,18 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   attachFormSubmitTracker("scan/prefill clicked", { silent: true });
   showCopilotPanel("autofill");
 
+  // Ask the background worker to relay this fill into any embedded ATS iframes
+  // (all_frames content scripts) — the top document cannot script them directly.
+  if (IS_TOP_FRAME && window.frames.length > 0) {
+    try {
+      chrome.runtime
+        .sendMessage({ type: "JH_BROADCAST_AUTOFILL", profile, useAi, cv: selectedCv })
+        .catch(() => {});
+    } catch {
+      // extension context invalidated — top-frame fill still proceeds
+    }
+  }
+
   const summaryEl = document.getElementById("jh-autofill-summary");
   const logContainer = document.getElementById("jh-autofill-audit-log");
   const logList = document.getElementById("jh-autofill-audit-list");
@@ -1838,10 +1922,15 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
     });
   }
 
-  // ── CV file injection: inject uploaded PDF/DOCX into file inputs ──
-  const cvVariantForFile = selectedCv === "architect" ? "architect" : "backend";
-  const fileInjected = await injectCvFileToInputs(cvVariantForFile, auditLog);
-  if (fileInjected) filledCount++;
+  // ── CV file injection: upload the real CV file (PDF/DOCX) into the form ──
+  // The variant follows the same auto-selection as the CV text above, so the
+  // attached file always matches the text Gemma was shown.
+  const cvVariantForFile =
+    selectedCv === "architect" ? "architect"
+    : selectedCv === "backend" ? "backend"
+    : cvLabel.toLowerCase().startsWith("architect") ? "architect" : "backend";
+  const cvInjection = await injectCvFileToInputs(cvVariantForFile, auditLog);
+  if (cvInjection.injected) filledCount++;
 
   updateWorkflowSteps("autofill", [
     { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
@@ -2301,6 +2390,8 @@ function removeInlineDropdown() {
    ========================================================================== */
 
 function injectWebCopilot(profile) {
+  // Visible UI belongs to the top document only — never inject into iframes.
+  if (!IS_TOP_FRAME) return;
   // Guard against duplicate injections
   if (document.getElementById("jh-floating-actions")) return;
 
@@ -3006,6 +3097,18 @@ let toastHideTimer = null;
 let toastShowTimer = null;
 
 function showToast(message) {
+  if (!IS_TOP_FRAME) {
+    // Surface the message in the top document instead of inside the iframe,
+    // labelled so the user knows it came from an embedded form.
+    try {
+      chrome.runtime
+        .sendMessage({ type: "JH_RELAY_TOAST", text: `Embedded form (${location.hostname}) — ${message}` })
+        .catch(() => {});
+    } catch {
+      // extension context gone — drop the toast
+    }
+    return;
+  }
   let toast = document.querySelector("#jh-copilot-toast");
   if (!toast) {
     toast = document.createElement("div");
@@ -3929,58 +4032,129 @@ function renderCompanyPanel(container, company, matches) {
 }
 
 // ── CV file injection ───────────────────────────────────────────
-// Fetches the uploaded CV from the cockpit server and injects it into the first
-// file input on the page that looks like a resume/CV upload field.
-// Returns true if a file was successfully injected, false otherwise.
+// Fetches the uploaded CV from the cockpit server and injects it into the file
+// input that looks like the resume/CV upload field. ATS providers usually hide
+// the real <input type="file"> behind a styled drop-zone, so candidates are NOT
+// filtered by visibility; resume-ness is scored from the input's own attributes
+// plus nearby drop-zone copy ("Drag & drop your resume…").
+// Returns { injected, reason, detail, fileName, targetLabel } and records the
+// outcome — success OR failure — in the autofill audit log.
+function findResumeFileInputs() {
+  const candidates = Array.from(document.querySelectorAll('input[type="file"]')).filter((el) => !isInCopilotUi(el));
+  if (!candidates.length) return [];
+
+  const RESUME_RE = /\b(resume|resumes|cv|curriculum\s*vitae|lebenslauf)\b/i;
+  const ANTI_RE = /\b(cover\s*letter|transcript|photo|avatar|head\s*shot|certificate|w-?9|identification)\b/i;
+
+  const scored = candidates.map((input) => {
+    const ownText = [
+      input.name,
+      input.id,
+      input.getAttribute("aria-label"),
+      input.getAttribute("data-automation-id"),
+      input.getAttribute("data-testid"),
+      input.getAttribute("data-qa"),
+      getLabelText(input),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const accept = (input.accept || "").toLowerCase();
+
+    // Climb a few ancestors to catch drop-zone copy around the hidden input.
+    let containerText = "";
+    let node = input.parentElement;
+    for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
+      const text = clean(node.textContent || "");
+      if (text && text.length <= 400) containerText = text;
+    }
+
+    let score = 0;
+    if (RESUME_RE.test(ownText)) score += 6;
+    if (RESUME_RE.test(containerText)) score += 3;
+    if (ANTI_RE.test(`${ownText} ${containerText}`)) score -= 6;
+    if (accept.includes("pdf") || accept.includes("doc")) score += 1;
+    if (accept && /image|video|\.png|\.jpe?g|\.gif/.test(accept) && !accept.includes("pdf")) score -= 4;
+    return { input, score };
+  });
+
+  const named = scored.filter((c) => c.score >= 3).sort((a, b) => b.score - a.score);
+  if (named.length) return named.map((c) => c.input);
+
+  // Fallback: a single document-friendly file input on a page that looks like
+  // an application form is almost always the resume upload.
+  const neutral = scored.filter((c) => c.score >= 0);
+  if (neutral.length === 1 && looksLikeApplicationForm()) return [neutral[0].input];
+  return [];
+}
+
+function getResumeInputLabel(input) {
+  return clean(
+    getLabelText(input) || input.getAttribute("aria-label") || input.name || input.id || "Resume upload"
+  );
+}
+
 async function injectCvFileToInputs(variant, auditLog = []) {
+  const fail = (reason, detail, { toast = false } = {}) => {
+    auditLog.push({ label: "CV file upload", value: detail, ai: false });
+    if (toast) showToast(detail);
+    return { injected: false, reason, detail };
+  };
+
   try {
-    // Find file inputs that look like resume/CV upload fields
-    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]')).filter((el) => {
-      if (isInCopilotUi(el)) return false;
-      const label = getLabelText(el).toLowerCase();
-      const name = (el.name || "").toLowerCase();
-      const id = (el.id || "").toLowerCase();
-      const accept = (el.accept || "").toLowerCase();
-      const combined = `${label} ${name} ${id}`;
-      const looksLikeResume = /\b(resume|cv|curriculum|upload.*resume|attach.*resume|resume.*upload|upload.*cv)\b/i.test(combined);
-      const acceptsPdf = !accept || accept.includes("pdf") || accept.includes("doc") || accept.includes("*");
-      return looksLikeResume && acceptsPdf;
-    });
+    const fileInputs = findResumeFileInputs();
+    if (fileInputs.length === 0) {
+      return { injected: false, reason: "no-file-input", detail: "No resume upload field on this page." };
+    }
 
-    if (fileInputs.length === 0) return false;
+    // Fetch the CV from the cockpit server (absolute URL — the background proxy
+    // cannot resolve relative paths; a relative URL here is why CV injection
+    // used to fail silently on every page).
+    let cvData = null;
+    try {
+      cvData = await apiProxy(`http://127.0.0.1:8787/api/profile/cv/${variant}`);
+    } catch (err) {
+      const raw = err?.message || "";
+      const msg = /no cv uploaded|404/i.test(raw)
+        ? `No ${variant} CV uploaded yet — add it on the dashboard Profile page.`
+        : `Couldn't fetch the ${variant} CV from the cockpit server (${raw || "offline"}).`;
+      return fail("cv-unavailable", msg, { toast: true });
+    }
+    if (!cvData || !cvData.data || !cvData.fileName) {
+      return fail("cv-unavailable", `No ${variant} CV uploaded yet — add it on the dashboard Profile page.`, { toast: true });
+    }
 
-    // Fetch the CV data from the cockpit server
-    const cvData = await apiProxy(`/api/profile/cv/${variant}`);
-    if (!cvData || !cvData.data || !cvData.fileName) return false;
-
-    // Decode base64 → Uint8Array → Blob → File
+    // Decode base64 → Uint8Array → File
     const byteChars = atob(cvData.data);
     const byteArr = new Uint8Array(byteChars.length);
     for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
-    const blob = new Blob([byteArr], { type: cvData.mimeType || "application/pdf" });
-    const file = new File([blob], cvData.fileName, { type: cvData.mimeType || "application/pdf" });
+    const file = new File([byteArr], cvData.fileName, { type: cvData.mimeType || "application/pdf" });
 
-    // Use DataTransfer to set the file on the input element
     const dt = new DataTransfer();
     dt.items.add(file);
 
-    let injected = false;
     for (const input of fileInputs) {
       try {
-        Object.defineProperty(input, "files", { value: dt.files, writable: true, configurable: true });
+        try {
+          input.files = dt.files; // native FileList assignment — frameworks observe it
+        } catch {
+          Object.defineProperty(input, "files", { value: dt.files, writable: true, configurable: true });
+        }
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
-        auditLog.push({ label: getLabelText(input).slice(0, 60) || "resume file input", value: `[CV file: ${cvData.fileName}]`, ai: false });
-        injected = true;
-        break; // Inject only into the first matching file input
-      } catch {}
+        const targetLabel = getResumeInputLabel(input);
+        auditLog.push({
+          label: targetLabel.slice(0, 60) || "Resume upload",
+          value: `[CV file attached: ${cvData.fileName}]`,
+          ai: false,
+        });
+        showToast(`CV attached: ${cvData.fileName}`);
+        return { injected: true, fileName: cvData.fileName, targetLabel };
+      } catch {
+        // this candidate rejected the file — try the next one
+      }
     }
-
-    if (injected) {
-      showToast(`CV file injected: ${cvData.fileName}`);
-    }
-    return injected;
-  } catch {
-    return false;
+    return fail("inject-failed", "Found a resume field but the page rejected the file injection.", { toast: true });
+  } catch (err) {
+    return fail("error", `CV injection failed: ${err?.message || "unknown error"}`);
   }
 }

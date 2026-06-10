@@ -24,6 +24,14 @@ const jobRole = document.querySelector("#jobRole");
 const jobMeta = document.querySelector("#jobMeta");
 const trackerLabel = document.querySelector("#trackerLabel");
 const autofillWebFormBtn = document.querySelector("#autofillWebFormBtn");
+const connPill = document.querySelector("#connPill");
+const connLabel = document.querySelector("#connLabel");
+const connRetry = document.querySelector("#connRetry");
+const offlineNote = document.querySelector("#offlineNote");
+const autofillResult = document.querySelector("#autofillResult");
+const cvChipBackend = document.querySelector("#cvChipBackend");
+const cvChipArchitect = document.querySelector("#cvChipArchitect");
+const toolbarToggleBtn = document.querySelector("#toolbarToggleBtn");
 
 // ── State ──────────────────────────────────────────────────────
 let latestCapture = null;
@@ -130,20 +138,22 @@ async function init() {
     };
   }
 
-  // Load user profile on startup to populate autofill data
-  fetchUserProfile().then((profile) => {
-    userProfile = profile;
-  }).catch(() => {
-    if (autofillWebFormBtn) {
-      autofillWebFormBtn.disabled = true;
-      autofillWebFormBtn.textContent = "⚡ Autofill (Server Offline)";
-      autofillWebFormBtn.style.opacity = "0.6";
-      autofillWebFormBtn.style.cursor = "not-allowed";
-      autofillWebFormBtn.style.background = "#555";
-      autofillWebFormBtn.style.color = "#888";
-      autofillWebFormBtn.style.boxShadow = "none";
-    }
-  });
+  // Server status pill, CV chips, and profile preload share one health check.
+  refreshServerStatus();
+
+  if (connRetry) connRetry.addEventListener("click", () => refreshServerStatus());
+
+  if (toolbarToggleBtn) {
+    toolbarToggleBtn.addEventListener("click", async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_TOOLBAR" });
+        setStateText("Toggled the on-page toolbar.");
+      } catch {
+        setStateText("Can't reach this page — refresh the job page first.");
+      }
+    });
+  }
 
   if (autofillWebFormBtn) {
     autofillWebFormBtn.addEventListener("click", async () => {
@@ -151,21 +161,94 @@ async function init() {
         try {
           userProfile = await fetchUserProfile();
         } catch {
-          setStateText("Autofill failed: Profile server offline.");
+          showAutofillResult("Cockpit server offline — start it at 127.0.0.1:8787, then hit Retry above.", true);
           return;
         }
       }
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        chrome.tabs.sendMessage(tab.id, {
+        await chrome.tabs.sendMessage(tab.id, {
           type: "AUTOFILL_FORM",
           profile: userProfile,
         });
-        setStateText("Injected visible form fields on the job page.");
+        showAutofillResult("Sent to page — the on-page panel shows the per-field report, including the CV file attach.");
+        setStateText("Autofill running on the job page.");
       } catch {
-        setStateText("Autofill failed: Refresh page first.");
+        showAutofillResult("The page hasn't loaded Claire yet — refresh the job page, then try again.", true);
       }
     });
+  }
+}
+
+// ── Server status + CV chips ───────────────────────────────────
+function showAutofillResult(text, isError = false) {
+  if (!autofillResult) return;
+  autofillResult.hidden = false;
+  autofillResult.textContent = text;
+  autofillResult.classList.toggle("is-error", isError);
+}
+
+function setServerState(online) {
+  if (connPill) connPill.dataset.state = online ? "online" : "offline";
+  if (connLabel) connLabel.textContent = online ? "Cockpit online" : "Cockpit offline";
+  if (connRetry) connRetry.hidden = Boolean(online);
+  if (offlineNote) offlineNote.hidden = Boolean(online);
+  if (evaluateBtn) evaluateBtn.disabled = !online;
+  if (autofillWebFormBtn) autofillWebFormBtn.disabled = !online;
+  if (!online && saveBtn) saveBtn.disabled = true;
+}
+
+async function refreshServerStatus() {
+  if (connPill) connPill.dataset.state = "checking";
+  if (connLabel) connLabel.textContent = "Checking…";
+  try {
+    userProfile = await fetchUserProfile();
+    setServerState(true);
+    if (existingApp || latestCapture) saveBtn.disabled = false;
+    refreshCvChips();
+  } catch {
+    setServerState(false);
+    renderCvChip(cvChipBackend, null, true);
+    renderCvChip(cvChipArchitect, null, true);
+  }
+}
+
+function renderCvChip(chip, meta, serverUnknown = false) {
+  if (!chip) return;
+  const fileEl = chip.querySelector(".cv-chip-file");
+  const markEl = chip.querySelector(".cv-chip-mark");
+  if (serverUnknown) {
+    chip.dataset.state = "unknown";
+    if (markEl) markEl.textContent = "•";
+    if (fileEl) fileEl.textContent = "server offline";
+    chip.title = "Cockpit server offline — CV status unknown";
+    return;
+  }
+  if (meta && meta.fileName) {
+    chip.dataset.state = "ok";
+    if (markEl) markEl.textContent = "✓";
+    if (fileEl) fileEl.textContent = meta.fileName;
+    chip.title = meta.uploadedAt
+      ? `${meta.fileName} — uploaded ${new Date(meta.uploadedAt).toLocaleString()}`
+      : meta.fileName;
+  } else {
+    chip.dataset.state = "missing";
+    if (markEl) markEl.textContent = "—";
+    if (fileEl) fileEl.textContent = "not uploaded";
+    chip.title = "Upload this CV on the dashboard Profile page to enable file injection";
+  }
+}
+
+async function refreshCvChips() {
+  try {
+    const res = await fetch(`${API_BASE}/api/profile/cv`);
+    if (!res.ok) throw new Error("offline");
+    const meta = await res.json();
+    renderCvChip(cvChipBackend, meta?.backend || null);
+    renderCvChip(cvChipArchitect, meta?.architect || null);
+  } catch {
+    renderCvChip(cvChipBackend, null, true);
+    renderCvChip(cvChipArchitect, null, true);
   }
 }
 
@@ -464,6 +547,9 @@ async function handleSave(event) {
 function buildCurrentPayload() {
   const data = Object.fromEntries(new FormData(form).entries());
   data.status = simplifyStatus(data.status);
+  // "Saved" = captured for later, not applied: it must carry no applied date or
+  // the tracker (and the toolbar badge) would count it as submitted.
+  if (data.status === "Saved") data.dateApplied = "";
   data.skills = data.skills.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
   data.pageText = latestCapture?.pageText || "";
   return data;
@@ -475,6 +561,7 @@ function setForm(data = {}) {
   f.company.value = data.company || "";
   f.role.value = data.role || "";
   f.status.value = simplifyStatus(data.status);
+  if (f.priority) f.priority.value = data.priority || "Medium";
   f.location.value = data.location || "";
   f.salary.value = data.salary || "";
   f.skills.value = Array.isArray(data.skills) ? data.skills.join(", ") : data.skills || "";
@@ -588,9 +675,15 @@ function normalizeCapture(data = {}) {
   };
 }
 
+// Map arbitrary status text onto the cockpit's canonical pipeline statuses
+// (mirrors server.mjs simplifyStatus — do NOT collapse OA/Recruiter Screen).
 function simplifyStatus(status) {
-  const value = String(status || "").toLowerCase();
-  if (value.includes("interview") || value.includes("screen") || value.includes("onsite")) return "Interview";
+  const value = String(status || "").toLowerCase().trim();
+  if (!value) return "Applied";
+  if (["saved", "wishlist", "interested", "to apply", "not applied"].includes(value)) return "Saved";
+  if (value.includes("assessment") || value === "oa" || value.includes("take home") || value.includes("take-home")) return "Online Assessment";
+  if (value.includes("recruiter") || value.includes("screen") || value.includes("phone")) return "Recruiter Screen";
+  if (value.includes("interview") || value.includes("onsite") || value.includes("panel") || value.includes("loop")) return "Interview";
   if (value.includes("offer")) return "Offer";
   if (value.includes("reject") || value.includes("withdraw")) return "Rejected";
   return "Applied";
