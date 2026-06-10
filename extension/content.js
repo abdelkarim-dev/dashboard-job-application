@@ -3176,20 +3176,21 @@ function injectStyles() {
   style.textContent = `
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
-    /* Floating action buttons container */
+    /* Floating action buttons container — one compact horizontal pill bar */
     #jh-floating-actions {
       position: fixed;
       bottom: 24px;
       right: 24px;
-      width: 380px;
+      width: auto;
+      max-width: min(94vw, 600px);
       display: flex;
-      gap: 6px;
+      gap: 4px;
       z-index: 1000000;
-      align-items: stretch;
+      align-items: center;
       pointer-events: auto;
       font-family: 'Outfit', system-ui, -apple-system, sans-serif;
-      padding: 8px;
-      border-radius: 16px;
+      padding: 6px;
+      border-radius: 999px;
       background: rgba(18, 20, 24, 0.92);
       border: 1px solid rgba(255, 255, 255, 0.1);
       box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255,255,255,0.04) inset;
@@ -3213,23 +3214,24 @@ function injectStyles() {
     }
 
     .jh-floating-btn {
-      flex: 1;
-      height: 48px;
-      padding: 0 4px;
-      border-radius: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      flex: 0 0 auto;
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.06);
       font-family: 'Outfit', sans-serif;
-      font-size: 18px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      display: flex;
-      flex-direction: column;
+      display: inline-flex;
+      flex-direction: row;
       align-items: center;
       justify-content: center;
-      gap: 3px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s, filter 0.2s, opacity 0.2s;
-      color: #FFFFFF;
+      gap: 6px;
+      box-shadow: none;
+      transition: background 0.18s, border-color 0.18s, transform 0.18s, filter 0.18s, opacity 0.18s;
+      color: #E8E8EC;
     }
 
     .jh-icon {
@@ -3238,23 +3240,22 @@ function injectStyles() {
       justify-content: center;
       line-height: 1;
       pointer-events: none;
-      font-size: 16px;
+      font-size: 13px;
     }
 
     .jh-btn-label {
-      font-size: 8.5px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      opacity: 0.82;
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
       line-height: 1;
       pointer-events: none;
+      white-space: nowrap;
     }
 
     .jh-floating-btn:hover {
-      transform: translateY(-2px) scale(1.04);
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
-      filter: brightness(1.12);
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.16);
     }
 
     .jh-floating-btn:active {
@@ -3262,50 +3263,48 @@ function injectStyles() {
       filter: brightness(0.95);
     }
 
+    /* Primary action: Fill — the only filled (amber) pill */
     .jh-prefill-btn {
-      background: linear-gradient(145deg, #FFB300, #F57C00);
-      border-color: rgba(255, 179, 0, 0.25);
+      background: linear-gradient(135deg, #FFB300, #F57C00);
+      border-color: transparent;
       color: #1A0C00;
       font-weight: 700;
     }
-
-    .jh-prefill-btn .jh-btn-label { color: rgba(26,12,0,0.75); }
-
-    .jh-prefill-btn.jh-no-form {
-      background: linear-gradient(145deg, #FFE082, #FFB300);
-      opacity: 0.88;
+    .jh-prefill-btn .jh-btn-label { color: #1A0C00; font-weight: 700; }
+    .jh-prefill-btn:hover {
+      background: linear-gradient(135deg, #FFC233, #FB8C00);
+      border-color: transparent;
     }
 
-    .jh-evaluate-btn {
-      background: linear-gradient(145deg, #7C4DFF, #536DFE);
-      border-color: rgba(124, 77, 255, 0.25);
-    }
+    .jh-prefill-btn.jh-no-form { opacity: 0.75; }
 
-    .jh-company-btn {
-      background: linear-gradient(145deg, #00B4DB, #0077B6);
-      border-color: rgba(0, 180, 219, 0.25);
-    }
+    /* Secondary actions: neutral pills with a colored accent */
+    .jh-cv-btn .jh-btn-label { color: #BFD9FF; }
+    .jh-cv-btn:hover { border-color: rgba(162, 201, 255, 0.45); background: rgba(162, 201, 255, 0.12); }
 
-    .jh-track-btn {
-      background: linear-gradient(145deg, #00C853, #00A86B);
-      border-color: rgba(0, 200, 83, 0.25);
-      color: #001B0C;
-      font-weight: 800;
-    }
+    .jh-evaluate-btn .jh-btn-label { color: #CBB7FF; }
+    .jh-evaluate-btn:hover { border-color: rgba(124, 77, 255, 0.45); background: rgba(124, 77, 255, 0.16); }
 
-    .jh-track-btn .jh-btn-label { color: rgba(0,27,12,0.7); }
+    .jh-company-btn .jh-btn-label { color: #9ADFF5; }
+    .jh-company-btn:hover { border-color: rgba(0, 180, 219, 0.45); background: rgba(0, 180, 219, 0.14); }
+
+    .jh-track-btn .jh-btn-label { color: #9FE8BD; }
+    .jh-track-btn:hover { border-color: rgba(0, 200, 83, 0.45); background: rgba(0, 200, 83, 0.14); }
 
     .jh-hide-btn {
-      flex: 0 0 44px;
-      background: rgba(40, 42, 48, 0.9);
-      border-color: rgba(255, 255, 255, 0.12);
-      color: rgba(255, 255, 255, 0.6);
-      font-size: 14px;
+      flex: 0 0 34px;
+      width: 34px;
+      padding: 0;
+      background: transparent;
+      border-color: transparent;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 13px;
     }
 
     .jh-hide-btn:hover {
       color: #FFF;
-      background: rgba(60, 62, 70, 0.95);
+      background: rgba(255, 255, 255, 0.1);
+      border-color: transparent;
     }
 
     .jh-floating-btn:disabled {
