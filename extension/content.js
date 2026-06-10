@@ -2012,6 +2012,9 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
           const idx = parseInt(indexStr, 10);
           const el = unmatchedFields[idx];
           if (!el || !value || value === "") return;
+          // Defense in depth: never fill a fabricated placeholder URL (the
+          // server scrubs these too, but cached/legacy responses may slip by).
+          if (/^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|yourwebsite\.com|placeholder\.[a-z]+)(?:\/.*)?$/i.test(String(value).trim())) return;
 
           if (el.tagName === "SELECT") {
             // Find the best matching option

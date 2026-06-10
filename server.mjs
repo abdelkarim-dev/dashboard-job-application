@@ -4301,6 +4301,7 @@ IMPORTANT RULES:
 - For yes/no questions about requiring visa sponsorship: answer "No"
 - For GitLab/GitHub username fields: answer "N/A" (candidate has no public profile)
 - For portfolio/website URL fields: leave empty (set to "")
+- NEVER invent or guess URLs. If a field asks for a URL the candidate profile doesn't provide (portfolio, publications, social profiles, etc.), set it to "". Placeholder links like "https://www.google.com" are forbidden.
 - For location eligibility questions (are you in X,Y,Z): if Canada or Americas is listed, answer "Yes" or select the matching option
 - For fields asking about how you heard about the job: answer "Job Board"
 - For optional communication or text-message/SMS consent opt-ins: answer "No" unless the candidate profile explicitly says to opt in
@@ -4333,7 +4334,7 @@ Only include fields you can confidently fill. Return ONLY valid JSON, nothing el
     for (const provider of providers) {
       try {
         const result = await provider();
-        if (result) return { ok: true, mappings: result };
+        if (result) return { ok: true, mappings: sanitizeAutofillMappings(result) };
       } catch {
         // Try next
       }
@@ -4344,6 +4345,21 @@ Only include fields you can confidently fill. Return ONLY valid JSON, nothing el
       error: "Local Gemma endpoint was not available for AI autofill.",
     };
   });
+}
+
+// Gemma occasionally "backfills" URL fields it can't know with a placeholder
+// (https://www.google.com and friends). An unknown URL must stay empty so the
+// human fills it — never a fabricated link.
+const PLACEHOLDER_URL_RE = /^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|test\.com|yourwebsite\.com|website\.com|url\.com|placeholder\.[a-z]+|sample\.com)(?:\/.*)?$/i;
+
+export function sanitizeAutofillMappings(mappings) {
+  if (!mappings || typeof mappings !== "object") return mappings;
+  const cleaned = {};
+  for (const [key, value] of Object.entries(mappings)) {
+    const text = String(value ?? "").trim();
+    cleaned[key] = PLACEHOLDER_URL_RE.test(text) ? "" : value;
+  }
+  return cleaned;
 }
 
 async function tryOllamaAutofill(prompt) {

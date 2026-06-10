@@ -22,10 +22,30 @@ import {
   runJavaProblem,
   runPythonProblem,
   runSolidJavaExercise,
+  sanitizeAutofillMappings,
   simplifyStatus,
   toCsv,
   toJson,
 } from "../server.mjs";
+
+test("sanitizeAutofillMappings scrubs fabricated placeholder URLs", () => {
+  const mappings = {
+    0: "https://www.google.com",
+    1: "google.com/",
+    2: "https://example.com/portfolio",
+    3: "Canada",
+    4: "https://github.com/real-user",
+    5: "No",
+  };
+  const cleaned = sanitizeAutofillMappings(mappings);
+  assert.equal(cleaned[0], "");
+  assert.equal(cleaned[1], "");
+  assert.equal(cleaned[2], "");
+  assert.equal(cleaned[3], "Canada");
+  assert.equal(cleaned[4], "https://github.com/real-user");
+  assert.equal(cleaned[5], "No");
+  assert.equal(sanitizeAutofillMappings(null), null);
+});
 
 test("normalizeApplication stores precise applied timestamps", () => {
   const appliedAt = "2026-05-21T23:02:19.203Z";
