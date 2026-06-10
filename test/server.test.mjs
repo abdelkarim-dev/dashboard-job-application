@@ -19,6 +19,7 @@ import {
   normalizeSystemDesignStore,
   nextReviewDate,
   recordProblemAttempt,
+  runJavaProblem,
   runPythonProblem,
   runSolidJavaExercise,
   simplifyStatus,
@@ -215,6 +216,29 @@ test("practice problem normalization preserves local metadata and tests", () => 
   assert.equal(problem.difficulty, "Easy");
   assert.deepEqual(problem.tags, ["Array", "Hash Table"]);
   assert.equal(problem.customTests[0].name, "basic");
+});
+
+test("practice problem normalization keeps separate Python and Java drafts", () => {
+  const problem = normalizePracticeProblem({
+    title: "Add",
+    methodName: "add",
+    draft: "class Solution:\n    def add(self, a, b):\n        return a + b\n",
+    languageDrafts: {
+      java: "class Solution { public int add(int arg1, int arg2) { return arg1 + arg2; } }",
+    },
+    customTests: [{ name: "sum", args: [1, 2], expected: 3 }],
+  });
+
+  assert.match(problem.languageDrafts.python, /def add/);
+  assert.match(problem.languageDrafts.java, /public int add/);
+
+  const updated = recordProblemAttempt(problem, {
+    language: "java",
+    draft: "class Solution { public int add(int arg1, int arg2) { return 0; } }",
+  });
+
+  assert.match(updated.draft, /def add/);
+  assert.match(updated.languageDrafts.java, /return 0/);
 });
 
 test("seeded practice problems preserve user drafts and solution code", () => {
@@ -459,6 +483,98 @@ test("Python runner times out runaway code", async () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.error, "Python timed out.");
+});
+
+test("Java runner reports pass and fail results", async () => {
+  const problem = normalizePracticeProblem({
+    title: "Add",
+    methodName: "add",
+    customTests: [
+      { name: "passes", args: [2, 3], expected: 5 },
+      { name: "fails", args: [2, 2], expected: 5 },
+    ],
+  });
+  const result = await runJavaProblem(problem, "class Solution { public int add(int arg1, int arg2) { return arg1 + arg2; } }");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.passed, 1);
+  assert.equal(result.total, 2);
+  assert.equal(result.results[1].passed, false);
+});
+
+test("Java runner accepts validator-style LeetCode equivalent answers", async () => {
+  const problem = normalizePracticeProblem({
+    id: "lc-two-sum",
+    title: "Two Sum",
+    methodName: "twoSum",
+    customTests: [
+      { name: "multiple valid pairs", args: [[1, 5, 9, 2, 8], 10], expected: [3, 4] },
+    ],
+  });
+  const result = await runJavaProblem(problem, "class Solution { public int[] twoSum(int[] arg1, int arg2) { return new int[] {0, 2}; } }");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.passed, result.total);
+  assert.match(result.results[0].expected, /Any two distinct indices/);
+});
+
+test("Java runner supports operation-style design fixtures", async () => {
+  const problem = normalizePracticeProblem({
+    title: "LRU Cache",
+    methodName: "",
+    customTests: [
+      {
+        name: "eviction",
+        className: "LRUCache",
+        operations: ["LRUCache", "put", "put", "get", "put", "get"],
+        operationArgs: [[2], [1, 1], [2, 2], [1], [3, 3], [2]],
+        expected: [null, null, null, 1, null, -1],
+      },
+    ],
+  });
+  const code = `
+import java.util.*;
+class LRUCache {
+    private final int capacity;
+    private final LinkedHashMap<Integer, Integer> cache = new LinkedHashMap<>(16, 0.75f, true);
+    public LRUCache(int capacity) { this.capacity = capacity; }
+    public int get(int key) { return cache.getOrDefault(key, -1); }
+    public void put(int key, int value) {
+        cache.put(key, value);
+        if (cache.size() > capacity) cache.remove(cache.keySet().iterator().next());
+    }
+}
+`;
+  const result = await runJavaProblem(problem, code);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.passed, 1);
+  assert.deepEqual(result.results[0].actual, [null, null, null, 1, null, -1]);
+});
+
+test("seeded practice problems include runnable Java reference solutions", async () => {
+  const store = normalizePracticeStore({});
+  const missing = store.problems
+    .filter((problem) => !(problem.languageSolutions?.java || "").trim())
+    .map((problem) => problem.id);
+
+  assert.deepEqual(missing, []);
+
+  const failures = [];
+  for (const problem of store.problems) {
+    const result = await runJavaProblem(problem, problem.languageSolutions.java, { timeoutMs: 6000 });
+    if (!result.ok || result.passed !== result.total || result.total === 0) {
+      failures.push({
+        id: problem.id,
+        error: result.error,
+        passed: result.passed,
+        total: result.total,
+        failedTests: (result.results || []).filter((item) => !item.passed).map((item) => item.name),
+      });
+    }
+  }
+
+  assert.deepEqual(failures, []);
 });
 
 test("SOLID Java runner compiles and validates an OCP solution", async () => {

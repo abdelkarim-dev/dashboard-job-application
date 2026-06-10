@@ -48,6 +48,7 @@ const roleCategoryBatchSize = Number.isFinite(configuredRoleCategoryBatchSize) &
   : 10;
 const PIPELINE_STATUSES = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer", "Rejected"];
 const LEARNING_REVIEW_INTERVALS = [1, 3, 7, 14, 30, 60];
+const PRACTICE_LANGUAGES = new Set(["python", "java"]);
 const ROLE_CATEGORY_OPTIONS = [
   "Backend Engineering",
   "Platform Engineering",
@@ -629,6 +630,503 @@ const defaultPracticeProblems = [
 ];
 
 const defaultPracticeProblemById = new Map(defaultPracticeProblems.map((problem) => [problem.id, problem]));
+const javaPracticeSolutions = {
+  "lc-two-sum": `import java.util.*;
+
+class Solution {
+    public int[] twoSum(int[] nums, int target) {
+        Map<Integer, Integer> seen = new HashMap<>();
+        for (int i = 0; i < nums.length; i += 1) {
+            int need = target - nums[i];
+            if (seen.containsKey(need)) return new int[] { seen.get(need), i };
+            seen.put(nums[i], i);
+        }
+        return new int[0];
+    }
+}
+`,
+  "lc-valid-parentheses": `import java.util.*;
+
+class Solution {
+    public boolean isValid(String s) {
+        Map<Character, Character> pairs = Map.of(')', '(', ']', '[', '}', '{');
+        Deque<Character> stack = new ArrayDeque<>();
+        for (char ch : s.toCharArray()) {
+            if (pairs.containsValue(ch)) {
+                stack.push(ch);
+            } else if (pairs.containsKey(ch)) {
+                if (stack.isEmpty() || stack.pop() != pairs.get(ch)) return false;
+            }
+        }
+        return stack.isEmpty();
+    }
+}
+`,
+  "lc-merge-intervals": `import java.util.*;
+
+class Solution {
+    public int[][] merge(int[][] intervals) {
+        Arrays.sort(intervals, Comparator.comparingInt(item -> item[0]));
+        List<int[]> merged = new ArrayList<>();
+        for (int[] interval : intervals) {
+            if (merged.isEmpty() || interval[0] > merged.get(merged.size() - 1)[1]) {
+                merged.add(new int[] { interval[0], interval[1] });
+            } else {
+                int[] last = merged.get(merged.size() - 1);
+                last[1] = Math.max(last[1], interval[1]);
+            }
+        }
+        return merged.toArray(new int[merged.size()][]);
+    }
+}
+`,
+  "lc-number-of-islands": `class Solution {
+    public int numIslands(char[][] grid) {
+        if (grid == null || grid.length == 0) return 0;
+        int islands = 0;
+        for (int row = 0; row < grid.length; row += 1) {
+            for (int col = 0; col < grid[row].length; col += 1) {
+                if (grid[row][col] == '1') {
+                    islands += 1;
+                    sink(grid, row, col);
+                }
+            }
+        }
+        return islands;
+    }
+
+    private void sink(char[][] grid, int row, int col) {
+        if (row < 0 || col < 0 || row >= grid.length || col >= grid[row].length || grid[row][col] != '1') return;
+        grid[row][col] = '0';
+        sink(grid, row + 1, col);
+        sink(grid, row - 1, col);
+        sink(grid, row, col + 1);
+        sink(grid, row, col - 1);
+    }
+}
+`,
+  "lc-lru-cache": `import java.util.*;
+
+class LRUCache {
+    private final int capacity;
+    private final LinkedHashMap<Integer, Integer> cache;
+
+    public LRUCache(int capacity) {
+        this.capacity = capacity;
+        this.cache = new LinkedHashMap<>(16, 0.75f, true);
+    }
+
+    public int get(int key) {
+        return cache.getOrDefault(key, -1);
+    }
+
+    public void put(int key, int value) {
+        cache.put(key, value);
+        if (cache.size() > capacity) {
+            Integer oldest = cache.keySet().iterator().next();
+            cache.remove(oldest);
+        }
+    }
+}
+`,
+  "lc-koko-eating-bananas": `class Solution {
+    public int minEatingSpeed(int[] piles, int h) {
+        int left = 1;
+        int right = 0;
+        for (int pile : piles) right = Math.max(right, pile);
+        while (left < right) {
+            int mid = left + (right - left) / 2;
+            long hours = 0;
+            for (int pile : piles) hours += (pile + mid - 1L) / mid;
+            if (hours <= h) right = mid;
+            else left = mid + 1;
+        }
+        return left;
+    }
+}
+`,
+  "lc-binary-tree-level-order-traversal": `import java.util.*;
+
+class Solution {
+    public List<List<Integer>> levelOrder(TreeNode root) {
+        List<List<Integer>> result = new ArrayList<>();
+        if (root == null) return result;
+        Queue<TreeNode> queue = new ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            int size = queue.size();
+            List<Integer> level = new ArrayList<>();
+            for (int i = 0; i < size; i += 1) {
+                TreeNode node = queue.remove();
+                level.add(node.val);
+                if (node.left != null) queue.add(node.left);
+                if (node.right != null) queue.add(node.right);
+            }
+            result.add(level);
+        }
+        return result;
+    }
+}
+`,
+  "lc-course-schedule": `import java.util.*;
+
+class Solution {
+    public boolean canFinish(int numCourses, int[][] prerequisites) {
+        List<List<Integer>> graph = new ArrayList<>();
+        for (int i = 0; i < numCourses; i += 1) graph.add(new ArrayList<>());
+        for (int[] edge : prerequisites) graph.get(edge[0]).add(edge[1]);
+        int[] state = new int[numCourses];
+        for (int course = 0; course < numCourses; course += 1) {
+            if (hasCycle(course, graph, state)) return false;
+        }
+        return true;
+    }
+
+    private boolean hasCycle(int course, List<List<Integer>> graph, int[] state) {
+        if (state[course] == 1) return true;
+        if (state[course] == 2) return false;
+        state[course] = 1;
+        for (int prereq : graph.get(course)) {
+            if (hasCycle(prereq, graph, state)) return true;
+        }
+        state[course] = 2;
+        return false;
+    }
+}
+`,
+  "lc-contains-duplicate": `import java.util.*;
+
+class Solution {
+    public boolean containsDuplicate(int[] nums) {
+        Set<Integer> seen = new HashSet<>();
+        for (int num : nums) {
+            if (!seen.add(num)) return true;
+        }
+        return false;
+    }
+}
+`,
+  "lc-valid-anagram": `class Solution {
+    public boolean isAnagram(String s, String t) {
+        if (s.length() != t.length()) return false;
+        int[] counts = new int[26];
+        for (int i = 0; i < s.length(); i += 1) {
+            counts[s.charAt(i) - 'a'] += 1;
+            counts[t.charAt(i) - 'a'] -= 1;
+        }
+        for (int count : counts) {
+            if (count != 0) return false;
+        }
+        return true;
+    }
+}
+`,
+  "lc-best-time-to-buy-and-sell-stock": `class Solution {
+    public int maxProfit(int[] prices) {
+        int bestBuy = Integer.MAX_VALUE;
+        int bestProfit = 0;
+        for (int price : prices) {
+            bestBuy = Math.min(bestBuy, price);
+            bestProfit = Math.max(bestProfit, price - bestBuy);
+        }
+        return bestProfit;
+    }
+}
+`,
+  "lc-binary-search": `class Solution {
+    public int search(int[] nums, int target) {
+        int left = 0;
+        int right = nums.length - 1;
+        while (left <= right) {
+            int mid = left + (right - left) / 2;
+            if (nums[mid] == target) return mid;
+            if (nums[mid] < target) left = mid + 1;
+            else right = mid - 1;
+        }
+        return -1;
+    }
+}
+`,
+  "lc-flood-fill": `class Solution {
+    public int[][] floodFill(int[][] image, int sr, int sc, int color) {
+        int original = image[sr][sc];
+        if (original == color) return image;
+        fill(image, sr, sc, original, color);
+        return image;
+    }
+
+    private void fill(int[][] image, int row, int col, int original, int color) {
+        if (row < 0 || col < 0 || row >= image.length || col >= image[row].length || image[row][col] != original) return;
+        image[row][col] = color;
+        fill(image, row + 1, col, original, color);
+        fill(image, row - 1, col, original, color);
+        fill(image, row, col + 1, original, color);
+        fill(image, row, col - 1, original, color);
+    }
+}
+`,
+  "lc-invert-binary-tree": `class Solution {
+    public TreeNode invertTree(TreeNode root) {
+        if (root == null) return null;
+        TreeNode left = invertTree(root.left);
+        root.left = invertTree(root.right);
+        root.right = left;
+        return root;
+    }
+}
+`,
+  "lc-longest-substring-without-repeating-characters": `import java.util.*;
+
+class Solution {
+    public int lengthOfLongestSubstring(String s) {
+        Map<Character, Integer> seen = new HashMap<>();
+        int left = 0;
+        int best = 0;
+        for (int right = 0; right < s.length(); right += 1) {
+            char ch = s.charAt(right);
+            if (seen.containsKey(ch) && seen.get(ch) >= left) left = seen.get(ch) + 1;
+            seen.put(ch, right);
+            best = Math.max(best, right - left + 1);
+        }
+        return best;
+    }
+}
+`,
+  "lc-product-of-array-except-self": `class Solution {
+    public int[] productExceptSelf(int[] nums) {
+        int[] result = new int[nums.length];
+        int prefix = 1;
+        for (int i = 0; i < nums.length; i += 1) {
+            result[i] = prefix;
+            prefix *= nums[i];
+        }
+        int suffix = 1;
+        for (int i = nums.length - 1; i >= 0; i -= 1) {
+            result[i] *= suffix;
+            suffix *= nums[i];
+        }
+        return result;
+    }
+}
+`,
+  "lc-top-k-frequent-elements": `import java.util.*;
+
+class Solution {
+    public int[] topKFrequent(int[] nums, int k) {
+        Map<Integer, Integer> counts = new HashMap<>();
+        for (int num : nums) counts.put(num, counts.getOrDefault(num, 0) + 1);
+        PriorityQueue<int[]> heap = new PriorityQueue<>(Comparator.comparingInt(item -> item[1]));
+        for (Map.Entry<Integer, Integer> entry : counts.entrySet()) {
+            heap.add(new int[] { entry.getKey(), entry.getValue() });
+            if (heap.size() > k) heap.remove();
+        }
+        int[] result = new int[k];
+        for (int i = 0; i < k; i += 1) result[i] = heap.remove()[0];
+        return result;
+    }
+}
+`,
+  "lc-three-sum": `import java.util.*;
+
+class Solution {
+    public List<List<Integer>> threeSum(int[] nums) {
+        Arrays.sort(nums);
+        List<List<Integer>> result = new ArrayList<>();
+        for (int i = 0; i < nums.length; i += 1) {
+            if (i > 0 && nums[i] == nums[i - 1]) continue;
+            int left = i + 1;
+            int right = nums.length - 1;
+            while (left < right) {
+                int total = nums[i] + nums[left] + nums[right];
+                if (total == 0) {
+                    result.add(Arrays.asList(nums[i], nums[left], nums[right]));
+                    left += 1;
+                    right -= 1;
+                    while (left < right && nums[left] == nums[left - 1]) left += 1;
+                    while (left < right && nums[right] == nums[right + 1]) right -= 1;
+                } else if (total < 0) {
+                    left += 1;
+                } else {
+                    right -= 1;
+                }
+            }
+        }
+        return result;
+    }
+}
+`,
+  "lc-container-with-most-water": `class Solution {
+    public int maxArea(int[] height) {
+        int left = 0;
+        int right = height.length - 1;
+        int best = 0;
+        while (left < right) {
+            best = Math.max(best, Math.min(height[left], height[right]) * (right - left));
+            if (height[left] < height[right]) left += 1;
+            else right -= 1;
+        }
+        return best;
+    }
+}
+`,
+  "lc-coin-change": `import java.util.*;
+
+class Solution {
+    public int coinChange(int[] coins, int amount) {
+        int[] dp = new int[amount + 1];
+        Arrays.fill(dp, amount + 1);
+        dp[0] = 0;
+        for (int total = 1; total <= amount; total += 1) {
+            for (int coin : coins) {
+                if (coin <= total) dp[total] = Math.min(dp[total], dp[total - coin] + 1);
+            }
+        }
+        return dp[amount] > amount ? -1 : dp[amount];
+    }
+}
+`,
+  "lc-rotting-oranges": `import java.util.*;
+
+class Solution {
+    public int orangesRotting(int[][] grid) {
+        Queue<int[]> queue = new ArrayDeque<>();
+        int fresh = 0;
+        for (int row = 0; row < grid.length; row += 1) {
+            for (int col = 0; col < grid[row].length; col += 1) {
+                if (grid[row][col] == 2) queue.add(new int[] { row, col, 0 });
+                if (grid[row][col] == 1) fresh += 1;
+            }
+        }
+        int minutes = 0;
+        int[][] directions = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} };
+        while (!queue.isEmpty()) {
+            int[] current = queue.remove();
+            minutes = current[2];
+            for (int[] direction : directions) {
+                int nextRow = current[0] + direction[0];
+                int nextCol = current[1] + direction[1];
+                if (nextRow < 0 || nextCol < 0 || nextRow >= grid.length || nextCol >= grid[nextRow].length || grid[nextRow][nextCol] != 1) continue;
+                grid[nextRow][nextCol] = 2;
+                fresh -= 1;
+                queue.add(new int[] { nextRow, nextCol, minutes + 1 });
+            }
+        }
+        return fresh == 0 ? minutes : -1;
+    }
+}
+`,
+  "lc-median-of-two-sorted-arrays": `class Solution {
+    public double findMedianSortedArrays(int[] nums1, int[] nums2) {
+        int total = nums1.length + nums2.length;
+        int[] merged = new int[total];
+        int i = 0;
+        int j = 0;
+        int k = 0;
+        while (i < nums1.length || j < nums2.length) {
+            if (j >= nums2.length || (i < nums1.length && nums1[i] <= nums2[j])) {
+                merged[k++] = nums1[i++];
+            } else {
+                merged[k++] = nums2[j++];
+            }
+        }
+        int mid = total / 2;
+        if (total % 2 == 1) return merged[mid];
+        return (merged[mid - 1] + merged[mid]) / 2.0;
+    }
+}
+`,
+  "lc-trapping-rain-water": `class Solution {
+    public int trap(int[] height) {
+        int left = 0;
+        int right = height.length - 1;
+        int leftMax = 0;
+        int rightMax = 0;
+        int water = 0;
+        while (left < right) {
+            if (height[left] < height[right]) {
+                leftMax = Math.max(leftMax, height[left]);
+                water += leftMax - height[left];
+                left += 1;
+            } else {
+                rightMax = Math.max(rightMax, height[right]);
+                water += rightMax - height[right];
+                right -= 1;
+            }
+        }
+        return water;
+    }
+}
+`,
+  "lc-word-ladder": `import java.util.*;
+
+class Solution {
+    public int ladderLength(String beginWord, String endWord, List<String> wordList) {
+        Set<String> words = new HashSet<>(wordList);
+        if (!words.contains(endWord)) return 0;
+        Queue<String> queue = new ArrayDeque<>();
+        queue.add(beginWord);
+        int depth = 1;
+        while (!queue.isEmpty()) {
+            int size = queue.size();
+            for (int i = 0; i < size; i += 1) {
+                String word = queue.remove();
+                if (word.equals(endWord)) return depth;
+                char[] chars = word.toCharArray();
+                for (int pos = 0; pos < chars.length; pos += 1) {
+                    char original = chars[pos];
+                    for (char ch = 'a'; ch <= 'z'; ch += 1) {
+                        chars[pos] = ch;
+                        String next = new String(chars);
+                        if (words.remove(next)) queue.add(next);
+                    }
+                    chars[pos] = original;
+                }
+            }
+            depth += 1;
+        }
+        return 0;
+    }
+}
+`,
+  "lc-sliding-window-maximum": `import java.util.*;
+
+class Solution {
+    public int[] maxSlidingWindow(int[] nums, int k) {
+        Deque<Integer> deque = new ArrayDeque<>();
+        int[] result = new int[nums.length - k + 1];
+        int out = 0;
+        for (int i = 0; i < nums.length; i += 1) {
+            while (!deque.isEmpty() && deque.peekFirst() <= i - k) deque.removeFirst();
+            while (!deque.isEmpty() && nums[deque.peekLast()] <= nums[i]) deque.removeLast();
+            deque.addLast(i);
+            if (i >= k - 1) result[out++] = nums[deque.peekFirst()];
+        }
+        return result;
+    }
+}
+`,
+  "lc-merge-k-sorted-lists": `import java.util.*;
+
+class Solution {
+    public ListNode mergeKLists(ListNode[] lists) {
+        PriorityQueue<ListNode> heap = new PriorityQueue<>(Comparator.comparingInt(node -> node.val));
+        for (ListNode node : lists) {
+            if (node != null) heap.add(node);
+        }
+        ListNode dummy = new ListNode(0);
+        ListNode tail = dummy;
+        while (!heap.isEmpty()) {
+            ListNode node = heap.remove();
+            tail.next = node;
+            tail = tail.next;
+            if (node.next != null) heap.add(node.next);
+        }
+        tail.next = null;
+        return dummy.next;
+    }
+}
+`,
+};
 const supplementalPracticeTests = {
   "lc-two-sum": [
     { name: "negative values", args: [[-3, 4, 3, 90], 0], expected: [0, 2] },
@@ -1253,6 +1751,47 @@ function normalizePracticeStore(input = {}) {
   return { version: 1, settings, problems };
 }
 
+function normalizePracticeLanguage(value) {
+  const language = clean(value).toLowerCase();
+  return PRACTICE_LANGUAGES.has(language) ? language : "python";
+}
+
+function normalizePracticeLanguageDrafts(value = {}) {
+  let source = value;
+  if (typeof value === "string") {
+    try {
+      source = JSON.parse(value);
+    } catch {
+      source = {};
+    }
+  }
+  if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+  const drafts = {};
+  for (const [key, draft] of Object.entries(source)) {
+    const language = normalizePracticeLanguage(key);
+    if (draft !== undefined && draft !== null) drafts[language] = String(draft);
+  }
+  return drafts;
+}
+
+function normalizePracticeLanguageCodeMap(value = {}) {
+  let source = value;
+  if (typeof value === "string") {
+    try {
+      source = JSON.parse(value);
+    } catch {
+      source = {};
+    }
+  }
+  if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+  const codeByLanguage = {};
+  for (const [key, code] of Object.entries(source)) {
+    const language = normalizePracticeLanguage(key);
+    if (code !== undefined && code !== null) codeByLanguage[language] = String(code);
+  }
+  return codeByLanguage;
+}
+
 function normalizePracticeProblem(input = {}, existing = {}) {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const base = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
@@ -1263,6 +1802,7 @@ function normalizePracticeProblem(input = {}, existing = {}) {
   const customTests = Array.isArray(source.customTests)
     ? source.customTests
     : (Array.isArray(source.tests) ? source.tests : (Array.isArray(base.customTests) ? base.customTests : []));
+  const normalizedCustomTests = augmentPracticeTests(id, customTests.map(normalizePracticeTest).filter(Boolean));
   const attempts = Array.isArray(source.attempts) ? source.attempts : (Array.isArray(base.attempts) ? base.attempts : []);
   const sessions = Array.isArray(source.sessions) ? source.sessions : (Array.isArray(base.sessions) ? base.sessions : []);
   const history = Array.isArray(source.history) ? source.history : (Array.isArray(base.history) ? base.history : []);
@@ -1278,9 +1818,37 @@ function normalizePracticeProblem(input = {}, existing = {}) {
       ? storedSolutionCode
       : (seededSolutionCode || storedSolutionCode || "")
   );
-  const starterCode = String(source.starterCode ?? base.starterCode ?? seededProblem?.starterCode ?? makeStarterCode({ title, methodName }));
-  const userStarted = Boolean(source.userStarted ?? base.userStarted ?? (!seededProblem && (source.draft || base.draft)));
-  let draft = String(source.draft ?? source.codeDraft ?? base.draft ?? base.codeDraft ?? starterCode);
+  const seededLanguageSolutions = normalizePracticeLanguageCodeMap(seededProblem?.languageSolutions);
+  if (javaPracticeSolutions[id]) seededLanguageSolutions.java = javaPracticeSolutions[id];
+  const languageSolutions = {
+    ...seededLanguageSolutions,
+    ...normalizePracticeLanguageCodeMap(base.languageSolutions),
+    ...normalizePracticeLanguageCodeMap(source.languageSolutions),
+  };
+  languageSolutions.python = String(languageSolutions.python ?? solutionCode ?? "");
+  const starterInput = { id, title, methodName, customTests: normalizedCustomTests };
+  const starterCode = String(source.starterCode ?? base.starterCode ?? seededProblem?.starterCode ?? makeStarterCode(starterInput, "python"));
+  const javaStarterCode = makeStarterCode(starterInput, "java");
+  const draftLanguage = normalizePracticeLanguage(source.language);
+  const sourceDraft = source.draft ?? source.codeDraft;
+  const languageDrafts = {
+    ...normalizePracticeLanguageDrafts(base.languageDrafts),
+    ...normalizePracticeLanguageDrafts(source.languageDrafts),
+  };
+  let draft = String(
+    draftLanguage === "python" && sourceDraft !== undefined
+      ? sourceDraft
+      : (base.draft ?? base.codeDraft ?? languageDrafts.python ?? starterCode)
+  );
+  if (sourceDraft !== undefined) {
+    languageDrafts[draftLanguage] = String(sourceDraft);
+    if (draftLanguage === "python") draft = String(sourceDraft);
+  }
+  languageDrafts.python = String(languageDrafts.python ?? draft ?? starterCode);
+  languageDrafts.java = String(languageDrafts.java ?? javaStarterCode);
+  if (!draft) draft = languageDrafts.python || starterCode;
+  const hasStartedDraft = draft !== starterCode || languageDrafts.java !== javaStarterCode;
+  const userStarted = Boolean(source.userStarted ?? base.userStarted ?? (!seededProblem && (source.draft || base.draft)) ?? hasStartedDraft);
   const solutionRevealed = Boolean(source.solutionRevealed ?? base.solutionRevealed ?? false);
   return {
     id,
@@ -1297,15 +1865,17 @@ function normalizePracticeProblem(input = {}, existing = {}) {
     examples: String(source.examples ?? base.examples ?? ""),
     constraints: String(source.constraints ?? base.constraints ?? ""),
     notes: String(source.notes ?? base.notes ?? ""),
-    customTests: augmentPracticeTests(id, customTests.map(normalizePracticeTest).filter(Boolean)),
+    customTests: normalizedCustomTests,
     companies: Array.isArray(source.companies) && source.companies.length
       ? source.companies
       : getCompanyTagsForProblem(clean(source.slug ?? base.slug) || slugify(title)),
     starterCode,
     solutionCode,
+    languageSolutions,
     solutionRevealed,
-    userStarted: draft === starterCode ? false : userStarted,
+    userStarted: hasStartedDraft ? true : userStarted,
     draft,
+    languageDrafts,
     solved: Boolean((source.solved ?? base.solved ?? (solveCount > 0)) || lastSolvedAt),
     solveCount,
     reviewLevel,
@@ -1379,7 +1949,8 @@ function decoratePracticeTest(problemId, test) {
   return test;
 }
 
-function makeStarterCode(problem = {}) {
+function makeStarterCode(problem = {}, language = "python") {
+  if (normalizePracticeLanguage(language) === "java") return makeJavaStarterCode(problem);
   const methodName = clean(problem.methodName);
   const title = clean(problem.title);
   if (!methodName && /lru cache/i.test(title)) {
@@ -1389,6 +1960,127 @@ function makeStarterCode(problem = {}) {
     return "class Solution:\n    def solve(self):\n        pass\n";
   }
   return `class Solution:\n    def ${methodName}(self, *args):\n        pass\n`;
+}
+
+function makeJavaStarterCode(problem = {}) {
+  const methodName = clean(problem.methodName);
+  const title = clean(problem.title);
+  const tests = Array.isArray(problem.customTests) ? problem.customTests : [];
+  if (!methodName && /lru cache/i.test(title)) {
+    return [
+      "import java.util.*;",
+      "",
+      "class LRUCache {",
+      "    public LRUCache(int capacity) {",
+      "    }",
+      "",
+      "    public int get(int key) {",
+      "        return -1;",
+      "    }",
+      "",
+      "    public void put(int key, int value) {",
+      "    }",
+      "}",
+      "",
+    ].join("\n");
+  }
+  if (!methodName) {
+    return [
+      "import java.util.*;",
+      "",
+      "class Solution {",
+      "    public Object solve() {",
+      "        return null;",
+      "    }",
+      "}",
+      "",
+    ].join("\n");
+  }
+  const sample = tests.find((test) => Array.isArray(test.args)) || {};
+  const parameterTypes = inferJavaParameterTypes({ ...problem, customTests: tests });
+  const params = parameterTypes.map((type, index) => `${type} arg${index + 1}`);
+  const safeMethodName = sanitizeJavaIdentifier(methodName, "solve");
+  const returnType = inferJavaReturnType(sample.expected, sample.expectedType, problem);
+  const returnLine = javaDefaultReturnLine(returnType);
+  return [
+    "import java.util.*;",
+    "",
+    "class Solution {",
+    `    public ${returnType} ${safeMethodName}(${params.join(", ")}) {`,
+    `        ${returnLine}`,
+    "    }",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function sanitizeJavaIdentifier(value, fallback = "solve") {
+  const identifier = clean(value).replace(/[^A-Za-z0-9_$]/g, "");
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier;
+  return fallback;
+}
+
+function inferJavaArgType(value, typeHint = "", problem = {}, index = 0) {
+  const hint = clean(typeHint).toLowerCase();
+  if (hint === "tree" || hint === "binary_tree") return "TreeNode";
+  if (hint === "listnode" || hint === "linked_list") return "ListNode";
+  if (hint === "listnode[]" || hint === "linked_list[]") return "ListNode[]";
+  if (typeof value === "string") return "String";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return Number.isInteger(value) ? "int" : "double";
+  if (Array.isArray(value)) {
+    if (isStringMatrixOfChars(value)) return "char[][]";
+    if (value.every((item) => typeof item === "string")) return "List<String>";
+    if (value.every((item) => Array.isArray(item) && item.every((inner) => typeof inner === "number"))) return "int[][]";
+    if (value.every((item) => typeof item === "number")) return "int[]";
+    if (value.length === 0 && /word/i.test(clean(problem.title)) && index >= 2) return "List<String>";
+    if (value.length === 0) return "int[]";
+  }
+  return "Object";
+}
+
+function inferJavaReturnType(expected, expectedType = "", problem = {}) {
+  const hint = clean(expectedType).toLowerCase();
+  const methodName = clean(problem.methodName);
+  const title = clean(problem.title);
+  if (hint === "tree" || hint === "binary_tree") return "TreeNode";
+  if (hint === "listnode" || hint === "linked_list") return "ListNode";
+  if (hint === "listnode[]" || hint === "linked_list[]") return "ListNode[]";
+  if (/median/i.test(methodName) || /median/i.test(title)) return "double";
+  if (typeof expected === "boolean") return "boolean";
+  if (typeof expected === "number") return Number.isInteger(expected) ? "int" : "double";
+  if (typeof expected === "string") return "String";
+  if (Array.isArray(expected)) {
+    if (expected.every((item) => typeof item === "number")) return "int[]";
+    if (expected.every((item) => Array.isArray(item) && item.every((inner) => typeof inner === "number"))) {
+      if (/three\s*sum/i.test(title) || /level\s*order/i.test(title)) return "List<List<Integer>>";
+      return "int[][]";
+    }
+    if (expected.every((item) => typeof item === "string")) return "List<String>";
+    if (expected.length === 0 && /three\s*sum|level\s*order/i.test(title)) return "List<List<Integer>>";
+    if (expected.length === 0) return "int[]";
+  }
+  return "Object";
+}
+
+function javaDefaultReturnLine(returnType = "Object") {
+  if (returnType === "void") return "return;";
+  if (returnType === "boolean") return "return false;";
+  if (returnType === "int") return "return 0;";
+  if (returnType === "double") return "return 0.0;";
+  if (returnType === "String") return 'return "";';
+  if (returnType === "int[]") return "return new int[0];";
+  if (returnType === "int[][]") return "return new int[0][];";
+  if (returnType === "char[][]") return "return new char[0][];";
+  if (returnType === "List<String>") return "return new ArrayList<>();";
+  if (returnType === "List<List<Integer>>") return "return new ArrayList<>();";
+  return "return null;";
+}
+
+function isStringMatrixOfChars(value) {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every((row) => Array.isArray(row) && row.every((item) => typeof item === "string" && item.length <= 1));
 }
 
 function isPlaceholderSolutionCode(code = "") {
@@ -1446,6 +2138,7 @@ function normalizeAttempt(input) {
     id: clean(input.id) || `attempt-${Date.parse(createdAt) || Date.now()}`,
     createdAt,
     source: clean(input.source) || "manual",
+    language: normalizePracticeLanguage(input.language),
     passed: Boolean(input.passed),
     passedTests: Math.max(0, Number(input.passedTests) || 0),
     totalTests: Math.max(0, Number(input.totalTests) || 0),
@@ -1562,10 +2255,12 @@ function mergeSeededPracticeProblems(store, now = new Date().toISOString()) {
 
 function recordProblemAttempt(problem, attemptInput = {}, now = new Date().toISOString()) {
   const next = normalizePracticeProblem(problem);
+  const language = normalizePracticeLanguage(attemptInput.language);
   const timeSpentMinutes = Math.max(0, Number(attemptInput.timeSpentMinutes) || 0);
   const attempt = normalizeAttempt({
     id: `attempt-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     createdAt: now,
+    language,
     ...attemptInput,
     timeSpentMinutes,
   });
@@ -1583,7 +2278,14 @@ function recordProblemAttempt(problem, attemptInput = {}, now = new Date().toISO
     ].slice(0, 300);
   }
   if (attemptInput.draft !== undefined || attemptInput.codeDraft !== undefined) {
-    next.draft = String(attemptInput.draft ?? attemptInput.codeDraft ?? "");
+    const code = String(attemptInput.draft ?? attemptInput.codeDraft ?? "");
+    next.languageDrafts = {
+      ...normalizePracticeLanguageDrafts(next.languageDrafts),
+      [language]: code,
+    };
+    if (language === "python") {
+      next.draft = code;
+    }
     next.userStarted = true;
   }
   if (attemptInput.solutionRevealed !== undefined) {
@@ -1775,6 +2477,555 @@ async function runPythonProblem(problemInput, codeInput = "", options = {}) {
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+async function runJavaProblem(problemInput, codeInput = "", options = {}) {
+  const problem = normalizePracticeProblem(problemInput);
+  const tests = problem.customTests || [];
+  const code = String(codeInput || problem.languageDrafts?.java || "");
+  const timeoutMs = Math.max(500, Number(options.timeoutMs) || 4000);
+  const usesOperationHarness = tests.some((test) => Array.isArray(test.operations) && test.operations.length > 0);
+  if (!code.trim()) return { ok: false, error: "No Java code to compile.", passed: 0, total: tests.length, results: [] };
+  if (!problem.methodName && !usesOperationHarness) return { ok: false, error: "Set a method name or add a locked operation test before running.", passed: 0, total: tests.length, results: [] };
+  if (!tests.length) return { ok: false, error: "No locked local tests are available for this problem yet.", passed: 0, total: 0, results: [] };
+
+  const tempDir = await mkdtemp(path.join(tmpdir(), "job-hunt-practice-java-"));
+  await writeFile(path.join(tempDir, "Solution.java"), withJavaTypePrelude(code), "utf8");
+  await writeFile(path.join(tempDir, "TestRunner.java"), buildJavaHarness(problem), "utf8");
+
+  try {
+    const compiled = await runProcess("javac", ["Solution.java", "TestRunner.java"], { cwd: tempDir, timeoutMs });
+    if (compiled.timedOut) {
+      return { ok: false, error: "Java compilation timed out.", passed: 0, total: tests.length, results: [] };
+    }
+    if (compiled.code !== 0) {
+      return {
+        ok: false,
+        error: `Java compilation failed.\n${compiled.stderr || compiled.stdout}`.trim(),
+        passed: 0,
+        total: tests.length,
+        results: [],
+        stdout: compiled.stdout,
+        stderr: compiled.stderr,
+      };
+    }
+
+    const executed = await runProcess("java", ["-cp", tempDir, "TestRunner"], { cwd: tempDir, timeoutMs });
+    if (executed.timedOut) {
+      return { ok: false, error: "Java tests timed out.", passed: 0, total: tests.length, results: [] };
+    }
+    const parsed = parseRunnerPayload(executed.stdout);
+    if (!parsed) {
+      return {
+        ok: false,
+        error: executed.stderr || "The Java runner did not return a result.",
+        passed: 0,
+        total: tests.length,
+        results: [],
+        stdout: executed.stdout,
+        stderr: executed.stderr,
+      };
+    }
+    return {
+      ok: executed.code === 0 && !parsed.error,
+      error: parsed.error || (executed.code === 0 ? "" : (executed.stderr || "Java execution failed.")),
+      passed: parsed.passed || 0,
+      total: parsed.total || tests.length,
+      results: parsed.results || [],
+      stdout: stripRunnerPayload(executed.stdout),
+      stderr: executed.stderr,
+    };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function inferJavaParameterTypes(problem = {}) {
+  const tests = Array.isArray(problem.customTests) ? problem.customTests : [];
+  const maxArgs = tests.reduce((max, test) => Math.max(max, Array.isArray(test.args) ? test.args.length : 0), 0);
+  return Array.from({ length: maxArgs }, (_, index) => {
+    const hinted = tests.find((test) => Array.isArray(test.argTypes) && clean(test.argTypes[index]))?.argTypes[index] || "";
+    const sample = tests.find((test) => {
+      if (!Array.isArray(test.args) || !(index in test.args)) return false;
+      const value = test.args[index];
+      return !(Array.isArray(value) && value.length === 0);
+    }) || tests.find((test) => Array.isArray(test.args) && index in test.args);
+    return inferJavaArgType(sample?.args?.[index], hinted, problem, index);
+  });
+}
+
+function withJavaTypePrelude(code = "") {
+  const source = /^\s*import\s+java\.util\./m.test(String(code || ""))
+    ? String(code || "")
+    : `import java.util.*;\n${String(code || "")}`;
+  const preludeParts = [];
+  if (!/\bclass\s+TreeNode\b/.test(source)) {
+    preludeParts.push([
+      "class TreeNode {",
+      "    int val;",
+      "    TreeNode left;",
+      "    TreeNode right;",
+      "    TreeNode() {}",
+      "    TreeNode(int val) { this.val = val; }",
+      "    TreeNode(int val, TreeNode left, TreeNode right) {",
+      "        this.val = val;",
+      "        this.left = left;",
+      "        this.right = right;",
+      "    }",
+      "}",
+    ].join("\n"));
+  }
+  if (!/\bclass\s+ListNode\b/.test(source)) {
+    preludeParts.push([
+      "class ListNode {",
+      "    int val;",
+      "    ListNode next;",
+      "    ListNode() {}",
+      "    ListNode(int val) { this.val = val; }",
+      "    ListNode(int val, ListNode next) { this.val = val; this.next = next; }",
+      "}",
+    ].join("\n"));
+  }
+  if (!preludeParts.length) return source;
+  const lines = source.split("\n");
+  let insertAt = 0;
+  while (insertAt < lines.length && lines[insertAt].trim() === "") insertAt += 1;
+  while (insertAt < lines.length && /^import\s+/.test(lines[insertAt].trim())) insertAt += 1;
+  return [
+    ...lines.slice(0, insertAt),
+    "",
+    preludeParts.join("\n\n"),
+    "",
+    ...lines.slice(insertAt),
+  ].join("\n");
+}
+
+function buildJavaHarness(problem = {}) {
+  const tests = Array.isArray(problem.customTests) ? problem.customTests : [];
+  const parameterTypes = inferJavaParameterTypes(problem);
+  const body = tests.map((test, index) => (
+    Array.isArray(test.operations) && test.operations.length > 0
+      ? buildJavaOperationTestBlock(test, index)
+      : buildJavaMethodTestBlock(problem, test, index, parameterTypes)
+  )).join("\n");
+  return `import java.util.*;
+import java.io.*;
+
+public class TestRunner {
+    private static final List<String> results = new ArrayList<>();
+    private static int passed = 0;
+    private static int total = 0;
+
+    public static void main(String[] args) {
+        String topLevelError = "";
+        try {
+            run();
+        } catch (Throwable error) {
+            topLevelError = stackSummary(error);
+        }
+        System.out.println("__JH_RESULT__" + "{"
+            + "\\"results\\":[" + String.join(",", results) + "],"
+            + "\\"passed\\":" + passed + ","
+            + "\\"total\\":" + total + ","
+            + "\\"error\\":" + jsonString(topLevelError)
+            + "}");
+    }
+
+    private static void run() throws Exception {
+${indentJava(body, 8)}
+    }
+
+    private static void emitResult(boolean condition, String name, Object input, Object expected, Object actual, String error) {
+        total += 1;
+        if (condition) passed += 1;
+        results.add("{"
+            + "\\"name\\":" + jsonString(name) + ","
+            + "\\"passed\\":" + condition + ","
+            + "\\"args\\":" + jsonValue(input) + ","
+            + "\\"expected\\":" + jsonValue(expected) + ","
+            + "\\"actual\\":" + jsonValue(actual) + ","
+            + "\\"error\\":" + jsonString(error)
+            + "}");
+    }
+
+    private static void emitOperationResult(boolean condition, String name, Object operations, Object operationArgs, Object expected, Object actual, String error) {
+        total += 1;
+        if (condition) passed += 1;
+        results.add("{"
+            + "\\"name\\":" + jsonString(name) + ","
+            + "\\"passed\\":" + condition + ","
+            + "\\"operations\\":" + jsonValue(operations) + ","
+            + "\\"operationArgs\\":" + jsonValue(operationArgs) + ","
+            + "\\"expected\\":" + jsonValue(expected) + ","
+            + "\\"actual\\":" + jsonValue(actual) + ","
+            + "\\"error\\":" + jsonString(error)
+            + "}");
+    }
+
+    private static boolean compareActual(Object actual, Object expected, Object[] rawArgs, String validator) {
+        Object normalizedActual = normalize(actual);
+        Object normalizedExpected = normalize(expected);
+        if ("twoSumIndices".equals(validator)) return isValidTwoSum(normalizedActual, rawArgs);
+        if ("unorderedList".equals(validator)) return sortedJsonList(normalizedActual).equals(sortedJsonList(normalizedExpected));
+        if ("unorderedNestedList".equals(validator)) return sortedJsonList(normalizedActual).equals(sortedJsonList(normalizedExpected));
+        return valuesEqual(normalizedActual, normalizedExpected);
+    }
+
+    private static boolean isValidTwoSum(Object actual, Object[] rawArgs) {
+        Object normalized = normalize(actual);
+        if (!(normalized instanceof List<?> indices) || indices.size() != 2) return false;
+        if (!(indices.get(0) instanceof Number) || !(indices.get(1) instanceof Number)) return false;
+        int first = ((Number) indices.get(0)).intValue();
+        int second = ((Number) indices.get(1)).intValue();
+        if (first == second) return false;
+        Object numsObject = rawArgs.length > 0 ? normalize(rawArgs[0]) : Collections.emptyList();
+        Object targetObject = rawArgs.length > 1 ? rawArgs[1] : null;
+        if (!(numsObject instanceof List<?> nums) || !(targetObject instanceof Number)) return false;
+        int target = ((Number) targetObject).intValue();
+        if (first < 0 || second < 0 || first >= nums.size() || second >= nums.size()) return false;
+        Object a = nums.get(first);
+        Object b = nums.get(second);
+        return a instanceof Number && b instanceof Number && ((Number) a).intValue() + ((Number) b).intValue() == target;
+    }
+
+    private static List<String> sortedJsonList(Object value) {
+        Object normalized = normalize(value);
+        List<String> output = new ArrayList<>();
+        if (normalized instanceof List<?> list) {
+            for (Object item : list) output.add(jsonValue(normalize(item)));
+        }
+        Collections.sort(output);
+        return output;
+    }
+
+    private static boolean valuesEqual(Object left, Object right) {
+        Object a = normalize(left);
+        Object b = normalize(right);
+        if (a instanceof Number && b instanceof Number) {
+            return Math.abs(((Number) a).doubleValue() - ((Number) b).doubleValue()) < 1e-9;
+        }
+        if (a instanceof List<?> leftList && b instanceof List<?> rightList) {
+            if (leftList.size() != rightList.size()) return false;
+            for (int i = 0; i < leftList.size(); i += 1) {
+                if (!valuesEqual(leftList.get(i), rightList.get(i))) return false;
+            }
+            return true;
+        }
+        return Objects.equals(a, b);
+    }
+
+    private static Object normalizeActual(Object value, String expectedType) {
+        String type = expectedType == null ? "" : expectedType.toLowerCase(Locale.ROOT);
+        if ("tree".equals(type) || "binary_tree".equals(type)) return value == null ? new ArrayList<Object>() : treeToList((TreeNode) value);
+        if ("listnode".equals(type) || "linked_list".equals(type)) return value == null ? new ArrayList<Object>() : listToArray((ListNode) value);
+        if (("listnode[]".equals(type) || "linked_list[]".equals(type)) && value instanceof ListNode[] nodes) {
+            List<Object> output = new ArrayList<>();
+            for (ListNode node : nodes) output.add(listToArray(node));
+            return output;
+        }
+        return normalize(value);
+    }
+
+    private static Object normalize(Object value) {
+        if (value == null) return null;
+        if (value instanceof TreeNode node) return treeToList(node);
+        if (value instanceof ListNode node) return listToArray(node);
+        if (value instanceof int[] array) {
+            List<Integer> output = new ArrayList<>();
+            for (int item : array) output.add(item);
+            return output;
+        }
+        if (value instanceof int[][] matrix) {
+            List<Object> output = new ArrayList<>();
+            for (int[] row : matrix) output.add(normalize(row));
+            return output;
+        }
+        if (value instanceof char[][] matrix) {
+            List<Object> output = new ArrayList<>();
+            for (char[] row : matrix) {
+                List<String> chars = new ArrayList<>();
+                for (char item : row) chars.add(String.valueOf(item));
+                output.add(chars);
+            }
+            return output;
+        }
+        if (value instanceof Object[] array) {
+            List<Object> output = new ArrayList<>();
+            for (Object item : array) output.add(normalize(item));
+            return output;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> output = new ArrayList<>();
+            for (Object item : list) output.add(normalize(item));
+            return output;
+        }
+        return value;
+    }
+
+    private static TreeNode buildTree(Integer[] values) {
+        if (values == null || values.length == 0 || values[0] == null) return null;
+        TreeNode root = new TreeNode(values[0]);
+        Queue<TreeNode> queue = new ArrayDeque<>();
+        queue.add(root);
+        int index = 1;
+        while (!queue.isEmpty() && index < values.length) {
+            TreeNode node = queue.poll();
+            if (index < values.length && values[index] != null) {
+                node.left = new TreeNode(values[index]);
+                queue.add(node.left);
+            }
+            index += 1;
+            if (index < values.length && values[index] != null) {
+                node.right = new TreeNode(values[index]);
+                queue.add(node.right);
+            }
+            index += 1;
+        }
+        return root;
+    }
+
+    private static List<Object> treeToList(TreeNode root) {
+        List<Object> output = new ArrayList<>();
+        if (root == null) return output;
+        Queue<TreeNode> queue = new LinkedList<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            TreeNode node = queue.poll();
+            if (node == null) {
+                output.add(null);
+            } else {
+                output.add(node.val);
+                queue.add(node.left);
+                queue.add(node.right);
+            }
+        }
+        while (!output.isEmpty() && output.get(output.size() - 1) == null) output.remove(output.size() - 1);
+        return output;
+    }
+
+    private static ListNode buildList(int[] values) {
+        ListNode dummy = new ListNode(0);
+        ListNode tail = dummy;
+        for (int value : values) {
+            tail.next = new ListNode(value);
+            tail = tail.next;
+        }
+        return dummy.next;
+    }
+
+    private static List<Object> listToArray(ListNode head) {
+        List<Object> output = new ArrayList<>();
+        Set<ListNode> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        while (head != null && !seen.contains(head)) {
+            seen.add(head);
+            output.add(head.val);
+            head = head.next;
+        }
+        return output;
+    }
+
+    private static ListNode[] buildListArray(int[][] values) {
+        ListNode[] output = new ListNode[values.length];
+        for (int i = 0; i < values.length; i += 1) output[i] = buildList(values[i]);
+        return output;
+    }
+
+    private static String jsonValue(Object value) {
+        Object normalized = normalize(value);
+        if (normalized == null) return "null";
+        if (normalized instanceof String text) return jsonString(text);
+        if (normalized instanceof Number || normalized instanceof Boolean) return String.valueOf(normalized);
+        if (normalized instanceof List<?> list) {
+            List<String> parts = new ArrayList<>();
+            for (Object item : list) parts.add(jsonValue(item));
+            return "[" + String.join(",", parts) + "]";
+        }
+        return jsonString(String.valueOf(normalized));
+    }
+
+    private static String jsonString(String value) {
+        if (value == null) return "null";
+        StringBuilder builder = new StringBuilder("\\"");
+        for (int i = 0; i < value.length(); i += 1) {
+            char ch = value.charAt(i);
+            if (ch == '\\\\') builder.append("\\\\\\\\");
+            else if (ch == '"') builder.append("\\\\\\"");
+            else if (ch == '\\n') builder.append("\\\\n");
+            else if (ch == '\\r') builder.append("\\\\r");
+            else if (ch == '\\t') builder.append("\\\\t");
+            else if (ch < 32) builder.append(String.format("\\\\u%04x", (int) ch));
+            else builder.append(ch);
+        }
+        builder.append("\\"");
+        return builder.toString();
+    }
+
+    private static String stackSummary(Throwable error) {
+        if (error == null) return "";
+        StringWriter writer = new StringWriter();
+        error.printStackTrace(new PrintWriter(writer));
+        return writer.toString();
+    }
+}
+`;
+}
+
+function buildJavaMethodTestBlock(problem, test, index, parameterTypes = []) {
+  const methodName = sanitizeJavaIdentifier(problem.methodName, "solve");
+  const rawArgs = Array.isArray(test.args) ? test.args : [];
+  const argExpressions = rawArgs.map((value, argIndex) => javaValueExpression(value, parameterTypes[argIndex] || ""));
+  const rawArgExpressions = rawArgs.map((value, argIndex) => javaValueExpression(value, parameterTypes[argIndex] || ""));
+  const expectedExpression = javaValueExpression(test.expected);
+  const expectedDisplay = test.expectedDescription !== undefined ? test.expectedDescription : test.expected;
+  return `{
+    Object inputDisplay = ${javaObjectExpression(rawArgs)};
+    Object expectedDisplay = ${javaObjectExpression(expectedDisplay)};
+    Object expected = ${expectedExpression};
+    Object[] rawArgs = new Object[] { ${rawArgExpressions.join(", ")} };
+    try {
+        Solution solution = new Solution();
+        Object actualRaw = solution.${methodName}(${argExpressions.join(", ")});
+        Object actual = normalizeActual(actualRaw, ${javaStringLiteral(test.expectedType || "")});
+        boolean condition = compareActual(actual, expected, rawArgs, ${javaStringLiteral(test.validator || "")});
+        emitResult(condition, ${javaStringLiteral(test.name || `test ${index + 1}`)}, inputDisplay, expectedDisplay, actual, "");
+    } catch (Throwable error) {
+        emitResult(false, ${javaStringLiteral(test.name || `test ${index + 1}`)}, inputDisplay, expectedDisplay, null, stackSummary(error));
+    }
+}`;
+}
+
+function buildJavaOperationTestBlock(test, index) {
+  const operations = Array.isArray(test.operations) ? test.operations : [];
+  const operationArgs = Array.isArray(test.operationArgs) ? test.operationArgs : (Array.isArray(test.args) ? test.args : []);
+  const className = sanitizeJavaIdentifier(test.className || operations[0], "Solution");
+  const lines = [
+    `${className} instance = null;`,
+    "List<Object> actual = new ArrayList<>();",
+  ];
+  operations.forEach((operation, opIndex) => {
+    const safeOperation = sanitizeJavaIdentifier(operation, operation);
+    const args = Array.isArray(operationArgs[opIndex]) ? operationArgs[opIndex] : [];
+    const argExpressions = args.map((value) => javaValueExpression(value));
+    if (safeOperation === className) {
+      lines.push(`instance = new ${className}(${argExpressions.join(", ")});`);
+      lines.push("actual.add(null);");
+      return;
+    }
+    const call = `instance.${safeOperation}(${argExpressions.join(", ")})`;
+    const expectedValue = Array.isArray(test.expected) ? test.expected[opIndex] : undefined;
+    if (expectedValue === null || expectedValue === undefined) {
+      lines.push(`${call};`);
+      lines.push("actual.add(null);");
+    } else {
+      lines.push(`actual.add(${call});`);
+    }
+  });
+  return `{
+    Object operationsDisplay = ${javaObjectExpression(operations)};
+    Object operationArgsDisplay = ${javaObjectExpression(operationArgs)};
+    Object expected = ${javaObjectExpression(test.expected)};
+    try {
+${indentJava(lines.join("\n"), 8)}
+        boolean condition = valuesEqual(actual, expected);
+        emitOperationResult(condition, ${javaStringLiteral(test.name || `test ${index + 1}`)}, operationsDisplay, operationArgsDisplay, expected, actual, "");
+    } catch (Throwable error) {
+        emitOperationResult(false, ${javaStringLiteral(test.name || `test ${index + 1}`)}, operationsDisplay, operationArgsDisplay, expected, null, stackSummary(error));
+    }
+}`;
+}
+
+function javaValueExpression(value, typeHint = "") {
+  const hint = clean(typeHint);
+  const lowerHint = hint.toLowerCase();
+  if (lowerHint === "treenode" || lowerHint === "tree" || lowerHint === "binary_tree") {
+    return `buildTree(${javaIntegerArrayExpression(Array.isArray(value) ? value : [])})`;
+  }
+  if (lowerHint === "listnode" || lowerHint === "listnode" || lowerHint === "linked_list") {
+    return `buildList(${javaIntArrayExpression(Array.isArray(value) ? value : [])})`;
+  }
+  if (lowerHint === "listnode[]" || lowerHint === "linked_list[]") {
+    return `buildListArray(${javaIntMatrixExpression(Array.isArray(value) ? value : [])})`;
+  }
+  if (lowerHint === "char[][]") return javaCharMatrixExpression(Array.isArray(value) ? value : []);
+  if (lowerHint === "int[][]") return javaIntMatrixExpression(Array.isArray(value) ? value : []);
+  if (lowerHint === "int[]") return javaIntArrayExpression(Array.isArray(value) ? value : []);
+  if (lowerHint === "list<string>") return javaStringListExpression(Array.isArray(value) ? value : []);
+  if (value === undefined || value === null) return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : `${Number(value)}`;
+  if (typeof value === "string") return javaStringLiteral(value);
+  if (Array.isArray(value)) {
+    if (isStringMatrixOfChars(value)) return javaCharMatrixExpression(value);
+    if (value.every((item) => typeof item === "string")) return javaStringListExpression(value);
+    if (value.every((item) => Array.isArray(item) && item.every((inner) => typeof inner === "number"))) return javaIntMatrixExpression(value);
+    if (value.every((item) => typeof item === "number")) return javaIntArrayExpression(value);
+    if (value.length === 0) return "new int[] {}";
+  }
+  return javaObjectExpression(value);
+}
+
+function javaObjectExpression(value) {
+  if (value === undefined || value === null) return "null";
+  if (typeof value === "boolean") return value ? "Boolean.TRUE" : "Boolean.FALSE";
+  if (typeof value === "number") return Number.isInteger(value) ? `Integer.valueOf(${value})` : `Double.valueOf(${Number(value)})`;
+  if (typeof value === "string") return javaStringLiteral(value);
+  if (Array.isArray(value)) {
+    if (!value.length) return "new ArrayList<Object>()";
+    return `new ArrayList<Object>(Arrays.asList(${value.map(javaObjectExpression).join(", ")}))`;
+  }
+  return javaStringLiteral(JSON.stringify(value));
+}
+
+function javaIntArrayExpression(values = []) {
+  return `new int[] { ${values.map((value) => Math.trunc(Number(value) || 0)).join(", ")} }`;
+}
+
+function javaIntegerArrayExpression(values = []) {
+  return `new Integer[] { ${values.map((value) => value === null || value === undefined ? "null" : `Integer.valueOf(${Math.trunc(Number(value) || 0)})`).join(", ")} }`;
+}
+
+function javaIntMatrixExpression(values = []) {
+  return `new int[][] { ${values.map((row) => javaIntArrayExpression(Array.isArray(row) ? row : [])).join(", ")} }`;
+}
+
+function javaCharMatrixExpression(values = []) {
+  const rows = values.map((row) => {
+    const chars = Array.isArray(row) ? row : [];
+    return `new char[] { ${chars.map(javaCharLiteral).join(", ")} }`;
+  });
+  return `new char[][] { ${rows.join(", ")} }`;
+}
+
+function javaStringListExpression(values = []) {
+  if (!values.length) return "new ArrayList<String>()";
+  return `new ArrayList<String>(Arrays.asList(${values.map(javaStringLiteral).join(", ")}))`;
+}
+
+function javaCharLiteral(value) {
+  const char = String(value || "\0").charAt(0);
+  if (char === "\\") return "'\\\\'";
+  if (char === "'") return "'\\''";
+  if (char === "\n") return "'\\n'";
+  if (char === "\r") return "'\\r'";
+  if (char === "\t") return "'\\t'";
+  return `'${char}'`;
+}
+
+function javaStringLiteral(value = "") {
+  return `"${String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, "\\\"")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")}"`;
+}
+
+function indentJava(source = "", spaces = 2) {
+  const pad = " ".repeat(spaces);
+  return String(source || "")
+    .split("\n")
+    .map((line) => (line ? `${pad}${line}` : line))
+    .join("\n");
 }
 
 const SOLID_JAVA_TEST_BODIES = {
@@ -3819,17 +5070,25 @@ async function handleApi(req, res, url) {
 
     if (action === "run" && req.method === "POST") {
       const input = await readBody(req);
-      const code = String(input.code ?? existing.draft ?? "");
+      const language = normalizePracticeLanguage(input.language);
+      const existingDraft = existing.languageDrafts?.[language]
+        ?? (language === "python" ? existing.draft : makeStarterCode(existing, "java"))
+        ?? "";
+      const code = String(input.code ?? existingDraft ?? "");
       const runnable = normalizePracticeProblem({
         ...existing,
+        language,
         draft: code,
         solutionRevealed: input.solutionRevealed,
         customTests: Array.isArray(input.customTests) ? input.customTests : existing.customTests,
         methodName: input.methodName ?? existing.methodName,
       });
-      const result = await runPythonProblem(runnable, code);
+      const result = language === "java"
+        ? await runJavaProblem(runnable, code)
+        : await runPythonProblem(runnable, code);
       const updated = recordProblemAttempt(runnable, {
         source: "runner",
+        language,
         passed: result.ok && result.total > 0 && result.passed === result.total,
         passedTests: result.passed || 0,
         totalTests: result.total || 0,
@@ -3857,7 +5116,7 @@ async function handleApi(req, res, url) {
     if (action === "mark-solved" && req.method === "POST") {
       const input = await readBody(req);
       const base = input.draft !== undefined
-        ? normalizePracticeProblem({ ...existing, draft: input.draft, solutionRevealed: input.solutionRevealed })
+        ? normalizePracticeProblem({ ...existing, language: input.language, draft: input.draft, solutionRevealed: input.solutionRevealed })
         : existing;
       const updated = markProblemSolved(base, input);
       store.problems[index] = updated;
@@ -3868,7 +5127,7 @@ async function handleApi(req, res, url) {
     if (action === "mark-failed" && req.method === "POST") {
       const input = await readBody(req);
       const base = input.draft !== undefined
-        ? normalizePracticeProblem({ ...existing, draft: input.draft, solutionRevealed: input.solutionRevealed })
+        ? normalizePracticeProblem({ ...existing, language: input.language, draft: input.draft, solutionRevealed: input.solutionRevealed })
         : existing;
       const updated = markProblemFailed(base, input);
       store.problems[index] = updated;
@@ -4186,6 +5445,7 @@ export {
   normalizeSystemDesignStore,
   nextReviewDate,
   recordProblemAttempt,
+  runJavaProblem,
   runPythonProblem,
   runSolidJavaExercise,
   simplifyStatus,

@@ -93,6 +93,128 @@ const PATTERN_GROUPS = [
   { name: "Array & String", tags: ["Array", "String"] },
 ];
 
+const PRACTICE_LANGUAGES = [
+  { id: "python", label: "Python", aceMode: "ace/mode/python", runtimeLabel: "python3" },
+  { id: "java", label: "Java", aceMode: "ace/mode/java", runtimeLabel: "javac/java" },
+];
+
+function getPracticeLanguage(language) {
+  return PRACTICE_LANGUAGES.find((item) => item.id === language) || PRACTICE_LANGUAGES[0];
+}
+
+function getStoredPracticeLanguage() {
+  try {
+    const saved = window.localStorage?.getItem("leetcodePracticeLanguage");
+    return getPracticeLanguage(saved).id;
+  } catch {
+    return "python";
+  }
+}
+
+function getIdleCompilerStatus(language) {
+  const meta = getPracticeLanguage(language);
+  return `Runs locked local ${meta.runtimeLabel} tests. Ctrl-Enter to compile.`;
+}
+
+function getProblemMethodName(problem) {
+  return String(problem?.methodName || "").trim();
+}
+
+function inferClientJavaArgType(value, typeHint = "", problem = {}, index = 0) {
+  const hint = String(typeHint || "").toLowerCase();
+  if (hint === "tree" || hint === "binary_tree") return "TreeNode";
+  if (hint === "listnode" || hint === "linked_list") return "ListNode";
+  if (hint === "listnode[]" || hint === "linked_list[]") return "ListNode[]";
+  if (typeof value === "string") return "String";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return Number.isInteger(value) ? "int" : "double";
+  if (Array.isArray(value)) {
+    if (value.length > 0 && value.every((row) => Array.isArray(row) && row.every((item) => typeof item === "string" && item.length <= 1))) return "char[][]";
+    if (value.every((item) => typeof item === "string")) return "List<String>";
+    if (value.every((item) => Array.isArray(item) && item.every((inner) => typeof inner === "number"))) return "int[][]";
+    if (value.every((item) => typeof item === "number")) return "int[]";
+    if (value.length === 0 && /word/i.test(String(problem?.title || "")) && index >= 2) return "List<String>";
+  }
+  return "Object";
+}
+
+function inferClientJavaReturnType(expected, expectedType = "", problem = {}) {
+  const hint = String(expectedType || "").toLowerCase();
+  const title = String(problem?.title || "");
+  const methodName = getProblemMethodName(problem);
+  if (hint === "tree" || hint === "binary_tree") return "TreeNode";
+  if (hint === "listnode" || hint === "linked_list") return "ListNode";
+  if (hint === "listnode[]" || hint === "linked_list[]") return "ListNode[]";
+  if (/median/i.test(methodName) || /median/i.test(title)) return "double";
+  if (typeof expected === "boolean") return "boolean";
+  if (typeof expected === "number") return Number.isInteger(expected) ? "int" : "double";
+  if (typeof expected === "string") return "String";
+  if (Array.isArray(expected)) {
+    if (expected.every((item) => typeof item === "number")) return "int[]";
+    if (expected.every((item) => Array.isArray(item) && item.every((inner) => typeof inner === "number"))) {
+      return /three\s*sum|level\s*order/i.test(title) ? "List<List<Integer>>" : "int[][]";
+    }
+    if (expected.every((item) => typeof item === "string")) return "List<String>";
+  }
+  return "Object";
+}
+
+function getClientJavaDefaultReturn(returnType) {
+  if (returnType === "boolean") return "return false;";
+  if (returnType === "int") return "return 0;";
+  if (returnType === "double") return "return 0.0;";
+  if (returnType === "String") return 'return "";';
+  if (returnType === "int[]") return "return new int[0];";
+  if (returnType === "int[][]") return "return new int[0][];";
+  if (returnType === "List<String>" || returnType === "List<List<Integer>>") return "return new ArrayList<>();";
+  return "return null;";
+}
+
+function makeClientJavaStarter(problem = {}) {
+  const methodName = getProblemMethodName(problem);
+  const title = String(problem?.title || "");
+  if (!methodName && /lru cache/i.test(title)) {
+    return "import java.util.*;\n\nclass LRUCache {\n    public LRUCache(int capacity) {\n    }\n\n    public int get(int key) {\n        return -1;\n    }\n\n    public void put(int key, int value) {\n    }\n}\n";
+  }
+  if (!methodName) {
+    return "import java.util.*;\n\nclass Solution {\n    public Object solve() {\n        return null;\n    }\n}\n";
+  }
+  const tests = Array.isArray(problem.customTests) ? problem.customTests : [];
+  const maxArgs = tests.reduce((max, test) => Math.max(max, Array.isArray(test.args) ? test.args.length : 0), 0);
+  const params = Array.from({ length: maxArgs }, (_, index) => {
+    const hinted = tests.find((test) => Array.isArray(test.argTypes) && test.argTypes[index])?.argTypes[index] || "";
+    const sample = tests.find((test) => Array.isArray(test.args) && index in test.args && !(Array.isArray(test.args[index]) && test.args[index].length === 0))
+      || tests.find((test) => Array.isArray(test.args) && index in test.args);
+    return `${inferClientJavaArgType(sample?.args?.[index], hinted, problem, index)} arg${index + 1}`;
+  });
+  const sample = tests.find((test) => "expected" in test) || {};
+  const returnType = inferClientJavaReturnType(sample.expected, sample.expectedType, problem);
+  return `import java.util.*;\n\nclass Solution {\n    public ${returnType} ${methodName}(${params.join(", ")}) {\n        ${getClientJavaDefaultReturn(returnType)}\n    }\n}\n`;
+}
+
+function getLanguageDraft(problem, language) {
+  if (!problem) return "";
+  const drafts = problem.languageDrafts || {};
+  if (language === "java") return drafts.java || makeClientJavaStarter(problem);
+  return drafts.python || problem.draft || problem.starterCode || "";
+}
+
+function getLanguageStarter(problem, language) {
+  if (!problem) return "";
+  if (language === "java") return makeClientJavaStarter(problem);
+  return problem.starterCode || "";
+}
+
+function patchProblemDraft(problem, language, code) {
+  if (!problem) return problem;
+  const nextDrafts = { ...(problem.languageDrafts || {}), [language]: code };
+  return {
+    ...problem,
+    draft: language === "python" ? code : problem.draft,
+    languageDrafts: nextDrafts,
+  };
+}
+
 function getProblemTags(problem) {
   return Array.isArray(problem?.tags) ? problem.tags : [];
 }
@@ -124,12 +246,13 @@ export default function Practice({ timerState, setTimerState }) {
   const [difficultyFilter, setDifficultyFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [companyFilter, setCompanyFilter] = useState("");
+  const [selectedLanguage, setSelectedLanguage] = useState(() => getStoredPracticeLanguage());
 
   // Editor and compiler states
   const [reflection, setReflection] = useState("");
   const [notes, setNotes] = useState("");
   const [runResults, setRunResults] = useState(null);
-  const [compilerStatus, setCompilerStatus] = useState("Runs locked local python3 tests. Ctrl-Enter to compile.");
+  const [compilerStatus, setCompilerStatus] = useState(() => getIdleCompilerStatus(selectedLanguage));
   const [running, setRunning] = useState(false);
   const [sidePanelMode, setSidePanelMode] = useState("description");
   const [openPatterns, setOpenPatterns] = useState({});
@@ -165,6 +288,7 @@ export default function Practice({ timerState, setTimerState }) {
 
   const aceEditorRef = useRef(null);
   const editorInstanceRef = useRef(null);
+  const selectedLanguageRef = useRef(selectedLanguage);
   const practiceLayoutRef = useRef(null);
   const editorShellRef = useRef(null);
   const rightPaneRef = useRef(null);
@@ -172,6 +296,17 @@ export default function Practice({ timerState, setTimerState }) {
   useEffect(() => {
     fetchPracticeStore();
   }, []);
+
+  useEffect(() => {
+    selectedLanguageRef.current = selectedLanguage;
+    try {
+      window.localStorage?.setItem("leetcodePracticeLanguage", selectedLanguage);
+    } catch {}
+    const editor = editorInstanceRef.current;
+    if (editor) {
+      editor.session.setMode(getPracticeLanguage(selectedLanguage).aceMode);
+    }
+  }, [selectedLanguage]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -201,15 +336,17 @@ export default function Practice({ timerState, setTimerState }) {
   };
 
   const handleSelectProblem = (problem) => {
+    const language = selectedLanguageRef.current;
     setSelectedProblem(problem);
     setNotes(problem.notes || "");
     setReflection(problem.reflection || "");
     setRunResults(null);
-    setCompilerStatus("Runs locked local python3 tests. Ctrl-Enter to compile.");
+    setCompilerStatus(getIdleCompilerStatus(language));
     setSidePanelMode("description");
     
     if (editorInstanceRef.current) {
-      editorInstanceRef.current.setValue(problem.draft || problem.starterCode || "", -1);
+      editorInstanceRef.current.session.setMode(getPracticeLanguage(language).aceMode);
+      editorInstanceRef.current.setValue(getLanguageDraft(problem, language), -1);
       editorInstanceRef.current.clearSelection();
     }
   };
@@ -226,19 +363,32 @@ export default function Practice({ timerState, setTimerState }) {
       if (languageTools) {
         languageTools.addCompleter({
           getCompletions(editor, session, pos, prefix, callback) {
-            const snippets = [
-              { label: "class Solution", trigger: "class", code: "class Solution:\n    def solve(self):\n        pass" },
-              { label: "defaultdict", trigger: "defaultdict", code: "from collections import defaultdict\ncounts = defaultdict(int)" },
-              { label: "Counter", trigger: "counter", code: "from collections import Counter\ncounts = Counter(nums)" },
-              { label: "deque", trigger: "deque", code: "from collections import deque\nqueue = deque()" },
-              { label: "heap", trigger: "heap", code: "import heapq\nheap = []\nheapq.heappush(heap, value)" },
-              { label: "binary search", trigger: "binary", code: "left, right = 0, len(nums) - 1\nwhile left <= right:\n    mid = (left + right) // 2\n    if nums[mid] == target:\n        return mid\n    if nums[mid] < target:\n        left = mid + 1\n    else:\n        right = mid - 1" },
-              { label: "two pointers", trigger: "two", code: "left, right = 0, len(nums) - 1\nwhile left < right:\n    left += 1" },
-              { label: "sliding window", trigger: "sliding", code: "left = 0\nfor right, value in enumerate(nums):\n    while False:\n        left += 1" },
-              { label: "dfs", trigger: "dfs", code: "def dfs(node):\n    if node in seen:\n        return\n    seen.add(node)\n    for nei in graph[node]:\n        dfs(nei)" },
-              { label: "bfs", trigger: "bfs", code: "from collections import deque\nqueue = deque([start])\nseen = {start}\nwhile queue:\n    node = queue.popleft()\n    for nei in graph[node]:\n        if nei not in seen:\n            seen.add(nei)\n            queue.append(nei)" },
-              { label: "dp array", trigger: "dp", code: "dp = [0] * (n + 1)\nfor i in range(1, n + 1):\n    dp[i] = dp[i - 1]" },
-            ];
+            const language = selectedLanguageRef.current;
+            const snippets = language === "java"
+              ? [
+                { label: "class Solution", trigger: "class", code: "class Solution {\n    public int solve() {\n        return 0;\n    }\n}" },
+                { label: "HashMap", trigger: "map", code: "Map<Integer, Integer> seen = new HashMap<>();" },
+                { label: "ArrayDeque", trigger: "deque", code: "Deque<Integer> queue = new ArrayDeque<>();" },
+                { label: "PriorityQueue", trigger: "heap", code: "PriorityQueue<Integer> heap = new PriorityQueue<>();" },
+                { label: "binary search", trigger: "binary", code: "int left = 0, right = nums.length - 1;\nwhile (left <= right) {\n    int mid = left + (right - left) / 2;\n    if (nums[mid] == target) return mid;\n    if (nums[mid] < target) left = mid + 1;\n    else right = mid - 1;\n}" },
+                { label: "two pointers", trigger: "two", code: "int left = 0, right = nums.length - 1;\nwhile (left < right) {\n    left++;\n}" },
+                { label: "sliding window", trigger: "sliding", code: "int left = 0;\nfor (int right = 0; right < nums.length; right++) {\n    while (false) {\n        left++;\n    }\n}" },
+                { label: "dfs", trigger: "dfs", code: "private void dfs(int node, Map<Integer, List<Integer>> graph, Set<Integer> seen) {\n    if (seen.contains(node)) return;\n    seen.add(node);\n    for (int next : graph.getOrDefault(node, List.of())) dfs(next, graph, seen);\n}" },
+                { label: "bfs", trigger: "bfs", code: "Deque<Integer> queue = new ArrayDeque<>();\nSet<Integer> seen = new HashSet<>();\nqueue.add(start);\nseen.add(start);\nwhile (!queue.isEmpty()) {\n    int node = queue.removeFirst();\n}" },
+              ]
+              : [
+                { label: "class Solution", trigger: "class", code: "class Solution:\n    def solve(self):\n        pass" },
+                { label: "defaultdict", trigger: "defaultdict", code: "from collections import defaultdict\ncounts = defaultdict(int)" },
+                { label: "Counter", trigger: "counter", code: "from collections import Counter\ncounts = Counter(nums)" },
+                { label: "deque", trigger: "deque", code: "from collections import deque\nqueue = deque()" },
+                { label: "heap", trigger: "heap", code: "import heapq\nheap = []\nheapq.heappush(heap, value)" },
+                { label: "binary search", trigger: "binary", code: "left, right = 0, len(nums) - 1\nwhile left <= right:\n    mid = (left + right) // 2\n    if nums[mid] == target:\n        return mid\n    if nums[mid] < target:\n        left = mid + 1\n    else:\n        right = mid - 1" },
+                { label: "two pointers", trigger: "two", code: "left, right = 0, len(nums) - 1\nwhile left < right:\n    left += 1" },
+                { label: "sliding window", trigger: "sliding", code: "left = 0\nfor right, value in enumerate(nums):\n    while False:\n        left += 1" },
+                { label: "dfs", trigger: "dfs", code: "def dfs(node):\n    if node in seen:\n        return\n    seen.add(node)\n    for nei in graph[node]:\n        dfs(nei)" },
+                { label: "bfs", trigger: "bfs", code: "from collections import deque\nqueue = deque([start])\nseen = {start}\nwhile queue:\n    node = queue.popleft()\n    for nei in graph[node]:\n        if nei not in seen:\n            seen.add(nei)\n            queue.append(nei)" },
+                { label: "dp array", trigger: "dp", code: "dp = [0] * (n + 1)\nfor i in range(1, n + 1):\n    dp[i] = dp[i - 1]" },
+              ];
 
             const matching = snippets
               .filter((s) => s.label.toLowerCase().includes(prefix.toLowerCase()) || s.trigger.startsWith(prefix))
@@ -249,10 +399,16 @@ export default function Practice({ timerState, setTimerState }) {
                 score: 1000,
               }));
 
-            const keywords = [
-              "def", "class", "return", "for", "while", "if", "elif", "else", "from", "import",
-              "len", "range", "enumerate", "zip", "sorted", "set", "dict", "list", "tuple",
-            ].map((word) => ({ caption: word, value: word, meta: "python", score: 800 }));
+            const keywords = (language === "java"
+              ? [
+                "class", "public", "private", "return", "for", "while", "if", "else", "new",
+                "int", "boolean", "double", "String", "List", "Map", "Set", "HashMap", "HashSet",
+                "ArrayList", "ArrayDeque", "PriorityQueue", "Arrays", "Collections",
+              ]
+              : [
+                "def", "class", "return", "for", "while", "if", "elif", "else", "from", "import",
+                "len", "range", "enumerate", "zip", "sorted", "set", "dict", "list", "tuple",
+              ]).map((word) => ({ caption: word, value: word, meta: language, score: 800 }));
 
             callback(null, [...matching, ...keywords]);
           },
@@ -261,7 +417,7 @@ export default function Practice({ timerState, setTimerState }) {
 
       const editor = window.ace.edit(aceEditorRef.current);
       editor.setTheme("ace/theme/one_dark");
-      editor.session.setMode("ace/mode/python");
+      editor.session.setMode(getPracticeLanguage(selectedLanguageRef.current).aceMode);
       editor.session.setTabSize(4);
       editor.session.setUseSoftTabs(true);
       editor.setOptions({
@@ -275,7 +431,7 @@ export default function Practice({ timerState, setTimerState }) {
       });
 
       editor.commands.addCommand({
-        name: "runPythonTests",
+        name: "runLockedTests",
         bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" },
         exec: () => handleCompileAndRun(),
       });
@@ -284,7 +440,7 @@ export default function Practice({ timerState, setTimerState }) {
 
       // Load initial code if selected
       if (selectedProblem) {
-        editor.setValue(selectedProblem.draft || selectedProblem.starterCode || "", -1);
+        editor.setValue(getLanguageDraft(selectedProblem, selectedLanguageRef.current), -1);
         editor.clearSelection();
       }
     }
@@ -296,6 +452,39 @@ export default function Practice({ timerState, setTimerState }) {
 
   const getCode = () => {
     return editorInstanceRef.current ? editorInstanceRef.current.getValue() : "";
+  };
+
+  const updateProblemDraftLocally = (problem, language, code) => {
+    if (!problem) return problem;
+    const patched = patchProblemDraft(problem, language, code);
+    setProblems((items) => items.map((item) => (item.id === patched.id ? patched : item)));
+    setStore((prev) => prev ? {
+      ...prev,
+      problems: (prev.problems || []).map((item) => (item.id === patched.id ? patched : item)),
+    } : prev);
+    return patched;
+  };
+
+  const handleLanguageChange = (language) => {
+    const nextLanguage = getPracticeLanguage(language).id;
+    const currentLanguage = selectedLanguageRef.current;
+    if (nextLanguage === currentLanguage) return;
+    selectedLanguageRef.current = nextLanguage;
+    setSelectedLanguage(nextLanguage);
+    setRunResults(null);
+    setCompilerStatus(getIdleCompilerStatus(nextLanguage));
+    let problemForNextLanguage = selectedProblem;
+    try {
+      if (selectedProblem && editorInstanceRef.current) {
+        problemForNextLanguage = updateProblemDraftLocally(selectedProblem, currentLanguage, getCode());
+        editorInstanceRef.current.setValue(getLanguageDraft(problemForNextLanguage, nextLanguage), -1);
+        editorInstanceRef.current.clearSelection();
+        editorInstanceRef.current.session.setMode(getPracticeLanguage(nextLanguage).aceMode);
+      }
+    } catch (err) {
+      console.error("Failed to switch practice language", err);
+    }
+    setSelectedProblem(problemForNextLanguage);
   };
 
   const startPaneResize = (kind, event) => {
@@ -364,11 +553,15 @@ export default function Practice({ timerState, setTimerState }) {
   // Compile & Run
   const handleCompileAndRun = async (mode = "run") => {
     if (!selectedProblem || running) return;
+    const language = selectedLanguageRef.current;
     setRunning(true);
-    setCompilerStatus(mode === "submit" ? "Submitting against locked local tests..." : "Running locked local tests...");
+    setCompilerStatus(mode === "submit"
+      ? `Submitting ${getPracticeLanguage(language).label} against locked local tests...`
+      : `Running locked local ${getPracticeLanguage(language).label} tests...`);
     setRunResults(null);
 
     const payload = {
+      language,
       code: getCode(),
       timeSpentMinutes: focusMinutes,
       notes,
@@ -397,6 +590,7 @@ export default function Practice({ timerState, setTimerState }) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              language,
               draft: getCode(),
               timeSpentMinutes: focusMinutes,
               reflection: reflection || "Auto-solved after successful submit.",
@@ -431,7 +625,9 @@ export default function Practice({ timerState, setTimerState }) {
 
   const handleSaveDraft = async () => {
     if (!selectedProblem) return;
+    const language = selectedLanguageRef.current;
     const payload = {
+      language,
       draft: getCode(),
       notes,
       reflection,
@@ -446,7 +642,7 @@ export default function Practice({ timerState, setTimerState }) {
       });
       if (res.ok) {
         const saved = await res.json();
-        setCompilerStatus("Draft saved successfully.");
+        setCompilerStatus(`${getPracticeLanguage(language).label} draft saved successfully.`);
         setStore((prev) => ({
           ...prev,
           problems: prev.problems.map((x) => (x.id === saved.id ? saved : x)),
@@ -460,7 +656,9 @@ export default function Practice({ timerState, setTimerState }) {
 
   const handleMarkSolved = async () => {
     if (!selectedProblem) return;
+    const language = selectedLanguageRef.current;
     const payload = {
+      language,
       draft: getCode(),
       timeSpentMinutes: focusMinutes,
       reflection,
@@ -485,7 +683,9 @@ export default function Practice({ timerState, setTimerState }) {
 
   const handleMarkFailed = async () => {
     if (!selectedProblem) return;
+    const language = selectedLanguageRef.current;
     const payload = {
+      language,
       draft: getCode(),
       timeSpentMinutes: focusMinutes,
       reflection,
@@ -524,6 +724,10 @@ export default function Practice({ timerState, setTimerState }) {
       methodName,
       customTests: [],
       starterCode: `class Solution:\n    def ${methodName}(self):\n        pass\n`,
+      languageDrafts: {
+        python: `class Solution:\n    def ${methodName}(self):\n        pass\n`,
+        java: `import java.util.*;\n\nclass Solution {\n    public Object ${methodName}() {\n        return null;\n    }\n}\n`,
+      },
     };
 
     try {
@@ -543,8 +747,9 @@ export default function Practice({ timerState, setTimerState }) {
 
   const useStarterCode = () => {
     if (!selectedProblem || !editorInstanceRef.current) return;
-    if (window.confirm("Are you sure you want to discard your draft and restore the starter template?")) {
-      editorInstanceRef.current.setValue(selectedProblem.starterCode || "", -1);
+    const language = selectedLanguageRef.current;
+    if (window.confirm(`Discard your ${getPracticeLanguage(language).label} draft and restore the starter template?`)) {
+      editorInstanceRef.current.setValue(getLanguageStarter(selectedProblem, language), -1);
       editorInstanceRef.current.clearSelection();
       setCompilerStatus("Starter template restored.");
     }
@@ -748,12 +953,17 @@ export default function Practice({ timerState, setTimerState }) {
 
   const renderSolution = () => {
     if (!selectedProblem) return null;
-    const solutionCode = (selectedProblem.solutionCode || "").trim();
+    const solutionLanguage = getPracticeLanguage(selectedLanguage);
+    const solutionCode = (
+      selectedLanguage === "java"
+        ? selectedProblem.languageSolutions?.java
+        : (selectedProblem.languageSolutions?.python || selectedProblem.solutionCode)
+    || "").trim();
     return (
       <div className="problem-solution-wrap">
         <div className="solution-header">
           <strong>Reference solution</strong>
-          <span>{selectedProblem.methodName || selectedProblem.title}</span>
+          <span>{solutionLanguage.label} - {selectedProblem.methodName || selectedProblem.title}</span>
         </div>
         {solutionCode ? (
           <pre className="solution-code-block"><code>{solutionCode}</code></pre>
@@ -1045,6 +1255,23 @@ export default function Practice({ timerState, setTimerState }) {
                       onClick={() => handleCompileAndRun("submit")}
                       disabled={running}
                     />
+                    <div className="language-toggle" aria-label="Editor language">
+                      {PRACTICE_LANGUAGES.map((language) => (
+                        <button
+                          key={language.id}
+                          type="button"
+                          aria-pressed={selectedLanguage === language.id}
+                          className={selectedLanguage === language.id ? "active" : ""}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            handleLanguageChange(language.id);
+                          }}
+                          onClick={() => handleLanguageChange(language.id)}
+                        >
+                          {language.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div className="editor-settings">
                     <div className={`focus-timer ${timerRunning ? "running" : ""}`}>

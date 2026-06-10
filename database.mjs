@@ -108,6 +108,7 @@ export async function initDatabase() {
       starterCode TEXT,
       solutionCode TEXT,
       draft TEXT,
+      languageDrafts TEXT,
       solutionRevealed INTEGER DEFAULT 0,
       userStarted INTEGER DEFAULT 0,
       solved INTEGER DEFAULT 0,
@@ -121,6 +122,7 @@ export async function initDatabase() {
       updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  ensureColumn("practice_problems", "languageDrafts", "TEXT");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS courses (
@@ -281,9 +283,9 @@ async function performLegacyMigration() {
           INSERT INTO practice_problems (
             id, title, slug, url, difficulty, tags, paidOnly, acceptance, syncedAt,
             methodName, description, notes, reflection, customTests, starterCode, solutionCode,
-            draft, solutionRevealed, userStarted, solved, solveCount, reviewLevel, nextReviewAt,
+            draft, languageDrafts, solutionRevealed, userStarted, solved, solveCount, reviewLevel, nextReviewAt,
             history, attempts, sessions
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const prob of store.problems) {
           stmt.run(
@@ -304,6 +306,7 @@ async function performLegacyMigration() {
             prob.starterCode || "",
             prob.solutionCode || "",
             prob.draft || "",
+            JSON.stringify(prob.languageDrafts || {}),
             prob.solutionRevealed ? 1 : 0,
             prob.userStarted ? 1 : 0,
             prob.solved ? 1 : 0,
@@ -506,6 +509,7 @@ export async function sqlLoadPracticeStore() {
     tags: JSON.parse(prob.tags || "[]"),
     paidOnly: prob.paidOnly === 1,
     customTests: JSON.parse(prob.customTests || "[]"),
+    languageDrafts: JSON.parse(prob.languageDrafts || "{}"),
     solutionRevealed: prob.solutionRevealed === 1,
     userStarted: prob.userStarted === 1,
     solved: prob.solved === 1,
@@ -540,9 +544,9 @@ export async function sqlSavePracticeStore(store) {
     INSERT OR REPLACE INTO practice_problems (
       id, title, slug, url, difficulty, tags, paidOnly, acceptance, syncedAt,
       methodName, description, notes, reflection, customTests, starterCode, solutionCode,
-      draft, solutionRevealed, userStarted, solved, solveCount, reviewLevel, nextReviewAt,
+      draft, languageDrafts, solutionRevealed, userStarted, solved, solveCount, reviewLevel, nextReviewAt,
       history, attempts, sessions, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec("BEGIN TRANSACTION");
@@ -574,6 +578,7 @@ export async function sqlSavePracticeStore(store) {
         prob.starterCode || "",
         prob.solutionCode || "",
         prob.draft || "",
+        JSON.stringify(prob.languageDrafts || {}),
         prob.solutionRevealed ? 1 : 0,
         prob.userStarted ? 1 : 0,
         prob.solved ? 1 : 0,

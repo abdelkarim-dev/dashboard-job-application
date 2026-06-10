@@ -287,6 +287,7 @@ test("practice store save -> load round-trip (booleans + JSON + settings)", asyn
         starterCode: "function twoSum() {}",
         solutionCode: "function twoSum() { return []; }",
         draft: "wip",
+        languageDrafts: { python: "wip", java: "class Solution {}" },
         solutionRevealed: true,
         userStarted: true,
         solved: true,
@@ -327,6 +328,7 @@ test("practice store save -> load round-trip (booleans + JSON + settings)", asyn
   // JSON columns parsed.
   assert.deepEqual(got.tags, ["array", "hash-table"]);
   assert.deepEqual(got.customTests, [{ input: "[2,7]", expected: "[0,1]" }]);
+  assert.deepEqual(got.languageDrafts, { python: "wip", java: "class Solution {}" });
   assert.deepEqual(got.history, [{ at: "2026-01-01", result: "solved" }]);
   assert.deepEqual(got.attempts, [{ code: "x", passed: true }]);
   assert.deepEqual(got.sessions, [{ minutes: 30 }]);
