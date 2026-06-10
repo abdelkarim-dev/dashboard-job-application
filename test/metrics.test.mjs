@@ -20,6 +20,7 @@ import {
   avgDaysToFirstResponse,
   nextActionStats,
   formatNextActionDue,
+  buildAttentionItems,
 } from "../src/lib/metrics.mjs";
 
 // A fixed "now" so every relative-time assertion is deterministic.
@@ -203,4 +204,47 @@ test("formatNextActionDue renders relative labels", () => {
   assert.equal(formatNextActionDue("2026-06-01", NOW), "due tomorrow");
   assert.equal(formatNextActionDue("2026-06-05", NOW), "in 5d");
   assert.equal(formatNextActionDue("", NOW), "");
+});
+
+test("buildAttentionItems surfaces pending OAs, upcoming interviews, and due actions", () => {
+  const apps = [
+    // Pending OA → rank 0, regardless of stage date
+    { id: "oa1", company: "OaCo", role: "BE", status: "Online Assessment", stageDateTimes: { "Online Assessment": "2026-06-02" } },
+    // Submitted OA → not surfaced
+    { id: "oa2", company: "DoneCo", role: "BE", status: "Online Assessment", oaCompletedAt: "2026-05-30" },
+    // Phone interview in 2 days → rank 1
+    { id: "ph1", company: "PhoneCo", role: "BE", status: "Recruiter Screen", stageDateTimes: { "Recruiter Screen": "2026-06-02" } },
+    // Loop interview beyond the 7-day horizon → not surfaced
+    { id: "lp1", company: "FarCo", role: "BE", status: "Interview", stageDateTimes: { Interview: "2026-06-20" } },
+    // Overdue next action → rank 2
+    { id: "na1", company: "ActCo", role: "BE", status: "Applied", nextAction: "Ping recruiter", nextActionAt: "2026-05-29" },
+    // Upcoming (not due) next action → not surfaced
+    { id: "na2", company: "LaterCo", role: "BE", status: "Applied", nextAction: "Email", nextActionAt: "2026-06-05" },
+    // Rejected apps never surface, even with due actions
+    { id: "rj1", company: "RejCo", role: "BE", status: "Rejected", nextAction: "x", nextActionAt: "2026-05-29" },
+  ];
+  const items = buildAttentionItems(apps, { now: NOW });
+  assert.deepEqual(items.map((i) => i.id), ["oa1", "ph1", "na1"]);
+  assert.deepEqual(items.map((i) => i.kind), ["oa", "interview", "action"]);
+  assert.equal(items[1].daysUntil, 2);
+  assert.equal(items[2].label, "Ping recruiter");
+});
+
+test("buildAttentionItems dedupes per application, keeping the most urgent kind", () => {
+  const apps = [
+    // Pending OA that ALSO has an overdue next action → appears once, as OA
+    { id: "both", company: "BothCo", role: "BE", status: "Online Assessment", nextAction: "Do the OA", nextActionAt: "2026-05-29" },
+  ];
+  const items = buildAttentionItems(apps, { now: NOW });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].kind, "oa");
+});
+
+test("buildAttentionItems sorts interviews soonest-first within rank", () => {
+  const apps = [
+    { id: "late", company: "B", role: "x", status: "Interview", stageDateTimes: { Interview: "2026-06-05" } },
+    { id: "soon", company: "A", role: "x", status: "Recruiter Screen", stageDateTimes: { "Recruiter Screen": "2026-06-01" } },
+  ];
+  const items = buildAttentionItems(apps, { now: NOW });
+  assert.deepEqual(items.map((i) => i.id), ["soon", "late"]);
 });

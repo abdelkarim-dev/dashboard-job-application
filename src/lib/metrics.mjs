@@ -260,6 +260,61 @@ export function nextActionStats(applications = [], { now = new Date() } = {}) {
   };
 }
 
+// ── Needs-attention feed (Dashboard pulse strip) ──
+// One ranked list of everything that needs the user's hand today:
+//   rank 0 — OAs not yet submitted (status Online Assessment, no oaCompletedAt)
+//   rank 1 — Phone/Loop interviews coming up within `horizonDays`
+//   rank 2 — next actions that are overdue or due today
+// Each item: { id, kind: "oa"|"interview"|"action", label, company, role,
+// date, daysUntil? }. One item per application (highest urgency wins).
+export function buildAttentionItems(applications = [], { now = new Date(), horizonDays = 7 } = {}) {
+  const items = [];
+  for (const app of applications) {
+    if (!app || app.status === "Rejected") continue;
+    if (app.status === "Online Assessment" && !app.oaCompletedAt) {
+      const date = (app.stageDateTimes && app.stageDateTimes["Online Assessment"]) || "";
+      items.push({
+        id: app.id, kind: "oa", label: "OA to submit",
+        company: app.company || "", role: app.role || "",
+        date, daysUntil: date ? dayDiff(now, date) : null, rank: 0,
+      });
+      continue;
+    }
+    if (app.status === "Recruiter Screen" || app.status === "Interview") {
+      const stamp = (app.stageDateTimes && app.stageDateTimes[app.status])
+        || (app.status === "Interview" ? app.interviewDate : "") || "";
+      const days = dayDiff(now, stamp);
+      if (days !== null && days >= 0 && days <= horizonDays) {
+        items.push({
+          id: app.id, kind: "interview",
+          label: app.status === "Interview" ? "Loop interview" : "Phone interview",
+          company: app.company || "", role: app.role || "",
+          date: stamp, daysUntil: days, rank: 1,
+        });
+      }
+    }
+  }
+
+  const seen = new Set(items.map((item) => item.id));
+  for (const item of nextActionStats(applications, { now }).items) {
+    if (item.bucket !== "overdue" && item.bucket !== "today") continue;
+    if (item.status === "Rejected" || seen.has(item.id)) continue;
+    seen.add(item.id);
+    items.push({
+      id: item.id, kind: "action", label: item.action || "Follow up",
+      company: item.company, role: item.role,
+      date: item.date, daysUntil: item.daysUntil, rank: 2,
+    });
+  }
+
+  items.sort((a, b) =>
+    a.rank - b.rank
+    || (a.daysUntil ?? Infinity) - (b.daysUntil ?? Infinity)
+    || a.company.localeCompare(b.company)
+  );
+  return items.map(({ rank, ...item }) => item);
+}
+
 // Short human label for a next-action due date relative to `now`.
 export function formatNextActionDue(dateValue, now = new Date()) {
   const days = (() => {

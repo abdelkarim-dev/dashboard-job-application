@@ -1,6 +1,14 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { isStale, parseDateValue } from "../lib/metrics.mjs";
+import {
+  isStale,
+  parseDateValue,
+  buildAttentionItems,
+  computeResponseStats,
+  weeklyApplicationCounts,
+  formatNextActionDue,
+  localDateString,
+} from "../lib/metrics.mjs";
 
 const PIPELINE_FORWARD = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer"];
 
@@ -791,6 +799,162 @@ function SearchTags({ fieldFilters, searchRaw, onRemove }) {
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
+// ── Quick-add form ────────────────────────────────────────────────────────────
+// The dashboard is the only application view, so it needs a manual entry point
+// besides the extension: company + role + stage, POSTed to /api/applications
+// (the server dedupes by sourceUrl / company+role).
+const QUICK_ADD_STATUSES = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer"];
+
+function QuickAddForm({ onClose, onCreated }) {
+  const [form, setForm] = useState({ company: "", role: "", status: "Applied", location: "", salary: "", sourceUrl: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const companyRef = useRef(null);
+
+  useEffect(() => { companyRef.current?.focus(); }, []);
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const set = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.company.trim() || !form.role.trim() || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const now = new Date();
+      const appliedAt = now.toISOString();
+      const stageDateTimes = { Applied: appliedAt };
+      if (form.status !== "Applied") stageDateTimes[form.status] = appliedAt;
+      const payload = {
+        ...form,
+        company: form.company.trim(),
+        role: form.role.trim(),
+        source: "Manual",
+        priority: "Medium",
+        appliedAt,
+        dateApplied: localDateString(now),
+        stageDateTimes,
+      };
+      const res = await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onCreated(await res.json());
+    } catch {
+      setError("Couldn't save — is the cockpit server running?");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="ndash-quickadd" onSubmit={submit}>
+      <div className="ndash-quickadd-grid">
+        <input ref={companyRef} className="ndash-panel-input" placeholder="Company *" value={form.company} onChange={(e) => set("company", e.target.value)} required aria-label="Company" />
+        <input className="ndash-panel-input" placeholder="Role *" value={form.role} onChange={(e) => set("role", e.target.value)} required aria-label="Role" />
+        <select className="ndash-panel-input" value={form.status} onChange={(e) => set("status", e.target.value)} aria-label="Stage">
+          {QUICK_ADD_STATUSES.map((s) => (
+            <option key={s} value={s}>{STATUS_META[s].short}</option>
+          ))}
+        </select>
+        <input className="ndash-panel-input" placeholder="Location" value={form.location} onChange={(e) => set("location", e.target.value)} aria-label="Location" />
+        <input className="ndash-panel-input" placeholder="Salary" value={form.salary} onChange={(e) => set("salary", e.target.value)} aria-label="Salary" />
+        <input className="ndash-panel-input" placeholder="Job posting URL" value={form.sourceUrl} onChange={(e) => set("sourceUrl", e.target.value)} aria-label="Job posting URL" type="url" />
+      </div>
+      <div className="ndash-quickadd-actions">
+        {error && <span className="ndash-quickadd-error">{error}</span>}
+        <button type="button" className="ndash-quickadd-cancel" onClick={onClose}>Cancel</button>
+        <button type="submit" className="ndash-quickadd-save" disabled={saving || !form.company.trim() || !form.role.trim()}>
+          {saving ? "Saving…" : "＋ Add application"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ── Pulse strip: key pipeline numbers + what needs attention today ───────────
+function DashboardPulse({ applications, onOpenApp, onShowStalled }) {
+  const stats = useMemo(() => {
+    const active = applications.filter((a) => a.status !== "Rejected");
+    const interviewing = active.filter((a) =>
+      a.status === "Online Assessment" || a.status === "Recruiter Screen" || a.status === "Interview"
+    ).length;
+    const offers = active.filter((a) => a.status === "Offer").length;
+    const { responseRate } = computeResponseStats(applications);
+    const weekly = weeklyApplicationCounts(applications, { weeks: 1 });
+    return {
+      active: active.length,
+      interviewing,
+      offers,
+      responseRate,
+      thisWeek: weekly[weekly.length - 1]?.count || 0,
+    };
+  }, [applications]);
+
+  const attention = useMemo(() => buildAttentionItems(applications), [applications]);
+  const stalledCount = useMemo(() => applications.filter(isDisplayStalled).length, [applications]);
+
+  const tiles = [
+    { label: "active roles", value: stats.active },
+    { label: "interviewing", value: stats.interviewing },
+    { label: "offers", value: stats.offers },
+    { label: "response rate", value: `${stats.responseRate}%` },
+    { label: "this week", value: stats.thisWeek },
+  ];
+
+  return (
+    <div className="ndash-pulse">
+      <div className="ndash-pulse-stats" role="list" aria-label="Pipeline overview">
+        {tiles.map(({ label, value }) => (
+          <div className="ndash-pulse-tile" role="listitem" key={label}>
+            <span className="ndash-pulse-value">{value}</span>
+            <span className="ndash-pulse-label">{label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="ndash-pulse-attention">
+        {attention.length === 0 && stalledCount === 0 ? (
+          <span className="ndash-pulse-clear">✓ All caught up — nothing needs attention today</span>
+        ) : (
+          <>
+            {attention.length > 0 && <span className="ndash-pulse-attn-label">Needs attention</span>}
+            {attention.slice(0, 5).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`ndash-pulse-item ndash-pulse-item--${item.kind}`}
+                onClick={() => onOpenApp(item.id)}
+                title={`${item.company} — ${item.role}`}
+              >
+                <span className="ndash-pulse-item-kind">{item.label}</span>
+                <span className="ndash-pulse-item-co">{item.company}</span>
+                {item.date && (
+                  <span className="ndash-pulse-item-date">
+                    {item.kind === "action" ? formatNextActionDue(item.date) : formatDate(item.date)}
+                  </span>
+                )}
+              </button>
+            ))}
+            {attention.length > 5 && <span className="ndash-pulse-more">+{attention.length - 5} more</span>}
+            {stalledCount > 0 && (
+              <button type="button" className="ndash-pulse-item ndash-pulse-item--stalled" onClick={onShowStalled}>
+                <span className="ndash-pulse-item-kind">Stalled</span>
+                <span className="ndash-pulse-item-co">{stalledCount} {stalledCount === 1 ? "role" : "roles"} idle 10+ days</span>
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({
   applications,
   fetchApplications,
@@ -804,7 +968,21 @@ export default function Dashboard({
   const [selectedApp, setSelectedApp] = useState(null);
   const [saving, setSaving] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState(() => new Set());
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const searchRef = useRef(null);
+
+  // "/" focuses the omni search from anywhere on the dashboard.
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      if (t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || t?.tagName === "SELECT" || t?.isContentEditable) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const toggleSection = useCallback((key) => {
     setCollapsedSections((prev) => {
@@ -966,6 +1144,18 @@ export default function Dashboard({
     setSelectedApp((prev) => (prev?.id === app.id ? null : app));
   }, []);
 
+  // Open the side panel for an app surfaced by the pulse strip.
+  const handleOpenFromPulse = useCallback((appId) => {
+    const app = applications.find((a) => a.id === appId);
+    if (app) setSelectedApp(app);
+  }, [applications]);
+
+  const handleQuickAddCreated = useCallback(async (created) => {
+    setQuickAddOpen(false);
+    if (fetchApplications) await fetchApplications();
+    if (created?.id) setSelectedApp(created);
+  }, [fetchApplications]);
+
   const handleStatusChange = useCallback(async (newStatus) => {
     if (!selectedApp || saving) return;
     setSaving(true);
@@ -1114,6 +1304,16 @@ export default function Dashboard({
             )}
           </div>
           <div className="ndash-topbar-actions">
+            <button
+              className={`ndash-add-btn ${quickAddOpen ? "ndash-add-btn--open" : ""}`}
+              onClick={() => setQuickAddOpen((v) => !v)}
+              type="button"
+              title="Add an application manually"
+              aria-expanded={quickAddOpen}
+            >
+              <span aria-hidden="true">＋</span>
+              <span>Add</span>
+            </button>
             <a
               className="ndash-export-btn"
               href="/api/export.json"
@@ -1127,8 +1327,20 @@ export default function Dashboard({
           </div>
         </div>
 
+        {/* Quick-add */}
+        {quickAddOpen && (
+          <QuickAddForm onClose={() => setQuickAddOpen(false)} onCreated={handleQuickAddCreated} />
+        )}
+
         {/* Search tags */}
         <SearchTags fieldFilters={fieldFilters} searchRaw={searchRaw} onRemove={removeFilter} />
+
+        {/* Pulse: key numbers + needs-attention feed */}
+        <DashboardPulse
+          applications={applications}
+          onOpenApp={handleOpenFromPulse}
+          onShowStalled={() => setStatusFilter("Stalled")}
+        />
 
         {/* Filter bar */}
         <div className="ndash-filterbar">
@@ -1153,11 +1365,22 @@ export default function Dashboard({
         {/* Content */}
         <div className="ndash-content">
           {companyGroups.length === 0 && rejectedGroups.length === 0 && (
-            <div className="ndash-empty">
-              <div className="ndash-empty-icon">🔍</div>
-              <strong>No results</strong>
-              <p>{searchRaw ? `No applications match "${searchRaw}"` : "No applications in this view."}</p>
-            </div>
+            applications.length === 0 ? (
+              <div className="ndash-empty">
+                <div className="ndash-empty-icon">🚀</div>
+                <strong>No applications yet</strong>
+                <p>Add your first application manually, or capture one from a job posting with the Claire extension.</p>
+                <button className="ndash-empty-add" type="button" onClick={() => setQuickAddOpen(true)}>
+                  ＋ Add your first application
+                </button>
+              </div>
+            ) : (
+              <div className="ndash-empty">
+                <div className="ndash-empty-icon">🔍</div>
+                <strong>No results</strong>
+                <p>{searchRaw ? `No applications match "${searchRaw}"` : "No applications in this view."}</p>
+              </div>
+            )
           )}
 
           {stageSections.map(({ status, companies }) => {

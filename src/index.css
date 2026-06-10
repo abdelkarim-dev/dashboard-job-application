@@ -8529,3 +8529,239 @@ body.pane-resizing {
   border-color: var(--md-primary);
   color: var(--md-on-primary-container);
 }
+
+/* ── Dashboard pulse strip (stats + needs-attention) ──────────── */
+.ndash-pulse {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 14px;
+  background: var(--ndash-fill-faint);
+}
+
+.ndash-pulse-stats {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ndash-pulse-tile {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-width: 78px;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+.ndash-pulse-tile + .ndash-pulse-tile {
+  border-left: 1px solid var(--md-outline-variant);
+  border-radius: 0 10px 10px 0;
+}
+
+.ndash-pulse-value {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--md-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.ndash-pulse-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--md-on-surface-variant);
+  white-space: nowrap;
+}
+
+.ndash-pulse-attention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 240px;
+  padding-left: 12px;
+  border-left: 1px solid var(--md-outline-variant);
+}
+
+.ndash-pulse-clear {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-offer);
+}
+
+.ndash-pulse-attn-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--md-on-surface-variant);
+}
+
+.ndash-pulse-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 999px;
+  background: var(--ndash-fill-subtle);
+  color: var(--md-on-surface);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ndash-pulse-item:hover,
+.ndash-pulse-item:focus-visible {
+  background: var(--ndash-fill-hover);
+  border-color: var(--md-outline);
+}
+
+.ndash-pulse-item-kind {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ndash-pulse-item--oa .ndash-pulse-item-kind { color: var(--s-oa); }
+.ndash-pulse-item--interview .ndash-pulse-item-kind { color: var(--s-interview); }
+.ndash-pulse-item--action .ndash-pulse-item-kind { color: var(--s-screen); }
+.ndash-pulse-item--stalled .ndash-pulse-item-kind { color: var(--s-stalled); }
+
+.ndash-pulse-item-co {
+  color: var(--md-on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.ndash-pulse-item-date {
+  font-weight: 700;
+  font-size: 10.5px;
+  color: var(--md-on-surface-variant);
+  white-space: nowrap;
+}
+
+.ndash-pulse-more {
+  font-size: 11px;
+  color: var(--md-on-surface-variant);
+  font-weight: 600;
+}
+
+/* ── Dashboard quick-add ──────────────────────────────────────── */
+.ndash-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.15s, transform 0.15s;
+}
+.ndash-add-btn:hover { filter: brightness(1.08); }
+.ndash-add-btn:active { transform: scale(0.97); }
+.ndash-add-btn--open {
+  background: var(--ndash-fill-medium);
+  color: var(--md-on-surface);
+  border-color: var(--md-outline-variant);
+}
+
+.ndash-quickadd {
+  margin: 4px 0 10px;
+  padding: 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 14px;
+  background: var(--ndash-fill-subtle);
+  display: grid;
+  gap: 10px;
+}
+
+.ndash-quickadd-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 900px) {
+  .ndash-quickadd-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.ndash-quickadd-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ndash-quickadd-error {
+  margin-right: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-rejected);
+}
+
+.ndash-quickadd-cancel {
+  padding: 8px 14px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ndash-quickadd-cancel:hover { background: var(--ndash-fill-hover); }
+
+.ndash-quickadd-save {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.ndash-quickadd-save:hover:not(:disabled) { filter: brightness(1.08); }
+.ndash-quickadd-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ndash-empty-add {
+  margin-top: 12px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 12px;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.15s;
+}
+.ndash-empty-add:hover { filter: brightness(1.08); }
+.ndash-empty-add:active { transform: scale(0.97); }
+
+@media (max-width: 900px) {
+  .ndash-pulse { flex-direction: column; }
+  .ndash-pulse-attention {
+    border-left: none;
+    border-top: 1px solid var(--md-outline-variant);
+    padding-left: 0;
+    padding-top: 10px;
+  }
+  .ndash-pulse-stats { flex-wrap: wrap; }
+}
