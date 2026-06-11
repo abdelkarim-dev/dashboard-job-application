@@ -8765,3 +8765,68 @@ body.pane-resizing {
   }
   .ndash-pulse-stats { flex-wrap: wrap; }
 }
+
+/* ── Stage outcome: passed, awaiting next step ────────────────── */
+.ndash-stage-outcome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 2px 0 10px;
+  padding: 9px 12px;
+  border: 1px dashed var(--md-outline-variant);
+  border-radius: 12px;
+  background: var(--ndash-fill-faint);
+}
+.ndash-stage-outcome--passed {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--s-offer) 35%, transparent);
+  background: color-mix(in srgb, var(--s-offer) 8%, transparent);
+}
+
+.ndash-stage-outcome-btn {
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--s-offer) 45%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--s-offer);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.ndash-stage-outcome-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--s-offer) 12%, transparent);
+}
+.ndash-stage-outcome-btn:disabled { opacity: 0.5; cursor: wait; }
+
+.ndash-stage-outcome-badge {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--s-offer);
+  white-space: nowrap;
+}
+
+.ndash-stage-outcome-hint {
+  font-size: 11px;
+  color: var(--md-on-surface-variant);
+}
+
+.ndash-stage-outcome-undo {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ndash-stage-outcome-undo:hover:not(:disabled) { background: var(--ndash-fill-hover); }
+
+.ndc-role-meta-item--passed {
+  color: var(--s-offer);
+  font-weight: 700;
+}

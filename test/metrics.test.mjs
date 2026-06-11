@@ -230,6 +230,19 @@ test("buildAttentionItems surfaces pending OAs, upcoming interviews, and due act
   assert.equal(items[2].label, "Ping recruiter");
 });
 
+test("buildAttentionItems skips stages already marked as passed", () => {
+  const apps = [
+    // OA marked passed (awaiting next step) → not surfaced even without oaCompletedAt
+    { id: "p1", company: "A", role: "x", status: "Online Assessment", stagePassedAt: { "Online Assessment": "2026-05-30T12:00:00.000Z" } },
+    // Upcoming loop already marked passed → not surfaced
+    { id: "p2", company: "B", role: "x", status: "Interview", stagePassedAt: { Interview: "2026-05-30T12:00:00.000Z" }, stageDateTimes: { Interview: "2026-06-02" } },
+    // A PRIOR stage marked passed doesn't suppress the current stage's items
+    { id: "p3", company: "C", role: "x", status: "Recruiter Screen", stagePassedAt: { "Online Assessment": "2026-05-20T12:00:00.000Z" }, stageDateTimes: { "Recruiter Screen": "2026-06-03" } },
+  ];
+  const items = buildAttentionItems(apps, { now: NOW });
+  assert.deepEqual(items.map((i) => i.id), ["p3"]);
+});
+
 test("buildAttentionItems dedupes per application, keeping the most urgent kind", () => {
   const apps = [
     // Pending OA that ALSO has an overdue next action → appears once, as OA

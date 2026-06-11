@@ -3369,6 +3369,21 @@ function normalizeStoredEvaluation(value, existing = null) {
   };
 }
 
+// Stages whose outcome can be marked "passed" while the card stays put —
+// passing an OA / phone screen / loop tells you the result, not the next step.
+const PASSABLE_STAGES = new Set(["Online Assessment", "Recruiter Screen", "Interview"]);
+
+export function normalizeStagePassedAt(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const cleaned = {};
+  for (const [stage, stamp] of Object.entries(value)) {
+    if (!PASSABLE_STAGES.has(stage)) continue;
+    const ts = cleanTimestamp(stamp);
+    if (ts) cleaned[stage] = ts;
+  }
+  return cleaned;
+}
+
 function normalizeApplication(input, existing = {}) {
   const now = new Date().toISOString();
   const previousStatus = existing.status ? simplifyStatus(existing.status) : "";
@@ -3441,6 +3456,15 @@ function normalizeApplication(input, existing = {}) {
     oaCompletedAt: input.oaCompletedAt !== undefined
       ? cleanTimestamp(input.oaCompletedAt)
       : cleanTimestamp(existing.oaCompletedAt) || "",
+    // Stage outcomes the user knows about WITHOUT knowing the next step yet:
+    // a map of canonical stage name → ISO timestamp when it was marked passed
+    // (e.g. { "Online Assessment": "…" }). Independent of pipeline status —
+    // an OA can be passed while the card stays in the OA column awaiting the
+    // recruiter's next move. An explicitly-provided map replaces the stored one
+    // (so un-marking works); omitting the field preserves it.
+    stagePassedAt: normalizeStagePassedAt(
+      input.stagePassedAt !== undefined ? input.stagePassedAt : existing.stagePassedAt
+    ),
     skills,
     level: clean(input.level ?? existing.level),
     source: clean(input.source ?? existing.source) || "Extension",

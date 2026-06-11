@@ -22,11 +22,45 @@ import {
   runJavaProblem,
   runPythonProblem,
   runSolidJavaExercise,
+  normalizeStagePassedAt,
   sanitizeAutofillMappings,
   simplifyStatus,
   toCsv,
   toJson,
 } from "../server.mjs";
+
+test("normalizeApplication persists stage-passed outcomes independently of status", () => {
+  const passedAt = "2026-06-09T18:00:00.000Z";
+  // Marking a stage passed survives normalization and stays put on later edits
+  const marked = normalizeApplication(
+    { company: "Acme", role: "BE", status: "Online Assessment", stagePassedAt: { "Online Assessment": passedAt } },
+    {}
+  );
+  assert.equal(marked.status, "Online Assessment");
+  assert.deepEqual(marked.stagePassedAt, { "Online Assessment": passedAt });
+
+  // An unrelated edit that omits the field preserves the stored outcome
+  const edited = normalizeApplication({ notes: "ping recruiter" }, marked);
+  assert.deepEqual(edited.stagePassedAt, { "Online Assessment": passedAt });
+
+  // Explicitly sending a map without the key un-marks it
+  const unmarked = normalizeApplication({ stagePassedAt: {} }, marked);
+  assert.deepEqual(unmarked.stagePassedAt, {});
+});
+
+test("normalizeStagePassedAt drops unknown stages and junk values", () => {
+  assert.deepEqual(
+    normalizeStagePassedAt({
+      "Online Assessment": "2026-06-09T18:00:00.000Z",
+      Interview: "not-a-date",
+      Applied: "2026-06-09T18:00:00.000Z",   // not a passable stage
+      Offer: "2026-06-09T18:00:00.000Z",      // not a passable stage
+    }),
+    { "Online Assessment": "2026-06-09T18:00:00.000Z" }
+  );
+  assert.deepEqual(normalizeStagePassedAt(null), {});
+  assert.deepEqual(normalizeStagePassedAt([1, 2]), {});
+});
 
 test("sanitizeAutofillMappings scrubs fabricated placeholder URLs", () => {
   const mappings = {

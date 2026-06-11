@@ -408,6 +408,29 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
 
   const handleSave = () => { onSave(editData); setDirty(false); };
 
+  // Record a stage outcome without advancing the pipeline: passing an OA /
+  // phone / loop tells you the result, not the next step — the card stays in
+  // its stage with an "awaiting next step" badge until the recruiter moves.
+  const handleMarkStagePassed = () => {
+    const nowIso = new Date().toISOString();
+    const next = {
+      ...editData,
+      stagePassedAt: { ...(editData.stagePassedAt || {}), [editData.status]: nowIso },
+      // Passing an OA implies it was submitted.
+      ...(editData.status === "Online Assessment" && !editData.oaCompletedAt ? { oaCompletedAt: nowIso } : {}),
+    };
+    setEditData(next);
+    onSave(next);
+  };
+
+  const handleUnmarkStagePassed = () => {
+    const nextPassed = { ...(editData.stagePassedAt || {}) };
+    delete nextPassed[editData.status];
+    const next = { ...editData, stagePassedAt: nextPassed };
+    setEditData(next);
+    onSave(next);
+  };
+
   const handleDelete = async () => {
     if (!deleteConfirm) { setDeleteConfirm(true); return; }
     setDeleting(true);
@@ -545,6 +568,34 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
           </div>
         )}
 
+        {/* Stage outcome — passed, but next step unknown */}
+        {STAGE_DATE_STATUSES.has(editData.status) && (
+          (editData.stagePassedAt || {})[editData.status] ? (
+            <div className="ndash-stage-outcome ndash-stage-outcome--passed">
+              <span className="ndash-stage-outcome-badge">
+                ✓ {currentMeta.short} passed · {formatDate((editData.stagePassedAt || {})[editData.status])}
+              </span>
+              <span className="ndash-stage-outcome-hint">awaiting next step</span>
+              <button type="button" className="ndash-stage-outcome-undo" onClick={handleUnmarkStagePassed} disabled={saving}>
+                Undo
+              </button>
+            </div>
+          ) : (
+            <div className="ndash-stage-outcome">
+              <button
+                type="button"
+                className="ndash-stage-outcome-btn"
+                onClick={handleMarkStagePassed}
+                disabled={saving}
+                title="Record that you passed this stage — the card stays here until you know the next step"
+              >
+                ✓ Mark {currentMeta.short} passed
+              </button>
+              <span className="ndash-stage-outcome-hint">card stays in this stage until the next step is known</span>
+            </div>
+          )
+        )}
+
         {/* Core fields */}
         <div className="ndash-panel-grid">
           <div className="ndash-panel-field">
@@ -663,6 +714,9 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
     ? formatDate(app.rejectedAt || app.stageDateTimes?.Rejected)
     : null;
   const stale = isStale(app);
+  // Stage passed but next step unknown — the user did their part, the ball is
+  // in the company's court.
+  const stagePassed = (app.stagePassedAt || {})[app.status];
 
   return (
     <div
@@ -689,6 +743,11 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
         <div className="ndc-role-meta">
           {app.location && <span className="ndc-role-meta-item">📍 {app.location}</span>}
           {applied && <span className="ndc-role-meta-item">Applied {applied}</span>}
+          {stagePassed && (
+            <span className="ndc-role-meta-item ndc-role-meta-item--passed" title={`Passed ${formatDate(stagePassed)} — awaiting next step`}>
+              ✓ Passed · awaiting next step
+            </span>
+          )}
           {rejected && (
             <span className="ndc-role-meta-item ndc-role-meta-item--rejected">Rejected {rejected}</span>
           )}

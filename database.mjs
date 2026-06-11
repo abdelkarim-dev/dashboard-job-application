@@ -57,6 +57,7 @@ export async function initDatabase() {
   // OA task completion is independent of pipeline stage: a candidate can submit
   // the assessment while still waiting for results (i.e. still in the OA stage).
   ensureColumn("applications", "oaCompletedAt", "TEXT");
+  ensureColumn("applications", "stagePassedAt", "TEXT");
   // Priority is normalized server-side but was never persisted — surface it.
   ensureColumn("applications", "priority", "TEXT");
   // CRM-style next step: a short action label and the date it is due. Powers the
@@ -411,6 +412,7 @@ export async function sqlLoadApplications() {
     interviewDate: r.interviewDate || "",
     stageDates: JSON.parse(r.stageDates || "{}"),
     stageDateTimes: JSON.parse(r.stageDateTimes || "{}"),
+    stagePassedAt: JSON.parse(r.stagePassedAt || "{}"),
     evaluation: JSON.parse(r.evaluation || "null"),
     attachments: JSON.parse(r.attachments || "[]"),
   }));
@@ -421,8 +423,8 @@ export async function sqlSaveApplications(apps) {
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO applications (
       id, company, role, status, dateApplied, appliedAt, rejectedAt, location,
-      salary, equity, oaDeadline, oaCompletedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, level, source, interviewDate, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      salary, equity, oaDeadline, oaCompletedAt, stagePassedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, level, source, interviewDate, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec("BEGIN TRANSACTION");
@@ -441,6 +443,7 @@ export async function sqlSaveApplications(apps) {
         app.equity || "",
         app.oaDeadline || "",
         app.oaCompletedAt || "",
+        JSON.stringify(app.stagePassedAt || {}),
         app.priority || "Medium",
         app.nextAction || "",
         app.nextActionAt || "",

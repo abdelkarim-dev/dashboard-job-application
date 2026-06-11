@@ -271,6 +271,9 @@ export function buildAttentionItems(applications = [], { now = new Date(), horiz
   const items = [];
   for (const app of applications) {
     if (!app || app.status === "Rejected") continue;
+    // A stage the user already marked as passed needs nothing from them —
+    // the ball is in the company's court.
+    if (app.stagePassedAt && app.stagePassedAt[app.status]) continue;
     if (app.status === "Online Assessment" && !app.oaCompletedAt) {
       const date = (app.stageDateTimes && app.stageDateTimes["Online Assessment"]) || "";
       items.push({
