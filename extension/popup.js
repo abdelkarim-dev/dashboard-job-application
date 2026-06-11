@@ -136,6 +136,9 @@ async function init() {
       dateApplied: "",
       sourceUrl: "",
     };
+    // "Fill manually" must actually show the form — without this the capture
+    // form stays hidden and the message is a dead end.
+    openTrackerView(latestCapture, false, { skipRefinement: true });
   }
 
   // Server status pill, CV chips, and profile preload share one health check.
@@ -487,7 +490,7 @@ async function runGemmaRefinement() {
   } finally {
     showFormProgress(false);
     saveBtn.disabled = false;
-    saveBtn.textContent = "Save to Tracker";
+    saveBtn.textContent = "Add to Tracker";
   }
 }
 
@@ -539,7 +542,7 @@ async function handleSave(event) {
   } catch {
     setStateText("Tracker not running at 127.0.0.1:8787.");
     saveBtn.disabled = false;
-    saveBtn.textContent = isUpdate ? "Update Tracker" : "Save to Tracker";
+    saveBtn.textContent = isUpdate ? "Update Tracker" : "Add to Tracker";
   }
 }
 

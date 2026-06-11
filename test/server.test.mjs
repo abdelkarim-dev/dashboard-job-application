@@ -29,6 +29,23 @@ import {
   toJson,
 } from "../server.mjs";
 
+test("demoting an applied record to Saved clears the applied state", () => {
+  const applied = normalizeApplication(
+    { company: "Acme", role: "BE", status: "Applied", appliedAt: "2026-06-01T10:00:00.000Z" },
+    {}
+  );
+  assert.ok(applied.appliedAt && applied.dateApplied && applied.stageDateTimes.Applied);
+
+  // The popup/widget clears dateApplied on Saved but does NOT send appliedAt —
+  // the stored appliedAt must not resurrect the applied state.
+  const demoted = normalizeApplication({ status: "Saved", dateApplied: "" }, applied);
+  assert.equal(demoted.status, "Saved");
+  assert.equal(demoted.appliedAt, "");
+  assert.equal(demoted.dateApplied, "");
+  assert.equal(demoted.stageDateTimes.Applied, undefined);
+  assert.equal(demoted.stageDates.Applied, undefined);
+});
+
 test("normalizeApplication persists stage-passed outcomes independently of status", () => {
   const passedAt = "2026-06-09T18:00:00.000Z";
   // Marking a stage passed survives normalization and stays put on later edits

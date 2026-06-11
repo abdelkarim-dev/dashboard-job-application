@@ -37,6 +37,7 @@ test("applications save -> load round-trip preserves JSON fields", async () => {
     equity: "0.1%",
     oaDeadline: "2026-01-10",
     oaCompletedAt: "2026-01-05T00:00:00.000Z",
+    stagePassedAt: { "Online Assessment": "2026-01-06T00:00:00.000Z" },
     priority: "High",
     nextAction: "Follow up",
     nextActionAt: "2026-01-08",
@@ -78,6 +79,7 @@ test("applications save -> load round-trip preserves JSON fields", async () => {
   assert.equal(got.level, "Senior");
   assert.equal(got.source, "Referral");
   assert.equal(got.interviewDate, "2026-01-15");
+  assert.deepEqual(got.stagePassedAt, { "Online Assessment": "2026-01-06T00:00:00.000Z" });
   // skills stored as comma-joined string.
   assert.equal(got.skills, "JavaScript, Node, SQLite");
   assert.equal(got.group, "Top Targets");

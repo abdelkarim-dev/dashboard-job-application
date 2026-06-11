@@ -3401,11 +3401,23 @@ function normalizeApplication(input, existing = {}) {
   if (appliedAt) {
     dateApplied = getLocalDateString(new Date(appliedAt));
   }
+  // "Saved" is authoritative about NOT having applied. Without this, demoting
+  // an applied card to Saved resurrects the applied state: the client clears
+  // dateApplied but rarely sends appliedAt, so the stored appliedAt survives
+  // and re-fills dateApplied above — the card keeps counting as applied.
+  if (status === "Saved") {
+    appliedAt = "";
+    dateApplied = "";
+  }
   const stageDateTimes = normalizeStageDateTimes(input, existing, status, previousStatus, appliedAt, now);
   const stageDates = normalizeStageDates(input, existing, status, dateApplied, stageDateTimes, now);
   if (appliedAt) {
     stageDateTimes.Applied = appliedAt;
     stageDates.Applied = getLocalDateString(new Date(appliedAt));
+  }
+  if (status === "Saved") {
+    delete stageDateTimes.Applied;
+    delete stageDates.Applied;
   }
   let rejectedAt = input.rejectedAt !== undefined
     ? cleanTimestamp(input.rejectedAt)

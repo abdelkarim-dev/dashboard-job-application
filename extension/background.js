@@ -179,7 +179,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TRACKER_UPDATED") {
     lastFetch = 0; // invalidate cache so next badge check re-fetches
     // Refresh the sending tab's badge so the SAVED indicator appears immediately.
-    if (sender?.tab?.id && sender.tab.url) applyBadge(sender.tab.id, sender.tab.url);
+    if (sender?.tab?.id && sender.tab.url) {
+      applyBadge(sender.tab.id, sender.tab.url);
+    } else {
+      // Sent from extension UI (popup) — no sender.tab; refresh the active tab.
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs[0];
+        if (tab?.id && tab.url) applyBadge(tab.id, tab.url);
+      });
+    }
   }
   if (msg?.type === "JOB_PAGE_DETECTED" && sender?.tab?.id) {
     jobPageTabs.add(sender.tab.id);
