@@ -1330,6 +1330,8 @@ function collectFillableElements({ visibleOnly = false } = {}) {
     )
   ).filter((input) => {
     if (isInCopilotUi(input) || isLegacySelectWidgetInput(input)) return false;
+    // intl-tel-input's internal country-search box is widget chrome, not a field.
+    if (input.closest?.(".iti__dropdown-content, .iti__country-list")) return false;
     if (visibleOnly && input.tagName !== "SELECT" && !isVisibleFillTarget(input)) return false;
     if (!isChoiceInput(input)) return true;
 
@@ -1794,15 +1796,37 @@ function findComboboxListbox(input) {
 }
 
 function getComboboxOptions(input) {
+  // 1. The listbox the input points at (react-select sets aria-controls only
+  //    once the menu is open, so this is re-read on every poll).
   const scope = findComboboxListbox(input);
   let options = scope ? Array.from(scope.querySelectorAll('[role="option"]')) : [];
   if (!options.length && scope && /^(listbox|menu)$/i.test(scope.getAttribute("role") || "")) {
     options = Array.from(scope.querySelectorAll("li, [data-value], [data-option]"));
   }
+
+  // 2. Menu attached inside the widget's own wrapper (climb a few ancestors).
   if (!options.length) {
-    options = Array.from(document.querySelectorAll('[role="option"]')).filter(elementLooksVisible);
+    let node = input.parentElement;
+    for (let depth = 0; node && node !== document.body && depth < 5 && !options.length; depth++, node = node.parentElement) {
+      options = Array.from(node.querySelectorAll('[role="option"]')).filter(elementLooksVisible);
+    }
   }
-  return options.filter((option) => !isInCopilotUi(option) && !option.getAttribute("aria-disabled"));
+
+  // 3. Global fallback — but NEVER another widget's options: intl-tel-input
+  //    keeps 250 country rows with role="option" permanently in the DOM, and
+  //    matching against those starves the real menu.
+  const inIti = Boolean(input.closest?.(".iti"));
+  if (!options.length) {
+    options = Array.from(document.querySelectorAll('[role="option"]'))
+      .filter(elementLooksVisible)
+      .filter((option) => inIti || !option.closest(".iti"));
+  }
+
+  return options.filter(
+    (option) => !isInCopilotUi(option) &&
+      !option.getAttribute("aria-disabled") &&
+      (inIti || !option.closest(".iti"))
+  );
 }
 
 function pickBestOptionElement(options, val) {
@@ -1866,17 +1890,27 @@ async function fillComboboxField(input, val) {
     await sleep(24 + Math.random() * 30);
   }
 
-  // Poll for the filtered option list — remote lookups (cities) render late.
+  // Poll for the filtered option list. Remote lookups render LATE — Greenhouse's
+  // city service was measured taking 3-5s, so the window must be generous.
   let option = null;
-  for (let waited = 0; waited < 2600; waited += 200) {
-    await sleep(200);
+  for (let waited = 0; waited < 8000; waited += 250) {
+    await sleep(250);
+    // Some widgets auto-commit while we wait (e.g. single exact match).
+    if (input.getAttribute("aria-expanded") === "false" && comboboxLooksAnswered(input)) return true;
     option = pickBestOptionElement(getComboboxOptions(input), value);
     if (option) break;
   }
 
   if (option) {
     clickElementLikeUser(option);
-    await sleep(120);
+    await sleep(250);
+    // If the click didn't commit (some widgets only listen for keyboard), the
+    // option is highlighted from the click — Enter confirms it.
+    if (!comboboxLooksAnswered(input)) {
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", keyCode: 13 }));
+      await sleep(150);
+    }
     input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
     return true;
   }
@@ -1887,6 +1921,78 @@ async function fillComboboxField(input, val) {
   input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", keyCode: 13 }));
   input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
   return comboboxLooksAnswered(input);
+}
+
+// ── Split phone widgets (intl-tel-input ".iti", react-phone-number-input) ──
+// These pair the phone input with a separate country/dial-code picker, so the
+// input must receive the NATIONAL number: a leading +1 in the text makes the
+// ATS validation fail (verified on Greenhouse job-boards, which uses iti).
+
+function getPhoneCountryWidget(input) {
+  const iti = input.closest?.(".iti");
+  if (iti) return { kind: "iti", root: iti };
+  const pni = input.closest?.(".PhoneInput");
+  if (pni && pni.querySelector("select")) return { kind: "pni", root: pni };
+  return null;
+}
+
+function nationalPhoneDigits(rawPhone) {
+  const digits = String(rawPhone || "").replace(/[^\d]/g, "");
+  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+}
+
+const PROFILE_COUNTRY_ISO = {
+  canada: "ca",
+  "united states": "us",
+  usa: "us",
+  "united states of america": "us",
+};
+
+function profileCountryInfo(profile) {
+  const name = clean(profile?.country || "") || "Canada";
+  return { name, iso2: PROFILE_COUNTRY_ISO[name.toLowerCase()] || "" };
+}
+
+// Select a country in an intl-tel-input widget: open the flag dropdown, click
+// the matching list item. Verified DOM: button.iti__selected-country (or the
+// older .iti__selected-flag) opens it; items are li.iti__country[data-country-code].
+async function setItiCountry(root, { name, iso2 }) {
+  if (!iso2) return false;
+  const btn = root.querySelector(".iti__selected-country, .iti__selected-flag");
+  if (!btn) return false;
+  const currentLabel = `${btn.getAttribute("title") || ""} ${btn.getAttribute("aria-label") || ""}`.toLowerCase();
+  if (currentLabel.includes(name.toLowerCase())) return true;
+  clickElementLikeUser(btn);
+  await sleep(160);
+  const item =
+    root.querySelector(`.iti__country[data-country-code="${iso2}"]`) ||
+    document.querySelector(`.iti__country[data-country-code="${iso2}"]`);
+  if (!item) {
+    clickElementLikeUser(btn); // close the dropdown again
+    return false;
+  }
+  clickElementLikeUser(item);
+  await sleep(120);
+  return true;
+}
+
+async function fillSplitPhoneField(input, rawPhone, profile) {
+  const national = nationalPhoneDigits(rawPhone);
+  if (!national) return false;
+  const widget = getPhoneCountryWidget(input);
+  if (widget) {
+    const country = profileCountryInfo(profile);
+    if (widget.kind === "iti") {
+      await setItiCountry(widget.root, country);
+    } else if (widget.kind === "pni" && country.iso2) {
+      setSelectValue(widget.root.querySelector("select"), country.iso2.toUpperCase());
+    }
+    setInputValue(input, national);
+    return true;
+  }
+  // Plain phone input with no paired picker — international format is safest.
+  setInputValue(input, national.length === 10 ? `+1${national}` : `+${national}`);
+  return true;
 }
 
 function applySelectIndex(select, index) {
@@ -2103,9 +2209,10 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   // third-party page label text landing in innerHTML.
   const auditLog = [];
 
-  // Combobox fills are async (type → wait for options → click), and only one
-  // dropdown can be open at a time — queue them and run sequentially afterwards.
-  const comboboxQueue = [];
+  // Combobox and split-phone fills are async (type → wait → click), and only
+  // one dropdown can be open at a time — queue them and run sequentially after
+  // the synchronous pass.
+  const asyncFillQueue = [];
 
   const fillList = (inputs, val, type) => {
     if (!inputs || val === undefined || val === null || val === "") return;
@@ -2115,8 +2222,21 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
         setSelectValue(input, val, type);
       } else if (isChoiceInput(input)) {
         didFill = setChoiceValue(input, val);
+      } else if (type === "phone" && input.tagName === "INPUT") {
+        // fillSplitPhoneField decides national-vs-international from the DOM
+        // (paired country picker → national number + set the country itself).
+        asyncFillQueue.push({
+          input,
+          run: () => fillSplitPhoneField(input, profile.phone || val, profile),
+          auditValue: () => input.value || String(val),
+        });
+        return;
       } else if (isAriaComboboxInput(input)) {
-        comboboxQueue.push({ input, val });
+        asyncFillQueue.push({
+          input,
+          run: () => fillComboboxField(input, val),
+          auditValue: () => String(val),
+        });
         return;
       } else {
         setInputValue(input, val);
@@ -2133,7 +2253,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (mapped.lastName) fillList(mapped.lastName, lastName);
   if (mapped.fullName) fillList(mapped.fullName, profile.fullName);
   if (mapped.email) fillList(mapped.email, profile.email);
-  if (mapped.phone) fillList(mapped.phone, phoneVal);
+  if (mapped.phone) fillList(mapped.phone, phoneVal, "phone");
   if (mapped.linkedin) fillList(mapped.linkedin, profile.linkedin);
   if (mapped.legallyAuthorized) fillList(mapped.legallyAuthorized, profile.legallyAuthorized || "Yes", "legallyAuthorized");
   if (mapped.requiresSponsorship) fillList(mapped.requiresSponsorship, profile.requiresSponsorship || "No", "requiresSponsorship");
@@ -2148,13 +2268,18 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (mapped.portfolio) fillList(mapped.portfolio, profile.portfolio);
   if (mapped.github) fillList(mapped.github, profile.github);
 
-  // Drain the queued dynamic comboboxes one at a time.
-  for (const task of comboboxQueue) {
-    const ok = await fillComboboxField(task.input, task.val);
+  // Drain the queued async fills (comboboxes, split phones) one at a time.
+  for (const task of asyncFillQueue) {
+    let ok = false;
+    try {
+      ok = await task.run();
+    } catch {
+      ok = false;
+    }
     if (!ok) continue;
     markFieldFilled(regexFilledElements, task.input);
     filledCount++;
-    auditLog.push({ label: getAutofillFieldLabel(task.input).slice(0, 60), value: String(task.val).slice(0, 80), ai: false });
+    auditLog.push({ label: getAutofillFieldLabel(task.input).slice(0, 60), value: task.auditValue().slice(0, 80), ai: false });
   }
 
   // ── CV text injection: paste resume text into visible textareas ──
@@ -2599,6 +2724,8 @@ function toggleInlineDropdown(input, trigger) {
         removeInlineDropdown();
         if (input.tagName === "SELECT") {
           setSelectValue(input, fieldValue, fieldType);
+        } else if (fieldType === "phone" && input.tagName === "INPUT") {
+          await fillSplitPhoneField(input, localProfile?.phone || fieldValue, localProfile);
         } else if (isAriaComboboxInput(input)) {
           await fillComboboxField(input, fieldValue);
         } else {
