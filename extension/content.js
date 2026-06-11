@@ -48,6 +48,10 @@ let submitTrackerLastTrackedAt = 0;
 // a multi-step ATS form fires multiple submit-like events for the same application.
 const trackedAppUrls = new Set();
 let dragFloatingActionsState = null;
+// Set once the user drags the overlay card by its header; while set, the card
+// keeps that position instead of auto-docking to the toolbar. Double-click the
+// header to re-dock.
+let widgetManualPosition = null;
 // ATS providers (Greenhouse, Lever, Ashby embeds…) often render the application
 // form inside a cross-origin iframe. The content script runs in every frame
 // ("all_frames" in the manifest), but only the top frame owns visible UI
@@ -146,6 +150,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         actionsBar.style.display = "flex";
         widget.style.display = "flex";
         widget.classList.remove("minimized");
+        positionWidgetRelativeToToolbar();
       } else {
         actionsBar.style.display = "none";
         widget.style.display = "none";
@@ -165,6 +170,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           newActions.style.display = "flex";
           newWidget.style.display = "flex";
           newWidget.classList.remove("minimized");
+          positionWidgetRelativeToToolbar();
         }
         if (!looksLikeJobPosting()) {
           showToast("This page doesn't look like a job posting — toolbar enabled anyway.");
@@ -394,10 +400,12 @@ function showCopilotPanel(panelName) {
     autofill: document.getElementById("jh-autofill-panel"),
     track: document.getElementById("jh-track-panel"),
     company: document.getElementById("jh-company-panel"),
+    today: document.getElementById("jh-today-panel"),
   };
   Object.entries(panels).forEach(([name, panel]) => {
     if (panel) panel.hidden = name !== panelName;
   });
+  positionWidgetRelativeToToolbar();
 }
 
 function updateWorkflowSteps(scope, steps) {
@@ -599,6 +607,45 @@ function expandWidget() {
   const widget = document.getElementById("jh-copilot-widget");
   if (widget && widget.classList.contains("minimized")) {
     widget.classList.remove("minimized");
+  }
+  positionWidgetRelativeToToolbar();
+}
+
+// Glue the overlay card to the floating toolbar: same width, aligned, sitting
+// just above it (or below when the toolbar is near the top) — never on top of
+// it. Re-run whenever the panel opens, the toolbar is dragged, or the window
+// resizes; the static CSS position is only a first-paint fallback.
+function positionWidgetRelativeToToolbar() {
+  const widget = document.getElementById("jh-copilot-widget");
+  const bar = document.getElementById("jh-floating-actions");
+  if (!widget) return;
+  if (widgetManualPosition) {
+    applyWidgetManualPosition();
+    return;
+  }
+  if (!bar || bar.style.display === "none") return;
+  const rect = bar.getBoundingClientRect();
+  if (!rect.width) return;
+
+  const gap = 10;
+  const width = clamp(Math.round(rect.width), 320, Math.max(320, window.innerWidth - 16));
+  const left = clamp(Math.round(rect.left), 8, Math.max(8, window.innerWidth - width - 8));
+  widget.style.width = `${width}px`;
+  widget.style.left = `${left}px`;
+  widget.style.right = "auto";
+
+  const spaceAbove = rect.top - gap - 8;
+  const spaceBelow = window.innerHeight - rect.bottom - gap - 8;
+  if (spaceAbove >= 240 || spaceAbove >= spaceBelow) {
+    widget.style.bottom = `${Math.round(window.innerHeight - rect.top + gap)}px`;
+    widget.style.top = "auto";
+    widget.style.maxHeight = `${Math.max(200, Math.floor(spaceAbove))}px`;
+    widget.style.transformOrigin = "bottom center";
+  } else {
+    widget.style.top = `${Math.round(rect.bottom + gap)}px`;
+    widget.style.bottom = "auto";
+    widget.style.maxHeight = `${Math.max(200, Math.floor(spaceBelow))}px`;
+    widget.style.transformOrigin = "top center";
   }
 }
 
@@ -1282,7 +1329,7 @@ function collectFillableElements({ visibleOnly = false } = {}) {
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="password"]):not([type="image"]), textarea, select'
     )
   ).filter((input) => {
-    if (isInCopilotUi(input) || isCustomSelectInput(input)) return false;
+    if (isInCopilotUi(input) || isLegacySelectWidgetInput(input)) return false;
     if (visibleOnly && input.tagName !== "SELECT" && !isVisibleFillTarget(input)) return false;
     if (!isChoiceInput(input)) return true;
 
@@ -1303,7 +1350,21 @@ function isFieldAlreadyAnswered(input) {
     if (type === "radio") return getChoiceGroup(input).some((option) => option.checked);
     return input.checked;
   }
+  if (isAriaComboboxInput(input)) return comboboxLooksAnswered(input);
   return Boolean(input.value && input.value.trim());
+}
+
+// React-Select-style widgets clear the text input after a pick and show the
+// chosen value in a sibling node, so input.value alone under-reports.
+function comboboxLooksAnswered(input) {
+  if (input.value && input.value.trim()) return true;
+  const host =
+    input.closest('[class*="select" i], [role="combobox"], [data-baseweb]') ||
+    input.parentElement?.parentElement ||
+    input.parentElement;
+  if (!host || isInCopilotUi(host)) return false;
+  if (host.querySelector('[class*="single-value" i], [class*="singleValue" i]')) return true;
+  return /\bhas-value\b/i.test(typeof host.className === "string" ? host.className : "");
 }
 
 function markFieldFilled(filledElements, input) {
@@ -1409,26 +1470,31 @@ function findInputs() {
   return mapped;
 }
 
-function isCustomSelectInput(el) {
+// Chosen/Select2 search boxes are excluded from fill targets entirely — they
+// have a backing native <select> that we fill instead (applySelectIndex even
+// nudges the Chosen UI). Typing into their search input would double-fill.
+function isLegacySelectWidgetInput(el) {
   if (!el || el.tagName !== "INPUT") return false;
-  
-  // 1. Check parent classes commonly used by Chosen, Select2, React-Select, etc.
   if (el.closest('.chosen-container, .chosen-search, .select2-container, .select2-search, [class*="select2-"], [class*="chosen-"]')) {
     return true;
   }
-  
-  // 2. Check React-Select or custom comboboxes
-  if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list") {
-    return true;
-  }
-  
-  // 3. Inputs with classes containing "search" inside a custom dropdown wrapper
   const className = el.className || "";
-  if (typeof className === "string" && (className.includes("chosen") || className.includes("select2"))) {
-    return true;
-  }
-  
-  return false;
+  return typeof className === "string" && (className.includes("chosen") || className.includes("select2"));
+}
+
+// ARIA comboboxes (React-Select, Greenhouse/Workday city pickers…) have NO
+// backing <select>, so unlike Chosen/Select2 they must be filled directly —
+// by typing the value and clicking the option that appears (fillComboboxField).
+function isAriaComboboxInput(el) {
+  if (!el || el.tagName !== "INPUT") return false;
+  if (isLegacySelectWidgetInput(el)) return false;
+  const autocompleteMode = el.getAttribute("aria-autocomplete");
+  return (
+    el.getAttribute("role") === "combobox" ||
+    autocompleteMode === "list" ||
+    autocompleteMode === "both" ||
+    Boolean(el.closest('[role="combobox"]'))
+  );
 }
 
 // Write a value to a native <input>/<textarea> via the prototype setter (so
@@ -1574,11 +1640,13 @@ function pickChoiceOption(input, val) {
     if (noOption) return noOption.input;
   }
 
+  // Whole-token partial match only — substring matching here is how "No" got
+  // checked for answers that merely contained those letters.
   const partial = options.find((option) => {
     const label = normalizeChoiceText(option.label);
     const value = normalizeChoiceText(option.value);
-    return (label && (label.includes(answer) || answer.includes(label))) ||
-           (value && (value.includes(answer) || answer.includes(value)));
+    return tokensInclude(label, answer) || tokensInclude(answer, label) ||
+           tokensInclude(value, answer) || tokensInclude(answer, value);
   });
   return partial?.input || null;
 }
@@ -1650,6 +1718,177 @@ function typeHumanLike(input, text, { minDelay = 12, maxDelay = 38 } = {}) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Whole-token containment on normalizeChoiceText output. Plain substring
+// matching picked "No" for answers like "I do not know" ("no" inside "know").
+function tokensInclude(haystack, needle) {
+  if (!haystack || !needle) return false;
+  return new RegExp(`(?:^| )${escapeRegExp(needle)}(?: |$)`).test(haystack);
+}
+
+function isPlaceholderOptionText(text) {
+  if (!text) return true;
+  return /^(select|select one|choose|choose one|please select|please choose|pick one|pick an option|none)$/.test(text) || /^-+$/.test(String(text));
+}
+
+// Ordered, strict matcher for native <select> options. Returns -1 rather than
+// guessing — a wrong dropdown answer is worse than an empty one the user can
+// see and fix. Placeholder rows ("Select...", "--") never match.
+function findBestSelectOptionIndex(select, val) {
+  const target = normalizeChoiceText(val);
+  if (!target || !select) return -1;
+  const entries = Array.from(select.options)
+    .map((opt, index) => ({
+      index,
+      text: normalizeChoiceText(opt.text),
+      value: normalizeChoiceText(opt.value),
+    }))
+    .filter((entry) => !isPlaceholderOptionText(entry.text));
+  if (!entries.length) return -1;
+
+  let found = entries.find((entry) => entry.text === target || entry.value === target);
+  if (found) return found.index;
+
+  // Yes/no semantics only when the answer leads with yes/no or is very short —
+  // "I do not know" contains a no-phrase but must NOT snap to "No".
+  if (/^(yes|no)\b/.test(target) || target.split(" ").length <= 2) {
+    if (choiceValueMeansYes(val)) {
+      found = entries.find((entry) => /^yes\b/.test(entry.text));
+      if (found) return found.index;
+    }
+    if (choiceValueMeansNo(val)) {
+      found = entries.find((entry) => /^no\b/.test(entry.text));
+      if (found) return found.index;
+    }
+  }
+
+  found = entries.find((entry) => entry.text.startsWith(target) || (entry.text.length >= 4 && target.startsWith(entry.text)));
+  if (found) return found.index;
+
+  found = entries.find((entry) => tokensInclude(entry.text, target) || tokensInclude(target, entry.text));
+  return found ? found.index : -1;
+}
+
+// ── Dynamic combobox fill (React-Select, Workday/Greenhouse pickers…) ──
+// These widgets need the flow a human follows: focus, type to filter, wait for
+// the listbox to render (city lookups can be async), then CLICK the matching
+// option so the widget commits a real value instead of loose text.
+
+function findComboboxListbox(input) {
+  const ids = `${input.getAttribute("aria-controls") || ""} ${input.getAttribute("aria-owns") || ""}`
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  for (const id of ids) {
+    try {
+      const el = document.getElementById(id);
+      if (el) return el;
+    } catch {
+      // invalid id — keep looking
+    }
+  }
+  return null;
+}
+
+function getComboboxOptions(input) {
+  const scope = findComboboxListbox(input);
+  let options = scope ? Array.from(scope.querySelectorAll('[role="option"]')) : [];
+  if (!options.length && scope && /^(listbox|menu)$/i.test(scope.getAttribute("role") || "")) {
+    options = Array.from(scope.querySelectorAll("li, [data-value], [data-option]"));
+  }
+  if (!options.length) {
+    options = Array.from(document.querySelectorAll('[role="option"]')).filter(elementLooksVisible);
+  }
+  return options.filter((option) => !isInCopilotUi(option) && !option.getAttribute("aria-disabled"));
+}
+
+function pickBestOptionElement(options, val) {
+  const target = normalizeChoiceText(val);
+  if (!target || !options.length) return null;
+  const entries = options
+    .map((el) => ({ el, text: normalizeChoiceText(el.textContent || "") }))
+    .filter((entry) => entry.text && !isPlaceholderOptionText(entry.text));
+  let found = entries.find((entry) => entry.text === target);
+  if (found) return found.el;
+  found = entries.find((entry) => entry.text.startsWith(target) || target.startsWith(entry.text));
+  if (found) return found.el;
+  found = entries.find((entry) => tokensInclude(entry.text, target) || tokensInclude(target, entry.text));
+  return found ? found.el : null;
+}
+
+function clickElementLikeUser(el) {
+  try {
+    el.scrollIntoView({ block: "nearest" });
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    el.click();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function fillComboboxField(input, val) {
+  if (!input || val === undefined || val === null || val === "") return false;
+  const value = String(val);
+
+  try {
+    input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    input.focus();
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    input.click?.();
+  } catch {
+    // typing below may still open the listbox
+  }
+
+  // Type to filter — deliberately NO blur between keys, blur closes the listbox.
+  setNativeValue(input, "");
+  for (const ch of Array.from(value)) {
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: ch }));
+    try {
+      input.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
+    } catch { /* unsupported */ }
+    setNativeValue(input, (input.value || "") + ch);
+    try {
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
+    } catch {
+      input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    }
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: ch }));
+    await sleep(24 + Math.random() * 30);
+  }
+
+  // Poll for the filtered option list — remote lookups (cities) render late.
+  let option = null;
+  for (let waited = 0; waited < 2600; waited += 200) {
+    await sleep(200);
+    option = pickBestOptionElement(getComboboxOptions(input), value);
+    if (option) break;
+  }
+
+  if (option) {
+    clickElementLikeUser(option);
+    await sleep(120);
+    input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    return true;
+  }
+
+  // No matching option appeared: commit the typed text with Enter (many widgets
+  // accept it) and leave the text in place for the user to confirm.
+  input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 }));
+  input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", keyCode: 13 }));
+  input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  return comboboxLooksAnswered(input);
+}
+
 function applySelectIndex(select, index) {
   if (!select || index === -1) return;
   try {
@@ -1705,15 +1944,10 @@ function applySelectIndex(select, index) {
 function setSelectValue(select, val, type) {
   if (!select) return;
   const options = Array.from(select.options);
-  let matchedIndex = -1;
   const lowerVal = String(val).toLowerCase().trim();
 
-  // 1. Try exact or substring match of option text
-  matchedIndex = options.findIndex(opt => {
-    const text = opt.text.toLowerCase().trim();
-    const value = opt.value.toLowerCase().trim();
-    return text === lowerVal || value === lowerVal || text.includes(lowerVal) || lowerVal.includes(text);
-  });
+  // 1. Strict ordered match (exact → yes/no → prefix → whole-token)
+  let matchedIndex = findBestSelectOptionIndex(select, val);
 
   // 2. Fallbacks based on demographic types
   if (matchedIndex === -1) {
@@ -1768,8 +2002,10 @@ function setSelectValue(select, val, type) {
     }
   }
 
-  // 3. Fallback: if no match, try to choose "decline" / "prefer not"
-  if (matchedIndex === -1) {
+  // 3. Fallback for demographic fields only: choose "decline" / "prefer not".
+  // Never apply this to ordinary dropdowns — leaving them empty beats picking
+  // an option the answer never named.
+  if (matchedIndex === -1 && ["gender", "race", "veteranStatus", "disabilityStatus"].includes(type)) {
     matchedIndex = options.findIndex(opt => opt.text.toLowerCase().includes("decline") || opt.text.toLowerCase().includes("prefer not"));
   }
 
@@ -1867,6 +2103,10 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   // third-party page label text landing in innerHTML.
   const auditLog = [];
 
+  // Combobox fills are async (type → wait for options → click), and only one
+  // dropdown can be open at a time — queue them and run sequentially afterwards.
+  const comboboxQueue = [];
+
   const fillList = (inputs, val, type) => {
     if (!inputs || val === undefined || val === null || val === "") return;
     inputs.forEach((input) => {
@@ -1875,6 +2115,9 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
         setSelectValue(input, val, type);
       } else if (isChoiceInput(input)) {
         didFill = setChoiceValue(input, val);
+      } else if (isAriaComboboxInput(input)) {
+        comboboxQueue.push({ input, val });
+        return;
       } else {
         setInputValue(input, val);
       }
@@ -1904,6 +2147,15 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (mapped.disabilityStatus) fillList(mapped.disabilityStatus, profile.disabilityStatus || "No, I don't have a disability", "disabilityStatus");
   if (mapped.portfolio) fillList(mapped.portfolio, profile.portfolio);
   if (mapped.github) fillList(mapped.github, profile.github);
+
+  // Drain the queued dynamic comboboxes one at a time.
+  for (const task of comboboxQueue) {
+    const ok = await fillComboboxField(task.input, task.val);
+    if (!ok) continue;
+    markFieldFilled(regexFilledElements, task.input);
+    filledCount++;
+    auditLog.push({ label: getAutofillFieldLabel(task.input).slice(0, 60), value: String(task.val).slice(0, 80), ai: false });
+  }
 
   // ── CV text injection: paste resume text into visible textareas ──
   if (resumeText) {
@@ -1974,7 +2226,9 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
           label: getAutofillFieldLabel(el).slice(0, 200),
           name: (el.name || "").slice(0, 100),
           id: (el.id || "").slice(0, 100),
-          tag: el.tagName.toLowerCase(),
+          // "combobox" tells Gemma this is a dynamic search picker (city etc.)
+          // expecting one short canonical value, not a sentence.
+          tag: isAriaComboboxInput(el) ? "combobox" : el.tagName.toLowerCase(),
           placeholder: (el.placeholder || "").slice(0, 150),
           inputType: (el.type || "").toLowerCase(),
         };
@@ -2008,40 +2262,47 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
 
       if (aiResult && aiResult.mappings) {
         let aiFilledCount = 0;
-        Object.entries(aiResult.mappings).forEach(([indexStr, value]) => {
+        for (const [indexStr, value] of Object.entries(aiResult.mappings)) {
           const idx = parseInt(indexStr, 10);
           const el = unmatchedFields[idx];
-          if (!el || !value || value === "") return;
+          if (!el || !value || value === "") continue;
           // Defense in depth: never fill a fabricated placeholder URL (the
           // server scrubs these too, but cached/legacy responses may slip by).
-          if (/^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|yourwebsite\.com|placeholder\.[a-z]+)(?:\/.*)?$/i.test(String(value).trim())) return;
+          if (/^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|test\.com|yourwebsite\.com|website\.com|url\.com|placeholder\.[a-z]+|sample\.com|mywebsite\.com|my-?portfolio\.[a-z]+|portfolio\.com|yoursite\.com|yourname\.com|johndoe\.[a-z]+|janedoe\.[a-z]+)(?:\/.*)?$/i.test(String(value).trim())) continue;
 
           if (el.tagName === "SELECT") {
-            // Find the best matching option
-            const options = Array.from(el.options);
-            const lowerVal = value.toLowerCase().trim();
-            const matchIdx = options.findIndex((opt) => {
-              const text = opt.text.toLowerCase().trim();
-              const val = opt.value.toLowerCase().trim();
-              return text === lowerVal || val === lowerVal || text.includes(lowerVal) || lowerVal.includes(text);
-            });
+            // Strict match only — if Gemma answered with text that isn't one of
+            // the options, leave the select untouched and say so in the audit.
+            const matchIdx = findBestSelectOptionIndex(el, value);
             if (matchIdx !== -1) {
               applySelectIndex(el, matchIdx);
               aiFilledCount++;
-              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
+              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: Array.from(el.options)[matchIdx]?.text?.slice(0, 80) || String(value).slice(0, 80), ai: true });
+            } else {
+              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `⚠ skipped — "${String(value).slice(0, 50)}" matches no option`, ai: true });
             }
           } else if (isChoiceInput(el)) {
             if (setChoiceValue(el, value)) {
               aiFilledCount++;
               markFieldFilled(regexFilledElements, el);
               auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
+            } else {
+              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `⚠ skipped — "${String(value).slice(0, 50)}" matches no option`, ai: true });
+            }
+          } else if (isAriaComboboxInput(el)) {
+            if (await fillComboboxField(el, value)) {
+              aiFilledCount++;
+              markFieldFilled(regexFilledElements, el);
+              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
+            } else {
+              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `⚠ typed "${String(value).slice(0, 50)}" but no option appeared`, ai: true });
             }
           } else {
             setInputValue(el, value);
             aiFilledCount++;
             auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
           }
-        });
+        }
       filledCount += aiFilledCount;
       updateWorkflowSteps("autofill", [
         { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
@@ -2334,14 +2595,16 @@ function toggleInlineDropdown(input, trigger) {
   if (fieldType !== "question" && fieldValue) {
     list.push({
       text: `⚡ Fill ${fieldLabel}`,
-      action: () => {
+      action: async () => {
+        removeInlineDropdown();
         if (input.tagName === "SELECT") {
           setSelectValue(input, fieldValue, fieldType);
+        } else if (isAriaComboboxInput(input)) {
+          await fillComboboxField(input, fieldValue);
         } else {
           setInputValue(input, fieldValue);
         }
         showToast(`Filled ${fieldLabel}!`);
-        removeInlineDropdown();
       }
     });
   } else {
@@ -2455,6 +2718,15 @@ function injectWebCopilot(profile) {
   companyBtn.setAttribute("aria-label", "Check previous applications at this company");
   companyBtn.innerHTML = `<span class="jh-icon">🏢</span><span class="jh-btn-label">Applied?</span>`;
 
+  // Create Today button — quick view of applications tracked today
+  const todayBtn = document.createElement("button");
+  todayBtn.id = "jh-btn-today";
+  todayBtn.type = "button";
+  todayBtn.className = "jh-floating-btn jh-today-btn";
+  todayBtn.title = "Show applications you tracked today";
+  todayBtn.setAttribute("aria-label", "Show applications tracked today");
+  todayBtn.innerHTML = `<span class="jh-icon">📅</span><span class="jh-btn-label">Today</span>`;
+
   // Create Manual Track button for ATS pages whose submit event cannot be observed
   const trackBtn = document.createElement("button");
   trackBtn.id = "jh-btn-track";
@@ -2482,6 +2754,7 @@ function injectWebCopilot(profile) {
   actionsBar.appendChild(cvBtn);
   actionsBar.appendChild(evalBtn);
   actionsBar.appendChild(companyBtn);
+  actionsBar.appendChild(todayBtn);
   actionsBar.appendChild(trackBtn);
   actionsBar.appendChild(hideBtn);
   document.body.appendChild(actionsBar);
@@ -2510,7 +2783,7 @@ function injectWebCopilot(profile) {
   widget.className = "minimized"; // Starts hidden/collapsed
 
   widget.innerHTML = `
-    <div class="jh-widget-header">
+    <div class="jh-widget-header" title="Drag to move the menu · double-click to re-dock it to the toolbar">
       <div class="jh-widget-brand">
         <div class="jh-brand-icon">C</div>
         <div>
@@ -2601,9 +2874,23 @@ function injectWebCopilot(profile) {
         </form>
       </div>
 
+      <!-- Applied Today View -->
+      <div id="jh-today-panel" class="jh-panel-section" hidden>
+        <h3 class="jh-section-title">📅 Applied Today</h3>
+        <div class="jh-draft-loading" id="jh-today-loading">
+          <div class="jh-spinner"></div>
+          <span style="color:#A5A5AB;">Loading today's applications...</span>
+        </div>
+        <div id="jh-today-result"></div>
+      </div>
+
       <!-- Company Check View -->
       <div id="jh-company-panel" class="jh-panel-section" hidden>
         <h3 class="jh-section-title">🏢 Applied Here?</h3>
+        <form id="jh-company-search-form" class="jh-company-search">
+          <input id="jh-company-search-input" class="jh-form-input" type="text" placeholder="Company name…" autocomplete="off" aria-label="Company to search in your tracker" />
+          <button type="submit" class="jh-company-search-btn">Search</button>
+        </form>
         <div class="jh-company-detected" id="jh-company-detected-name"></div>
         <div class="jh-draft-loading" id="jh-company-loading">
           <div class="jh-spinner"></div>
@@ -2614,6 +2901,10 @@ function injectWebCopilot(profile) {
     </div>
   `;
   document.body.appendChild(widget);
+  widgetManualPosition = readWidgetPosition();
+  makeWidgetDraggable(widget);
+  positionWidgetRelativeToToolbar();
+  window.addEventListener("resize", positionWidgetRelativeToToolbar, { passive: true });
   updateSubmitListenerStatus("ready");
 
   // Bind close button
@@ -2843,45 +3134,92 @@ function injectWebCopilot(profile) {
     }
   });
 
-  // Company Check Button Handler
-  companyBtn.addEventListener("click", async () => {
-    showCopilotPanel("company");
-
+  // Company Check: shared lookup used by the toolbar button (auto-detected
+  // name) and the panel's search bar (user-typed name — page detection misses
+  // the company often enough that manual search is a first-class path).
+  const runCompanyCheck = async (companyName) => {
     const detectedEl = document.getElementById("jh-company-detected-name");
     const loadingEl = document.getElementById("jh-company-loading");
     const resultEl = document.getElementById("jh-company-result");
-
-    const detectedCompany = extractJob().company;
+    const company = clean(companyName || "");
 
     if (detectedEl) {
-      detectedEl.textContent = detectedCompany
-        ? `Checking: ${detectedCompany}`
-        : "No company name detected on this page.";
+      detectedEl.textContent = company
+        ? `Checking: ${company}`
+        : "No company name detected — type one above and hit Search.";
     }
 
-    if (!detectedCompany) {
+    if (!company) {
       if (loadingEl) loadingEl.classList.remove("visible");
       renderCompanyPanel(resultEl, "", []);
       return;
     }
 
     if (loadingEl) loadingEl.classList.add("visible");
-    if (resultEl) resultEl.innerHTML = "";
+    if (resultEl) resultEl.replaceChildren();
 
     try {
       const apps = await apiProxy("http://127.0.0.1:8787/api/applications");
       const normalize = (s) => (s || "").toLowerCase().trim().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-      const nb = normalize(detectedCompany);
+      const nb = normalize(company);
       const matches = (apps || []).filter((app) => {
         if (!app.company) return false;
         const na = normalize(app.company);
         return na === nb || na.includes(nb) || nb.includes(na);
       });
       if (loadingEl) loadingEl.classList.remove("visible");
-      renderCompanyPanel(resultEl, detectedCompany, matches);
+      renderCompanyPanel(resultEl, company, matches);
     } catch (err) {
       if (loadingEl) loadingEl.classList.remove("visible");
-      renderCompanyPanel(resultEl, detectedCompany, null);
+      renderCompanyPanel(resultEl, company, null);
+    }
+  };
+
+  companyBtn.addEventListener("click", async () => {
+    showCopilotPanel("company");
+    const detectedCompany = extractJob().company;
+    const searchInput = document.getElementById("jh-company-search-input");
+    // Default the search box to the detected name; the user can overwrite it
+    // when extraction picked the wrong (or no) company.
+    if (searchInput) searchInput.value = detectedCompany || "";
+    await runCompanyCheck(detectedCompany);
+  });
+
+  const companySearchForm = document.getElementById("jh-company-search-form");
+  companySearchForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    runCompanyCheck(document.getElementById("jh-company-search-input")?.value || "");
+  });
+
+  // Today Button Handler — latest applications tracked today, newest first
+  todayBtn.addEventListener("click", async () => {
+    showCopilotPanel("today");
+    const loadingEl = document.getElementById("jh-today-loading");
+    const resultEl = document.getElementById("jh-today-result");
+    if (loadingEl) loadingEl.classList.add("visible");
+    if (resultEl) resultEl.replaceChildren();
+
+    try {
+      const apps = await apiProxy("http://127.0.0.1:8787/api/applications");
+      const now = new Date();
+      // Local date string, matching the dashboard's todayString convention.
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const isToday = (app) => {
+        if (app.dateApplied === todayStr) return true;
+        if (!app.appliedAt) return false;
+        const applied = new Date(app.appliedAt);
+        return !Number.isNaN(applied.getTime()) &&
+          `${applied.getFullYear()}-${String(applied.getMonth() + 1).padStart(2, "0")}-${String(applied.getDate()).padStart(2, "0")}` === todayStr;
+      };
+      const todays = (apps || []).filter(isToday).sort(
+        (a, b) => new Date(b.appliedAt || b.dateApplied || 0) - new Date(a.appliedAt || a.dateApplied || 0)
+      );
+      if (loadingEl) loadingEl.classList.remove("visible");
+      renderTodayPanel(resultEl, todays);
+    } catch (err) {
+      if (loadingEl) loadingEl.classList.remove("visible");
+      renderTodayPanel(resultEl, null);
     }
   });
 
@@ -2960,6 +3298,8 @@ function makeFloatingActionsDraggable(actionsBar) {
     actionsBar.style.top = `${y}px`;
     actionsBar.style.right = "auto";
     actionsBar.style.bottom = "auto";
+    // The panel follows the toolbar live while dragging.
+    positionWidgetRelativeToToolbar();
   });
 
   const finishDrag = (event) => {
@@ -2970,6 +3310,7 @@ function makeFloatingActionsDraggable(actionsBar) {
     actionsBar.releasePointerCapture?.(event.pointerId);
     const rect = actionsBar.getBoundingClientRect();
     saveFloatingActionsPosition({ x: Math.round(rect.left), y: Math.round(rect.top) });
+    positionWidgetRelativeToToolbar();
     if (moved) {
       actionsBar.dataset.justDragged = "true";
       setTimeout(() => delete actionsBar.dataset.justDragged, 250);
@@ -2988,6 +3329,99 @@ function makeFloatingActionsDraggable(actionsBar) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function applyWidgetManualPosition() {
+  const widget = document.getElementById("jh-copilot-widget");
+  if (!widget || !widgetManualPosition) return;
+  const width = widget.getBoundingClientRect().width || 380;
+  const x = clamp(widgetManualPosition.x, 8, Math.max(8, window.innerWidth - width - 8));
+  const y = clamp(widgetManualPosition.y, 8, Math.max(8, window.innerHeight - 160));
+  widget.style.left = `${x}px`;
+  widget.style.top = `${y}px`;
+  widget.style.right = "auto";
+  widget.style.bottom = "auto";
+  widget.style.maxHeight = `${Math.max(200, window.innerHeight - y - 16)}px`;
+}
+
+function readWidgetPosition() {
+  try {
+    const raw = localStorage.getItem("jh-widget-position");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Number.isFinite(parsed.x) || !Number.isFinite(parsed.y)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveWidgetPosition(position) {
+  try {
+    if (position) {
+      localStorage.setItem("jh-widget-position", JSON.stringify(position));
+    } else {
+      localStorage.removeItem("jh-widget-position");
+    }
+  } catch {
+    // localStorage blocked — drag still works for the current page
+  }
+}
+
+// Drag the overlay card by its header. A drag detaches it from the toolbar
+// (manual mode, persisted); double-clicking the header re-docks it.
+function makeWidgetDraggable(widget) {
+  const header = widget.querySelector(".jh-widget-header");
+  if (!header) return;
+  let dragState = null;
+
+  header.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (event.target?.closest?.("button")) return;
+    const rect = widget.getBoundingClientRect();
+    dragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: rect.left,
+      originY: rect.top,
+      moved: false,
+    };
+    header.setPointerCapture?.(event.pointerId);
+    header.style.cursor = "grabbing";
+  });
+
+  header.addEventListener("pointermove", (event) => {
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const dx = event.clientX - dragState.startX;
+    const dy = event.clientY - dragState.startY;
+    if (Math.abs(dx) + Math.abs(dy) <= 4 && !dragState.moved) return;
+    dragState.moved = true;
+    widgetManualPosition = {
+      x: Math.round(dragState.originX + dx),
+      y: Math.round(dragState.originY + dy),
+    };
+    applyWidgetManualPosition();
+  });
+
+  const finishDrag = (event) => {
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const moved = dragState.moved;
+    dragState = null;
+    header.releasePointerCapture?.(event.pointerId);
+    header.style.cursor = "grab";
+    if (moved && widgetManualPosition) saveWidgetPosition(widgetManualPosition);
+  };
+  header.addEventListener("pointerup", finishDrag);
+  header.addEventListener("pointercancel", finishDrag);
+
+  header.addEventListener("dblclick", (event) => {
+    if (event.target?.closest?.("button")) return;
+    widgetManualPosition = null;
+    saveWidgetPosition(null);
+    positionWidgetRelativeToToolbar();
+    showToast("Menu re-docked to the toolbar.");
+  });
 }
 
 function readFloatingActionsPosition() {
@@ -3294,6 +3728,9 @@ function injectStyles() {
     .jh-track-btn .jh-btn-label { color: #9FE8BD; }
     .jh-track-btn:hover { border-color: rgba(0, 200, 83, 0.45); background: rgba(0, 200, 83, 0.14); }
 
+    .jh-today-btn .jh-btn-label { color: #FFE082; }
+    .jh-today-btn:hover { border-color: rgba(255, 213, 79, 0.45); background: rgba(255, 213, 79, 0.12); }
+
     .jh-hide-btn {
       flex: 0 0 34px;
       width: 34px;
@@ -3360,7 +3797,7 @@ function injectStyles() {
       box-sizing: border-box;
     }
 
-    /* Header */
+    /* Header — drag handle for the whole card (dblclick re-docks) */
     .jh-widget-header {
       padding: 16px 20px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -3368,6 +3805,9 @@ function injectStyles() {
       align-items: center;
       justify-content: space-between;
       height: 68px;
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
     }
 
     .jh-widget-brand {
@@ -3764,6 +4204,41 @@ function injectStyles() {
     }
 
     /* Company Check Panel */
+    .jh-company-search {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .jh-company-search .jh-form-input {
+      flex: 1 1 auto !important;
+      min-width: 0 !important;
+    }
+
+    .jh-company-search-btn {
+      flex: 0 0 auto;
+      border: none;
+      border-radius: 8px;
+      padding: 0 14px;
+      background: linear-gradient(135deg, #00B4DB, #0083B0);
+      color: #00222E;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      transition: filter 0.18s, transform 0.18s;
+    }
+
+    .jh-company-search-btn:hover {
+      filter: brightness(1.12);
+      transform: translateY(-1px);
+    }
+
+    .jh-company-search-btn:active {
+      transform: translateY(0);
+    }
+
     .jh-company-detected {
       font-size: 11.5px;
       color: #A5A5AB;
@@ -3935,6 +4410,87 @@ function renderInlineEvaluation(evaluation, parentDiv) {
   parentDiv.innerHTML = html;
 }
 
+// Applied-today list. null = API error. Reuses the company-panel row styling;
+// built with DOM methods only (app data is user-controlled text).
+function renderTodayPanel(container, apps) {
+  if (!container) return;
+
+  if (apps === null) {
+    const badge = document.createElement("span");
+    badge.className = "jh-company-badge error";
+    badge.textContent = "⚠ Connection error";
+    const msg = document.createElement("p");
+    msg.className = "jh-company-empty";
+    msg.textContent = "Could not connect to the local dashboard. Make sure the app is running at http://127.0.0.1:8787.";
+    container.replaceChildren(badge, msg);
+    return;
+  }
+
+  if (!apps.length) {
+    const badge = document.createElement("span");
+    badge.className = "jh-company-badge new";
+    badge.textContent = "Nothing yet today";
+    const msg = document.createElement("p");
+    msg.className = "jh-company-empty";
+    msg.textContent = "No applications tracked today. Fill or submit one and it will show up here.";
+    container.replaceChildren(badge, msg);
+    return;
+  }
+
+  const statusColors = {
+    Applied: "#FFB300",
+    Interview: "#7C4DFF",
+    Offer: "#00C853",
+    Rejected: "#FF6B6B",
+    Saved: "#64B5F6",
+    "OA / Assessment": "#FF9800",
+    "Recruiter Screen": "#AB47BC",
+  };
+
+  const badge = document.createElement("span");
+  badge.className = "jh-company-badge applied";
+  badge.textContent = `📅 ${apps.length} tracked today`;
+
+  const appsDiv = document.createElement("div");
+  appsDiv.className = "jh-company-apps";
+
+  apps.forEach((app) => {
+    const color = statusColors[app.status] || "#A5A5AB";
+    const row = document.createElement("div");
+    row.className = "jh-app-row";
+
+    const info = document.createElement("div");
+    info.className = "jh-app-info";
+
+    const roleEl = document.createElement("span");
+    roleEl.className = "jh-app-role";
+    roleEl.textContent = `${(app.company || "").trim() || "Unknown Company"} — ${(app.role || "").trim() || "Unknown Role"}`;
+    roleEl.style.cssText = "display:block;font-size:12.5px;font-weight:600;color:#E2E2E6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;";
+
+    const dateEl = document.createElement("span");
+    dateEl.className = "jh-app-date";
+    const appliedDate = app.appliedAt ? new Date(app.appliedAt) : null;
+    dateEl.textContent = appliedDate && !Number.isNaN(appliedDate.getTime())
+      ? appliedDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+      : "today";
+    dateEl.style.cssText = "display:block;font-size:10px;color:#8E8E96;";
+
+    info.appendChild(roleEl);
+    info.appendChild(dateEl);
+
+    const statusEl = document.createElement("span");
+    statusEl.className = "jh-app-status";
+    statusEl.textContent = app.status || "";
+    statusEl.style.cssText = `background:${color}1a; color:${color}; border-color:${color}40;`;
+
+    row.appendChild(info);
+    row.appendChild(statusEl);
+    appsDiv.appendChild(row);
+  });
+
+  container.replaceChildren(badge, appsDiv);
+}
+
 function renderCompanyPanel(container, company, matches) {
   if (!container) return;
 
@@ -3957,7 +4513,7 @@ function renderCompanyPanel(container, company, matches) {
     badge.textContent = "No company detected";
     const msg = document.createElement("p");
     msg.className = "jh-company-empty";
-    msg.textContent = "Could not detect the company name on this page. Navigate to the company's job posting page and try again.";
+    msg.textContent = "Could not detect the company name on this page. Type the company in the search bar above to check your tracker.";
     container.replaceChildren(badge, msg);
     return;
   }
