@@ -2,13 +2,6 @@ import React, { useCallback, useMemo, useState } from "react";
 
 const INTERVIEW_COLUMNS = [
   {
-    status: "Applied",
-    label: "Applied",
-    detail: "Waiting",
-    color: "var(--s-applied-dot)",
-    bg: "var(--s-applied-bg)",
-  },
-  {
     status: "Online Assessment",
     label: "OA",
     detail: "Online assessment",
@@ -35,13 +28,6 @@ const INTERVIEW_COLUMNS = [
     detail: "Decision",
     color: "var(--s-offer-dot)",
     bg: "var(--s-offer-bg)",
-  },
-  {
-    status: "Rejected",
-    label: "Rejected",
-    detail: "Closed",
-    color: "var(--s-rejected-dot)",
-    bg: "var(--s-rejected-bg)",
   },
   {
     status: "Saved",
@@ -196,7 +182,7 @@ function InterviewTicket({ app, isDragging, isUpdating, onDragStart, onDragEnd, 
         </div>
         <select
           className="interview-ticket-move"
-          value={COLUMN_STATUSES.has(app.status) ? app.status : "Applied"}
+          value={COLUMN_STATUSES.has(app.status) ? app.status : INTERVIEW_COLUMNS[0].status}
           onChange={(event) => onMove(app, event.target.value)}
           onClick={(event) => event.stopPropagation()}
           disabled={isUpdating}
@@ -218,10 +204,14 @@ export default function InterviewBoard({ applications, fetchApplications }) {
   const [updatingId, setUpdatingId] = useState("");
   const [error, setError] = useState("");
 
+  const boardApplications = useMemo(() => {
+    return applications.filter((app) => COLUMN_STATUSES.has(app.status));
+  }, [applications]);
+
   const filteredApplications = useMemo(() => {
     const query = normalizeText(search).trim();
-    if (!query) return applications;
-    return applications.filter((app) => {
+    if (!query) return boardApplications;
+    return boardApplications.filter((app) => {
       const haystack = [
         app.company,
         app.role,
@@ -234,13 +224,12 @@ export default function InterviewBoard({ applications, fetchApplications }) {
       ].join(" ");
       return normalizeText(haystack).includes(query);
     });
-  }, [applications, search]);
+  }, [boardApplications, search]);
 
   const columns = useMemo(() => {
     const byStatus = new Map(INTERVIEW_COLUMNS.map((column) => [column.status, []]));
     for (const app of filteredApplications) {
-      const status = COLUMN_STATUSES.has(app.status) ? app.status : "Applied";
-      byStatus.get(status).push(app);
+      byStatus.get(app.status).push(app);
     }
     return INTERVIEW_COLUMNS.map((column) => ({
       ...column,
@@ -291,7 +280,6 @@ export default function InterviewBoard({ applications, fetchApplications }) {
     if (app) moveApplication(app, status);
   }, [applications, draggingId, moveApplication]);
 
-  const activeCount = applications.filter((app) => app.status !== "Rejected").length;
   const visibleCount = filteredApplications.length;
 
   return (
@@ -300,7 +288,7 @@ export default function InterviewBoard({ applications, fetchApplications }) {
         <div className="interview-board-title-wrap">
           <h2 className="interview-board-title">Interview Board</h2>
           <span className="interview-board-count">
-            {visibleCount} {visibleCount === 1 ? "ticket" : "tickets"} · {activeCount} active
+            {visibleCount} {visibleCount === 1 ? "ticket" : "tickets"}
           </span>
         </div>
         <div className="interview-board-search-wrap">
