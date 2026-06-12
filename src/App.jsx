@@ -4,6 +4,7 @@ import Practice from "./components/Practice.jsx";
 import Profile from "./components/Profile.jsx";
 import SystemDesign from "./components/SystemDesign.jsx";
 import Dashboard from "./components/Dashboard.jsx";
+import InterviewBoard from "./components/InterviewBoard.jsx";
 
 const SolidPractice = lazy(() => import("./components/SolidPractice.jsx"));
 const CleanArchitecture = lazy(() => import("./components/CleanArchitecture.jsx"));
@@ -36,8 +37,8 @@ export default function App() {
     if (hash === "#/clean-architecture") return "cleanarchitecture";
     if (hash === "#/system-design") return "systemdesign";
     if (hash === "#/profile") return "profile";
+    if (hash === "#/board" || hash === "#/interview-board") return "interviewboard";
     if (hash === "#/dashboard") return "newdashboard";
-    if (hash === "#/board") return "newdashboard";
     return "newdashboard";
   });
   const [applications, setApplications] = useState([]);
@@ -197,11 +198,9 @@ export default function App() {
       else if (hash === "#/clean-architecture") setActiveTab("cleanarchitecture");
       else if (hash === "#/system-design") setActiveTab("systemdesign");
       else if (hash === "#/profile") setActiveTab("profile");
+      else if (hash === "#/board" || hash === "#/interview-board") setActiveTab("interviewboard");
       else if (hash === "#/dashboard") setActiveTab("newdashboard");
-      else if (hash === "#/board") {
-        window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#/dashboard`);
-        setActiveTab("newdashboard");
-      } else setActiveTab("newdashboard");
+      else setActiveTab("newdashboard");
     };
 
     window.addEventListener("hashchange", handleHashChange);
@@ -209,8 +208,6 @@ export default function App() {
     // Ensure initial hash is set if it's empty
     if (!window.location.hash) {
       window.location.hash = "#/dashboard";
-    } else if (window.location.hash === "#/board") {
-      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#/dashboard`);
     }
 
     return () => {
@@ -226,13 +223,13 @@ export default function App() {
     cleanarchitecture: "clean-architecture",
     systemdesign: "system-design",
     profile: "profile",
+    interviewboard: "board",
     newdashboard: "dashboard",
   };
 
   const handleTabChange = (tabName) => {
-    const normalizedTab = tabName === "board" ? "newdashboard" : tabName;
-    window.location.hash = `#/${TAB_HASHES[normalizedTab] || normalizedTab}`;
-    setActiveTab(normalizedTab);
+    window.location.hash = `#/${TAB_HASHES[tabName] || tabName}`;
+    setActiveTab(tabName);
   };
 
   const fetchApplications = async () => {
@@ -294,6 +291,14 @@ export default function App() {
           >
             <span className="sidebar-nav-icon">✦</span>
             <span>Dashboard</span>
+          </button>
+          <button
+            className={`sidebar-nav-btn ${activeTab === "interviewboard" ? "active" : ""}`}
+            onClick={() => handleTabChange("interviewboard")}
+            type="button"
+          >
+            <span className="sidebar-nav-icon">▦</span>
+            <span>Board</span>
           </button>
           <button
             className={`sidebar-nav-btn ${activeTab === "analytics" ? "active" : ""}`}
@@ -365,6 +370,13 @@ export default function App() {
               type="button"
             >
               ✦ Dashboard
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "interviewboard" ? "active" : ""}`}
+              onClick={() => handleTabChange("interviewboard")}
+              type="button"
+            >
+              ▦ Board
             </button>
             <button
               className={`tab-btn ${activeTab === "analytics" ? "active" : ""}`}
@@ -444,6 +456,13 @@ export default function App() {
         {activeTab === "systemdesign" && <SystemDesign />}
 
         {activeTab === "profile" && <Profile />}
+
+        {activeTab === "interviewboard" && (
+          <InterviewBoard
+            applications={applications}
+            fetchApplications={fetchApplications}
+          />
+        )}
 
         {activeTab === "newdashboard" && (
           <Dashboard
