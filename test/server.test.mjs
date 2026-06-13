@@ -117,6 +117,61 @@ test("normalizeApplication stores precise applied timestamps", () => {
   assert.equal(app.stageDates.Applied, "2026-05-21");
 });
 
+test("normalizeApplication preserves a user-edited interview date as the selected local day", () => {
+  const existing = normalizeApplication({
+    id: "app-treasure-ai",
+    company: "Treasure AI",
+    role: "Staff Software Engineer",
+    status: "Interview",
+    appliedAt: "2026-06-12T18:14:58.862Z",
+    stageDateTimes: {
+      Applied: "2026-06-12T18:14:58.862Z",
+      Interview: "2026-06-12T19:00:00.000Z",
+    },
+    interviewDate: "2026-06-12T19:00:00.000Z",
+  });
+
+  const updated = normalizeApplication({
+    id: existing.id,
+    status: "Interview",
+    stageDateTimes: {
+      ...existing.stageDateTimes,
+      Interview: "2026-06-18",
+    },
+    interviewDate: "2026-06-18",
+  }, existing);
+
+  assert.equal(getStageDate(updated, "Interview"), "2026-06-18");
+  assert.equal(updated.stageDates.Interview, "2026-06-18");
+  assert.equal(getLocalDateString(new Date(updated.interviewDate)), "2026-06-18");
+  assert.notEqual(getStageTimestamp(updated, "Interview"), "2026-06-18T00:00:00.000Z");
+});
+
+test("normalizeApplication rejects embed identity and recovers Greenhouse company", () => {
+  const app = normalizeApplication({
+    company: "Embed",
+    role: "Embed",
+    sourceUrl: "https://boards.greenhouse.io/embed/job_app?for=prenuvo&token=4688493005",
+    status: "Applied",
+  });
+
+  assert.equal(app.company, "Prenuvo");
+  assert.equal(app.role, "");
+  assert.ok(!app.id.includes("embed"));
+});
+
+test("normalizeApplication recovers CareerPuck board company from source URL", () => {
+  const app = normalizeApplication({
+    company: "Careerpuck",
+    role: "Senior Backend Engineer",
+    sourceUrl: "https://app.careerpuck.com/job-board/prenuvo/job/4688493005?gh_jid=4688493005",
+    status: "Applied",
+  });
+
+  assert.equal(app.company, "Prenuvo");
+  assert.equal(app.role, "Senior Backend Engineer");
+});
+
 test("normalizeApplication preserves stored Gemma evaluation metadata", () => {
   const app = normalizeApplication({
     company: "Example",
@@ -204,6 +259,47 @@ test("migrateApplications backfills timestamp fields for existing records", () =
   assert.equal(applications[0].rejectedAt, "2026-05-20T12:08:17.508Z");
   assert.equal(applications[0].stageDateTimes.Applied, "2026-05-18T23:46:32.351Z");
   assert.equal(applications[0].stageDateTimes.Rejected, "2026-05-20T12:08:17.508Z");
+});
+
+test("migrateApplications repairs legacy UTC-midnight interview stage dates", () => {
+  const { applications, changed } = migrateApplications([
+    {
+      id: "app-treasure-ai-screen",
+      company: "Treasure AI",
+      role: "Staff Software Engineer",
+      status: "Recruiter Screen",
+      appliedAt: "2026-06-12T18:14:58.862Z",
+      stageDateTimes: {
+        Applied: "2026-06-12T18:14:58.862Z",
+        "Recruiter Screen": "2026-06-18T00:00:00.000Z",
+      },
+      stageDates: {
+        Applied: "2026-06-12",
+        "Recruiter Screen": "2026-06-17",
+      },
+    },
+  ]);
+
+  assert.equal(changed, true);
+  assert.equal(applications[0].stageDates["Recruiter Screen"], "2026-06-18");
+  assert.equal(getStageDate(applications[0], "Recruiter Screen"), "2026-06-18");
+  assert.notEqual(applications[0].stageDateTimes["Recruiter Screen"], "2026-06-18T00:00:00.000Z");
+});
+
+test("migrateApplications repairs generic embed company and role values", () => {
+  const { applications, changed } = migrateApplications([
+    {
+      id: "app-embed",
+      company: "Embed",
+      role: "Embed",
+      status: "Applied",
+      sourceUrl: "https://boards.greenhouse.io/embed/job_app?for=prenuvo&token=4688493005",
+    },
+  ]);
+
+  assert.equal(changed, true);
+  assert.equal(applications[0].company, "Prenuvo");
+  assert.equal(applications[0].role, "");
 });
 
 test("role category normalization maps legacy labels into canonical analytics categories", () => {

@@ -388,10 +388,11 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
 
   const setStageDate = (value) => {
     const key = editData.status;
+    const iso = dateInputToISO(value);
     setEditData((prev) => ({
       ...prev,
-      stageDateTimes: { ...(prev.stageDateTimes || {}), [key]: value },
-      ...(key === "Interview" ? { interviewDate: value } : {}),
+      stageDateTimes: { ...(prev.stageDateTimes || {}), [key]: iso },
+      ...(key === "Interview" ? { interviewDate: iso } : {}),
     }));
     setDirty(true);
   };

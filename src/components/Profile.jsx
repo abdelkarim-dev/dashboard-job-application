@@ -5,6 +5,9 @@ export default function Profile() {
     fullName: "",
     email: "",
     phone: "",
+    country: "Canada",
+    city: "Vancouver",
+    province: "BC",
     portfolio: "",
     github: "",
     linkedin: "",
@@ -219,6 +222,45 @@ export default function Profile() {
                 onChange={handleChange}
                 placeholder="e.g. alex.mercer@example.com"
                 required
+              />
+            </div>
+          </div>
+
+          <div className="profile-field-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "12px" }}>
+            <div className="profile-field">
+              <label className="profile-label" htmlFor="country">Country</label>
+              <input
+                type="text"
+                id="country"
+                name="country"
+                className="profile-input"
+                value={profile.country}
+                onChange={handleChange}
+                placeholder="e.g. Canada"
+              />
+            </div>
+            <div className="profile-field">
+              <label className="profile-label" htmlFor="city">City</label>
+              <input
+                type="text"
+                id="city"
+                name="city"
+                className="profile-input"
+                value={profile.city}
+                onChange={handleChange}
+                placeholder="e.g. Vancouver"
+              />
+            </div>
+            <div className="profile-field">
+              <label className="profile-label" htmlFor="province">Province / Region</label>
+              <input
+                type="text"
+                id="province"
+                name="province"
+                className="profile-input"
+                value={profile.province}
+                onChange={handleChange}
+                placeholder="e.g. BC"
               />
             </div>
           </div>

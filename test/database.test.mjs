@@ -209,6 +209,9 @@ test("profile save -> load round-trip", async () => {
     fullName: "Jane Doe",
     email: "jane@example.com",
     phone: "555-1234",
+    country: "Canada",
+    city: "Vancouver",
+    province: "BC",
     portfolio: "https://jane.dev",
     github: "https://github.com/jane",
     linkedin: "https://linkedin.com/in/jane",
@@ -230,6 +233,9 @@ test("profile save -> load round-trip", async () => {
   assert.equal(got.fullName, "Jane Doe");
   assert.equal(got.email, "jane@example.com");
   assert.equal(got.phone, "555-1234");
+  assert.equal(got.country, "Canada");
+  assert.equal(got.city, "Vancouver");
+  assert.equal(got.province, "BC");
   assert.equal(got.portfolio, "https://jane.dev");
   assert.equal(got.github, "https://github.com/jane");
   assert.equal(got.linkedin, "https://linkedin.com/in/jane");
@@ -246,6 +252,9 @@ test("profile save applies defaults for omitted fields and updates existing row"
   await db.sqlSaveProfile({ fullName: "Defaults Person" });
   let got = await db.sqlLoadProfile();
   assert.equal(got.fullName, "Defaults Person");
+  assert.equal(got.country, "Canada");
+  assert.equal(got.city, "Vancouver");
+  assert.equal(got.province, "BC");
   assert.equal(got.legallyAuthorized, "Yes");
   assert.equal(got.requiresSponsorship, "No");
   assert.equal(got.gender, "Decline to Self-Identify");
