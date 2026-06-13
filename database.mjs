@@ -74,6 +74,9 @@ export async function initDatabase() {
       fullName TEXT,
       email TEXT,
       phone TEXT,
+      country TEXT,
+      city TEXT,
+      province TEXT,
       portfolio TEXT,
       github TEXT,
       linkedin TEXT,
@@ -89,6 +92,10 @@ export async function initDatabase() {
       updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  ensureColumn("profile", "country", "TEXT");
+  ensureColumn("profile", "city", "TEXT");
+  ensureColumn("profile", "province", "TEXT");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS practice_problems (
@@ -246,13 +253,16 @@ async function performLegacyMigration() {
       if (p) {
         db.prepare(`
           INSERT INTO profile (
-            key, fullName, email, phone, portfolio, github, linkedin, resumeText,
+            key, fullName, email, phone, country, city, province, portfolio, github, linkedin, resumeText,
             legallyAuthorized, requiresSponsorship, gender, race, veteranStatus, disabilityStatus, gemmaPrompt
-          ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           p.fullName || "",
           p.email || "",
           p.phone || "",
+          p.country || "Canada",
+          p.city || "Vancouver",
+          p.province || "BC",
           p.portfolio || "",
           p.github || "",
           p.linkedin || "",
@@ -482,13 +492,16 @@ export async function sqlLoadProfile() {
 export async function sqlSaveProfile(p) {
   db.prepare(`
     INSERT OR REPLACE INTO profile (
-      key, fullName, email, phone, portfolio, github, linkedin, resumeText, resumeText2,
+      key, fullName, email, phone, country, city, province, portfolio, github, linkedin, resumeText, resumeText2,
       legallyAuthorized, requiresSponsorship, gender, race, veteranStatus, disabilityStatus, gemmaPrompt, updatedAt
-    ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     p.fullName || "",
     p.email || "",
     p.phone || "",
+    p.country || "Canada",
+    p.city || "Vancouver",
+    p.province || "BC",
     p.portfolio || "",
     p.github || "",
     p.linkedin || "",
@@ -707,6 +720,19 @@ export async function sqlSaveCv(variant, fileName, mimeType, data) {
 
 export async function sqlDeleteCv(variant) {
   db.prepare("DELETE FROM profile_cvs WHERE variant = ?").run(variant);
+}
+
+// Generic key/value access for the app_settings table. Callers own JSON
+// (de)serialization — persistence stays string-typed.
+export async function sqlLoadSetting(key) {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key);
+  return row?.value ?? null;
+}
+
+export async function sqlSaveSetting(key, value) {
+  db.prepare(`
+    INSERT OR REPLACE INTO app_settings (key, value, updatedAt) VALUES (?, ?, ?)
+  `).run(key, value, new Date().toISOString());
 }
 
 export async function seedLearningData() {
