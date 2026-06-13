@@ -44,6 +44,7 @@ let isJobPageCache = null;
 let lastCachedUrl = "";
 let submitTrackerLastDetectedAt = 0;
 let submitTrackerLastTrackedAt = 0;
+let submitTrackingUserEnabled = false;
 // URLs tracked this page session — prevents repeat "application saved" toasts when
 // a multi-step ATS form fires multiple submit-like events for the same application.
 const trackedAppUrls = new Set();
@@ -66,6 +67,18 @@ const IS_TOP_FRAME = (() => {
 // Last time this subframe ran an autofill pass — guards against double fills
 // when both a direct popup message and the top-frame broadcast arrive.
 let lastFrameAutofillAt = 0;
+let autofillRunInProgress = false;
+let autofillRunStartedAt = 0;
+let currentAutofillRunId = "";
+let frameAutofillResults = [];
+let lastAutofillAuditLog = [];
+let lastAutofillSkippedAlreadyFilledCount = 0;
+// Auto-open flow: when the toolbar is opened (extension icon), Claire checks
+// "Applied?" and then auto-fills if this job isn't already tracked. Set by
+// injectWebCopilot; invoked from the TOGGLE_TOOLBAR handler. Guarded per-URL so
+// reopening the same page doesn't re-fill.
+let runCopilotAutoOpen = null;
+let copilotAutoRanForUrl = "";
 
 // ── API Proxy helper ───────────────────────────────────────────
 // Content scripts inherit the web page's origin for network requests.
@@ -110,10 +123,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "AUTOFILL_FORM") {
     if (IS_TOP_FRAME) {
       ensureCopilotPanel(message.profile);
+      enableSubmitTrackingFromUser("autofill requested", { broadcast: true, silent: true });
       expandWidget();
       autofillWebForm(message.profile, { useAi: true });
     } else {
-      runFrameAutofill(message.profile, { useAi: true });
+      enableSubmitTrackingFromUser("autofill requested", { silent: true });
+      runFrameAutofill(message.profile, { useAi: true, runId: message.runId || "" });
     }
     return false;
   }
@@ -122,8 +137,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "AUTOFILL_FRAME") {
     if (!IS_TOP_FRAME) {
       if (message.cv) selectedCv = message.cv;
-      runFrameAutofill(message.profile, { useAi: Boolean(message.useAi) });
+      enableSubmitTrackingFromUser("autofill requested", { silent: true });
+      runFrameAutofill(message.profile, { useAi: Boolean(message.useAi), runId: message.runId || "" });
     }
+    return false;
+  }
+  if (message?.type === "AUTOFILL_FRAME_RESULT") {
+    if (IS_TOP_FRAME && message.result) {
+      if (message.result.runId && currentAutofillRunId && message.result.runId !== currentAutofillRunId) return false;
+      frameAutofillResults.push(message.result);
+      renderAutofillAudit(lastAutofillAuditLog, { skippedAlreadyFilledCount: lastAutofillSkippedAlreadyFilledCount });
+    }
+    return false;
+  }
+  if (message?.type === "ENABLE_SUBMIT_TRACKING") {
+    enableSubmitTrackingFromUser(message.reason || "toolbar opened", { silent: true });
+    return false;
+  }
+  // Toolbar "Ask Gemma" field-pick mode, relayed to every frame because the
+  // target field may live inside an embedded ATS iframe.
+  if (message?.type === "ASK_MODE") {
+    if (message.action === "enter") enterAskPickMode(message.instruction || "");
+    else exitAskPickMode();
+    return false;
+  }
+  // Result of an Ask Gemma run inside an iframe — the top frame owns the panel.
+  if (message?.type === "ASK_RESULT") {
+    if (IS_TOP_FRAME && message.result) renderAskResult(message.result);
     return false;
   }
   // Toast relayed up from a subframe — only the top frame renders toasts.
@@ -149,8 +189,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (isHidden) {
         actionsBar.style.display = "flex";
         widget.style.display = "flex";
-        widget.classList.remove("minimized");
+        widget.classList.add("minimized");
+        enableSubmitTrackingFromUser("toolbar opened", { broadcast: true, silent: true });
         positionWidgetRelativeToToolbar();
+        runCopilotAutoOpen?.(); // Applied? → auto-Fill
       } else {
         actionsBar.style.display = "none";
         widget.style.display = "none";
@@ -169,8 +211,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (newActions && newWidget) {
           newActions.style.display = "flex";
           newWidget.style.display = "flex";
-          newWidget.classList.remove("minimized");
+          newWidget.classList.add("minimized");
+          enableSubmitTrackingFromUser("toolbar opened", { broadcast: true, silent: true });
           positionWidgetRelativeToToolbar();
+          runCopilotAutoOpen?.(); // Applied? → auto-Fill
         }
         if (!looksLikeJobPosting()) {
           showToast("This page doesn't look like a job posting — toolbar enabled anyway.");
@@ -194,13 +238,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         .sendMessage({ type: "JOB_PAGE_DETECTED", url: locationHref() })
         .catch(() => {});
     }
-    // Track final submits even when the user never used autofill: attach the
-    // listener as soon as the page/frame contains an application form. The
-    // filled-form guard in trackJobApplication keeps stray clicks from
-    // creating junk records.
-    if (looksLikeApplicationForm()) {
-      attachFormSubmitTracker("application form detected", { silent: true });
-    }
+    // Badge-only detection. Submit tracking stays off until the user explicitly
+    // opens Claire or starts autofill/manual tracking.
   } catch {
     // background not ready yet — silent
   }
@@ -222,7 +261,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // SPA ATS flows render the form well after document_idle — keep watching
     // (cheap check, and only until the tracker is attached).
     formScanTick += 1;
-    if (!submitTrackerAttached && formScanTick % 2 === 0 && looksLikeApplicationForm()) {
+    if (submitTrackingUserEnabled && !submitTrackerAttached && formScanTick % 2 === 0 && looksLikeApplicationForm()) {
       attachFormSubmitTracker("application form appeared", { silent: true });
     }
   }, 2000);
@@ -270,7 +309,29 @@ function isInCopilotUi(node) {
   return Boolean(node?.closest?.(COPILOT_UI_SELECTOR));
 }
 
+function enableSubmitTrackingFromUser(reason = "toolbar opened", { broadcast = false, silent = true } = {}) {
+  submitTrackingUserEnabled = true;
+  if (broadcast && IS_TOP_FRAME) {
+    try {
+      chrome.runtime
+        .sendMessage({ type: "JH_BROADCAST_SUBMIT_TRACKING_ENABLED", reason })
+        .catch(() => {});
+    } catch {
+      // Background may be unavailable on restricted pages; top-frame tracking still works.
+    }
+  }
+  if (looksLikeApplicationForm()) {
+    attachFormSubmitTracker(reason, { silent });
+  } else {
+    updateSubmitListenerStatus(`${reason}; waiting for application form`);
+  }
+}
+
 function attachFormSubmitTracker(reason = "manual", { silent = false } = {}) {
+  if (!submitTrackingUserEnabled) {
+    updateSubmitListenerStatus("submit tracking waits until you open Claire");
+    return false;
+  }
   const wasAttached = submitTrackerAttached;
   if (!submitTrackerAttached) {
     submitTrackerAttached = true;
@@ -289,6 +350,7 @@ function attachFormSubmitTracker(reason = "manual", { silent = false } = {}) {
   if (!wasAttached && !silent) {
     showToast("Submit listener attached. Claire will track the final submit.");
   }
+  return true;
 }
 
 async function handleApplicationSubmit(e) {
@@ -346,6 +408,10 @@ function isSubmitLikeControl(control) {
 }
 
 function scheduleTrackJobApplication(trigger, delayMs) {
+  if (!submitTrackingUserEnabled) {
+    updateSubmitListenerStatus(`ignored ${trigger}; Claire not opened`);
+    return;
+  }
   const now = Date.now();
   submitTrackerLastDetectedAt = now;
   updateSubmitListenerStatus(`detected ${trigger}`);
@@ -393,7 +459,10 @@ function getSubmitListenerCounts() {
 function showCopilotPanel(panelName) {
   ensureCopilotPanel(localProfile);
   const widget = document.getElementById("jh-copilot-widget");
-  if (widget) widget.classList.remove("minimized");
+  if (widget) {
+    widget.style.display = "flex";
+    widget.classList.remove("minimized");
+  }
 
   const panels = {
     eval: document.getElementById("jh-eval-panel"),
@@ -401,6 +470,7 @@ function showCopilotPanel(panelName) {
     track: document.getElementById("jh-track-panel"),
     company: document.getElementById("jh-company-panel"),
     today: document.getElementById("jh-today-panel"),
+    ask: document.getElementById("jh-ask-panel"),
   };
   Object.entries(panels).forEach(([name, panel]) => {
     if (panel) panel.hidden = name !== panelName;
@@ -442,6 +512,111 @@ function updateWorkflowSteps(scope, steps) {
     item.appendChild(text);
     list.appendChild(item);
   });
+}
+
+function summarizePayloadForPreview(value, depth = 0) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    if (value.length <= 500) return value;
+    return `${value.slice(0, 500)}… [${value.length} chars total]`;
+  }
+  if (typeof value !== "object") return value;
+  if (depth >= 3) return Array.isArray(value) ? `[${value.length} items]` : "[object]";
+  if (Array.isArray(value)) {
+    const preview = value.slice(0, 20).map((item) => summarizePayloadForPreview(item, depth + 1));
+    if (value.length > 20) preview.push(`… ${value.length - 20} more item${value.length - 20 === 1 ? "" : "s"}`);
+    return preview;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, summarizePayloadForPreview(item, depth + 1)])
+  );
+}
+
+function renderTrackedPayload(
+  payload,
+  { panel = "autofill", trigger = "submit", sentAt = "", endpoint = "POST /api/applications", status = "" } = {}
+) {
+  const card = document.getElementById(`jh-${panel}-payload-card`);
+  const meta = document.getElementById(`jh-${panel}-payload-meta`);
+  const pre = document.getElementById(`jh-${panel}-payload-json`);
+  const copyBtn = document.getElementById(`jh-${panel}-payload-copy`);
+  if (!card || !pre) return;
+
+  const fullJson = JSON.stringify(payload || {}, null, 2);
+  pre.textContent = JSON.stringify(summarizePayloadForPreview(payload || {}), null, 2);
+  if (meta) {
+    const when = sentAt ? new Date(sentAt) : new Date();
+    const time = Number.isNaN(when.getTime())
+      ? new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" })
+      : when.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    meta.textContent = `${time} • ${trigger} • ${endpoint}${status ? ` • HTTP ${status}` : ""}`;
+  }
+  if (copyBtn) {
+    copyBtn.dataset.fullJson = fullJson;
+    copyBtn.disabled = false;
+    copyBtn.textContent = "Copy JSON";
+  }
+  card.hidden = false;
+}
+
+function bindPayloadCopyButton(buttonId) {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+  button.addEventListener("click", async () => {
+    const fullJson = button.dataset.fullJson || "";
+    if (!fullJson) return;
+    try {
+      await copyTextToClipboard(fullJson);
+      button.textContent = "Copied";
+      setTimeout(() => {
+        button.textContent = "Copy JSON";
+      }, 1400);
+    } catch {
+      showToast("Could not copy JSON from this page.");
+    }
+  });
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;";
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    const ok = document.execCommand("copy");
+    textarea.remove();
+    if (!ok) throw new Error("copy failed");
+    return true;
+  }
+}
+
+function loadLastTrackedPayloadPreview() {
+  if (!IS_TOP_FRAME) return;
+  try {
+    chrome.runtime.sendMessage({ type: "GET_LAST_TRACKED_PAYLOAD" }, (response) => {
+      if (chrome.runtime.lastError || !response?.record?.payload) return;
+      const record = response.record;
+      const sentTime = Date.parse(record.sentAt || "");
+      if (!Number.isFinite(sentTime) || Date.now() - sentTime > 30 * 60 * 1000) return;
+      renderTrackedPayload(record.payload, {
+        panel: "autofill",
+        trigger: record.trigger || "last submit",
+        sentAt: record.sentAt,
+        endpoint: `${record.method || "POST"} /api/applications`,
+        status: record.status || "",
+      });
+    });
+  } catch {
+    // Background unavailable on this page; live submit tracking still renders its own payload.
+  }
 }
 
 function setEvaluationLoadingText(text) {
@@ -493,6 +668,7 @@ async function trackJobApplication(trigger = "submit") {
     jobData.appliedAt = appliedAt;
     jobData.stageDateTimes = { ...(jobData.stageDateTimes || {}), Applied: appliedAt };
     jobData.status = "Applied";
+    renderTrackedPayload(jobData, { panel: "autofill", trigger });
 
     updateWorkflowSteps("autofill", [
       { status: "done", label: `Submit detected`, detail: trigger },
@@ -503,6 +679,7 @@ async function trackJobApplication(trigger = "submit") {
 
     const result = await trackApplicationViaBackground(jobData, { trigger, runEvaluation: true });
     const status = result.status;
+    renderTrackedPayload(jobData, { panel: "autofill", trigger, status });
 
     if (result.ok) {
       updateWorkflowSteps("autofill", [
@@ -511,6 +688,8 @@ async function trackJobApplication(trigger = "submit") {
         { status: "done", label: status === 200 ? "Updated dashboard card" : "Added dashboard card" },
         result.evaluationSaved
           ? { status: "done", label: "Stored Gemma evaluation", detail: `${result.evaluation?.decision || "Decision"} · ${result.evaluation?.score ?? 0}/100` }
+          : result.evaluationQueued
+            ? { status: "done", label: "Queued Gemma evaluation", detail: "Dashboard card saved; evaluation will attach when Gemma returns." }
           : { status: result.evaluationError ? "error" : "pending", label: "Gemma evaluation", detail: result.evaluationError || "Not returned by local Gemma." },
       ]);
 
@@ -592,7 +771,7 @@ function ensureCopilotPanel(profile = localProfile) {
 // Lean autofill used inside ATS iframes: no toolbar/panel UI, just fill the
 // fields + CV and let toasts relay up to the top frame. Debounced because a
 // popup-triggered AUTOFILL_FORM and the top frame's broadcast both arrive.
-async function runFrameAutofill(profile, { useAi = false } = {}) {
+async function runFrameAutofill(profile, { useAi = false, runId = "" } = {}) {
   if (!profile || IS_TOP_FRAME) return;
   const now = Date.now();
   if (now - lastFrameAutofillAt < 4000) return;
@@ -600,12 +779,30 @@ async function runFrameAutofill(profile, { useAi = false } = {}) {
   // Skip frames with nothing fillable (ad/analytics iframes).
   if (!collectFillableElements().length && !document.querySelector('input[type="file"]')) return;
   localProfile = profile;
-  await autofillWebForm(profile, { useAi });
+  const result = await autofillWebForm(profile, { useAi, runId });
+  if (result) {
+    try {
+      chrome.runtime
+        .sendMessage({
+          type: "JH_FRAME_AUTOFILL_RESULT",
+          result: {
+            ...result,
+            runId,
+            frameHost: location.hostname || "embedded form",
+            frameUrl: locationHref(),
+          },
+        })
+        .catch(() => {});
+    } catch {
+      // Background unavailable; the frame fill itself already completed.
+    }
+  }
 }
 
 function expandWidget() {
   const widget = document.getElementById("jh-copilot-widget");
   if (widget && widget.classList.contains("minimized")) {
+    widget.style.display = "flex";
     widget.classList.remove("minimized");
   }
   positionWidgetRelativeToToolbar();
@@ -718,7 +915,7 @@ function repositionTrigger() {
 }
 
 function extractJob() {
-  const title = pickText(["h1", "[data-testid*='title' i]", "[class*='job-title' i]", "[class*='posting-title' i]"]) || document.title;
+  const title = pickJobTitleText();
   const text = visibleText();
   const role = cleanRole(title);
   const company = findCompany(text);
@@ -819,6 +1016,28 @@ function pickText(selectors) {
     }
   }
   return "";
+}
+
+function pickJobTitleText() {
+  const selectors = [
+    "h1",
+    "h2",
+    "[data-testid*='title' i]",
+    "[class*='job-title' i]",
+    "[class*='posting-title' i]",
+  ];
+  for (const selector of selectors) {
+    try {
+      const elements = Array.from(document.querySelectorAll(selector));
+      for (const element of elements) {
+        const text = clean(element?.textContent || element?.innerText || "");
+        if (cleanRole(text)) return text;
+      }
+    } catch (e) {
+      console.warn("pickJobTitleText querySelector error for selector:", selector, e);
+    }
+  }
+  return cleanRole(document.title) ? document.title : "";
 }
 
 // Structural elements that are page chrome, never the job description itself.
@@ -949,13 +1168,22 @@ function visibleText() {
   return cleanReadableText(pickContentRoot(), 9000);
 }
 
+const GENERIC_JOB_IDENTITY_RE =
+  /^(embed|embedded|iframe|job app|job application|application form|apply|apply now|application|job board|jobs board|job posting|posting|open role|opening|careers?|jobs?|job)$/i;
+
+function isGenericJobIdentity(value) {
+  const normalized = clean(value).toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  return !normalized || GENERIC_JOB_IDENTITY_RE.test(normalized);
+}
+
 function cleanRole(title) {
-  return clean(
+  const role = clean(
     title
       .replace(/\s+[-|]\s+.*$/, "")
       .replace(/\bat\s+[A-Z].*$/, "")
       .replace(/\bjob\b/i, ""),
   );
+  return isGenericJobIdentity(role) ? "" : role;
 }
 
 function findCompany(text) {
@@ -964,27 +1192,63 @@ function findCompany(text) {
   // Known ATS platform names — not the hiring company
   const ATS_PLATFORM_RE = /^(greenhouse|lever|ashby(hq)?|workday|smartrecruiters|bamboohr|workable|jobvite|icims|taleo|successfactors|recruitee|teamtailor|dover|pinpoint|rippling|gem)$/i;
 
-  const isGarbage = (val) => !val || val.length < 2 || GARBAGE_RE.test(val.trim());
+  const isGarbage = (val) => !val || val.length < 2 || GARBAGE_RE.test(val.trim()) || isGenericJobIdentity(val);
 
   // Slug from URL → readable name (e.g. "my-company-inc" → "My Company Inc")
   const slugToName = (slug) =>
-    slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    decodeURIComponent(String(slug || ""))
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const companyFromQuery = (urlObj) => {
+    for (const key of ["for", "company", "company_slug", "companyName", "company_name", "organization"]) {
+      const value = clean(urlObj.searchParams.get(key) || "");
+      if (value && !isGarbage(value)) return slugToName(value);
+    }
+    return "";
+  };
 
   // 1. URL-based extraction for known ATS platforms (most reliable)
   const url = locationHref();
   const urlLower = url.toLowerCase();
   let urlCompany = "";
 
-  const ghMatch = urlLower.match(/greenhouse\.io\/([^/?#]+)/);
-  if (ghMatch) urlCompany = slugToName(ghMatch[1]);
+  try {
+    const urlObj = new URL(url);
+    const host = urlObj.hostname.toLowerCase();
+    const pathParts = urlObj.pathname.split("/").filter(Boolean);
+
+    if (/greenhouse\.io$/.test(host) || /greenhouse\.io\./.test(host)) {
+      const queryCompany = companyFromQuery(urlObj);
+      const first = pathParts[0] || "";
+      urlCompany = queryCompany || (!isGarbage(first) ? slugToName(first) : "");
+    } else if (/lever\.co$/.test(host) || /lever\.co\./.test(host)) {
+      const first = pathParts[0] || "";
+      const second = pathParts[1] || "";
+      urlCompany = first.toLowerCase() === "embed" ? slugToName(second) : slugToName(first);
+    } else if (/ashbyhq\.com$/.test(host) || /ashbyhq\.com\./.test(host)) {
+      const queryCompany = companyFromQuery(urlObj);
+      const first = pathParts[0] || "";
+      const second = pathParts[1] || "";
+      urlCompany = queryCompany || (first.toLowerCase() === "embed" ? slugToName(second) : slugToName(first));
+    } else if (host === "app.careerpuck.com") {
+      const boardIndex = pathParts.findIndex((part) => part.toLowerCase() === "job-board");
+      if (boardIndex >= 0 && pathParts[boardIndex + 1]) urlCompany = slugToName(pathParts[boardIndex + 1]);
+    }
+  } catch {
+    // Fall back to regex extraction below.
+  }
+
+  const ghMatch = urlCompany ? null : urlLower.match(/greenhouse\.io\/([^/?#]+)/);
+  if (ghMatch && !isGarbage(ghMatch[1])) urlCompany = slugToName(ghMatch[1]);
 
   if (!urlCompany) {
     const leverMatch = urlLower.match(/lever\.co\/([^/?#]+)/);
-    if (leverMatch) urlCompany = slugToName(leverMatch[1]);
+    if (leverMatch && !isGarbage(leverMatch[1])) urlCompany = slugToName(leverMatch[1]);
   }
   if (!urlCompany) {
     const ashbyMatch = urlLower.match(/ashbyhq\.com\/([^/?#]+)/);
-    if (ashbyMatch) urlCompany = slugToName(ashbyMatch[1]);
+    if (ashbyMatch && !isGarbage(ashbyMatch[1])) urlCompany = slugToName(ashbyMatch[1]);
   }
   if (!urlCompany) {
     const srMatch = urlLower.match(/smartrecruiters\.com\/([^/?#]+)/);
@@ -1109,16 +1373,168 @@ function escapeRegExp(value) {
    ⚡ FORM AUTOFILL PREFILL ENGINE (GREENHOUSE, LEVER, WORKDAY COMPATIBLE)
    ========================================================================== */
 
+const FILLABLE_FIELD_SELECTOR =
+  'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="password"]):not([type="image"]), textarea, select';
+
+function getFieldRoot(el) {
+  return el?.getRootNode?.() || document;
+}
+
+function getRootElementById(root, id) {
+  if (!id) return null;
+  try {
+    if (root?.getElementById) return root.getElementById(id);
+  } catch {
+    // Keep falling back to document below.
+  }
+  try {
+    return document.getElementById(id);
+  } catch {
+    return null;
+  }
+}
+
+function getComposedParent(node) {
+  if (!node) return null;
+  if (node.parentElement) return node.parentElement;
+  const root = node.getRootNode?.();
+  return root?.host || null;
+}
+
+function querySelectorAllDeep(root, selector) {
+  const results = [];
+  const seenRoots = new Set();
+
+  const visit = (scope) => {
+    if (!scope || seenRoots.has(scope)) return;
+    seenRoots.add(scope);
+
+    let matches = [];
+    let elements = [];
+    try {
+      matches = Array.from(scope.querySelectorAll?.(selector) || []);
+      elements = Array.from(scope.querySelectorAll?.("*") || []);
+    } catch {
+      return;
+    }
+
+    results.push(...matches);
+    elements.forEach((element) => {
+      if (element.shadowRoot) visit(element.shadowRoot);
+    });
+  };
+
+  visit(root || document);
+  return results;
+}
+
+function rootQuerySelectorAll(root, selector) {
+  try {
+    return Array.from((root || document).querySelectorAll?.(selector) || []);
+  } catch {
+    return [];
+  }
+}
+
+// Rippling-style rows associate the question with the input by layout only:
+// <div><div>Question text…</div><div><input/></div></div> — no <label>, no
+// aria link. Climb the wrapper chain and take the CLOSEST previous sibling
+// that has short text and contains no interactive controls.
+function getQuestionRowElement(input) {
+  let node = input;
+  for (let depth = 0; node && node !== document.body && depth < 6; depth++) {
+    let sib = node.previousElementSibling;
+    while (sib) {
+      const hasControls = Boolean(sib.querySelector?.('input, textarea, select, button, [role="button"], [role="option"]'));
+      if (!hasControls && !isInCopilotUi(sib)) {
+        const text = clean(sib.textContent || sib.innerText || "");
+        if (text && text.length >= 3 && text.length <= 240) return sib;
+      }
+      sib = sib.previousElementSibling;
+    }
+    node = getComposedParent(node);
+  }
+  return null;
+}
+
+function getQuestionRowText(input) {
+  const row = getQuestionRowElement(input);
+  return row ? clean(row.textContent || row.innerText || "") : "";
+}
+
+// Rippling renders the required "*" as CSS ::after content on an empty div —
+// invisible to textContent, so requiredness must be read from computed styles.
+function elementHasCssRequiredMark(el) {
+  if (!el) return false;
+  const nodes = [el, ...Array.from(el.querySelectorAll?.("*") || []).slice(0, 30)];
+  for (const node of nodes) {
+    try {
+      if ((getComputedStyle(node, "::after").content || "").includes("*")) return true;
+      if ((getComputedStyle(node, "::before").content || "").includes("*")) return true;
+    } catch { /* detached or cross-origin — ignore */ }
+  }
+  return false;
+}
+
+// Ashby (and similar) mark a required question with a "*" rendered via CSS
+// ::after on a heading label INSIDE the field container (tagged with a
+// "_required_" class) — invisible to textContent, and the prompt is a CHILD of
+// the <fieldset>, not a previous sibling, so getQuestionRowElement's sibling
+// scan never reaches it. Check the field container itself for either signal.
+function containerMarksRequired(container) {
+  if (!container) return false;
+  const nodes = [container, ...Array.from(container.querySelectorAll?.("*") || []).slice(0, 40)];
+  for (const node of nodes) {
+    const cls = getElementClassText(node);
+    // Whole-token "required" class (Ashby: "_required_f7cvd_91"); never match
+    // "not-required" / "requirement" / "acquired".
+    if (/(?:^|[^a-z])required(?:[^a-z]|$)/i.test(cls) && !/not[_-]?required/i.test(cls)) return true;
+  }
+  return elementHasCssRequiredMark(container);
+}
+
+function getNestedFieldLabelText(input) {
+  const pieces = [];
+  let node = input;
+  let depth = 0;
+
+  while (node && node !== document.body && depth < 6) {
+    const parent = getComposedParent(node);
+    if (!parent) break;
+    const candidates = rootQuerySelectorAll(
+      parent,
+      'label, legend, [class*="label" i], [data-testid*="label" i], [data-test*="label" i], [aria-label], p, span'
+    );
+
+    for (const candidate of candidates) {
+      if (candidate === input || candidate.contains?.(input)) continue;
+      if (candidate.querySelector?.(FILLABLE_FIELD_SELECTOR)) continue;
+      const text = clean(candidate.getAttribute?.("aria-label") || candidate.textContent || candidate.innerText || "");
+      if (!text || text.length > 180) continue;
+      if (pieces.includes(text)) continue;
+      pieces.push(text);
+      if (pieces.join(" ").length > 220) break;
+    }
+
+    if (pieces.length || depth >= 2) break;
+    node = parent;
+    depth++;
+  }
+
+  return clean(pieces.join(" ")).slice(0, 240);
+}
+
 function getLabelText(input) {
   // 1. aria-labelledby: resolve the referenced element(s). Used heavily by
   //    Workday / Greenhouse / Lever and other modern ATS forms.
   const labelledBy = input.getAttribute && input.getAttribute("aria-labelledby");
+  const root = getFieldRoot(input);
   if (labelledBy) {
     const text = labelledBy
       .split(/\s+/)
       .map((id) => {
         try {
-          const el = document.getElementById(id);
+          const el = getRootElementById(root, id);
           return el ? (el.textContent || el.innerText || "") : "";
         } catch {
           return "";
@@ -1136,7 +1552,9 @@ function getLabelText(input) {
   if (input.id) {
     try {
       const escapedId = CSS.escape(input.id);
-      const labelEl = document.querySelector(`label[for="${escapedId}"]`);
+      const labelEl =
+        root.querySelector?.(`label[for="${escapedId}"]`) ||
+        document.querySelector(`label[for="${escapedId}"]`);
       if (labelEl) return labelEl.textContent || labelEl.innerText || "";
     } catch (e) {
       // Ignore syntax exceptions
@@ -1157,6 +1575,10 @@ function getLabelText(input) {
     const parentText = input.parentElement.textContent || input.parentElement.innerText || "";
     if (parentText && parentText.length < 80) return parentText;
   }
+  const rowQuestion = getQuestionRowText(input);
+  if (rowQuestion) return rowQuestion;
+  const nestedLabel = getNestedFieldLabelText(input);
+  if (nestedLabel) return nestedLabel;
   return "";
 }
 
@@ -1183,9 +1605,20 @@ function elementLooksVisible(el) {
 
 function getRadioGroup(input) {
   if (!input || getInputType(input) !== "radio") return input ? [input] : [];
-  if (!input.name) return [input];
-  const root = input.form || document;
-  return Array.from(root.querySelectorAll('input[type="radio"]'))
+  if (!input.name) {
+    let node = input.parentElement;
+    for (let depth = 0; node && node !== document.body && depth < 6; depth++, node = node.parentElement) {
+      const radios = Array.from(node.querySelectorAll?.('input[type="radio"]') || [])
+        .filter((el) => !isInCopilotUi(el));
+      if (radios.length > 1 && radios.length <= 12 && radios.includes(input)) {
+        const text = clean(node.textContent || node.innerText || "");
+        if (text && text.length <= 900) return radios;
+      }
+    }
+    return [input];
+  }
+  const root = input.form || getFieldRoot(input) || document;
+  return rootQuerySelectorAll(root, 'input[type="radio"]')
     .filter((el) => el.name === input.name && !isInCopilotUi(el));
 }
 
@@ -1195,8 +1628,10 @@ function getChoiceGroup(input) {
 
 function getRadioGroupKey(input) {
   if (!input || getInputType(input) !== "radio" || !input.name) return "";
+  const root = getFieldRoot(input);
   const formIndex = input.form ? Array.from(document.forms).indexOf(input.form) : -1;
-  return `${formIndex}:${input.name}`;
+  const rootKey = root?.host?.tagName || (root === document ? "document" : "root");
+  return `${rootKey}:${formIndex}:${input.name}`;
 }
 
 function getChoiceOptionLabel(input) {
@@ -1216,6 +1651,29 @@ function getChoiceOptionLabel(input) {
   if (sibling && /^(LABEL|SPAN|DIV)$/i.test(sibling.tagName)) {
     const text = clean(sibling.textContent || sibling.innerText || "");
     if (text && text.length <= 140) return text;
+  }
+
+  let nextNode = input.nextSibling;
+  for (let scanned = 0; nextNode && scanned < 4; scanned++, nextNode = nextNode.nextSibling) {
+    if (nextNode.nodeType === Node.TEXT_NODE) {
+      const text = clean(nextNode.textContent || "");
+      if (text && text.length <= 140) return text;
+    } else if (nextNode.nodeType === Node.ELEMENT_NODE && !nextNode.querySelector?.("input, textarea, select, button")) {
+      const text = clean(nextNode.textContent || nextNode.innerText || "");
+      if (text && text.length <= 140) return text;
+    }
+  }
+
+  const group = getChoiceGroup(input);
+  let node = input.parentElement;
+  for (let depth = 0; node && node !== document.body && depth < 5; depth++, node = node.parentElement) {
+    const choices = Array.from(node.querySelectorAll?.('input[type="radio"], input[type="checkbox"]') || [])
+      .filter((el) => !isInCopilotUi(el));
+    if (choices.length === 1 && choices[0] === input) {
+      const text = clean(node.textContent || node.innerText || "");
+      if (text && text.length <= 180) return text;
+    }
+    if (group.length > 1 && group.every((option) => node.contains(option))) break;
   }
 
   return clean(input.getAttribute("aria-label") || input.value || input.id || input.name || "");
@@ -1269,7 +1727,7 @@ function getPreviousPromptText(el) {
       scanned++;
     }
     if (pieces.join(" ").length > 600) break;
-    current = current.parentElement;
+    current = getComposedParent(current);
     depth++;
   }
 
@@ -1324,12 +1782,10 @@ function isVisibleFillTarget(input) {
 
 function collectFillableElements({ visibleOnly = false } = {}) {
   const seenRadioGroups = new Set();
-  return Array.from(
-    document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="password"]):not([type="image"]), textarea, select'
-    )
-  ).filter((input) => {
+  return querySelectorAllDeep(document, FILLABLE_FIELD_SELECTOR).filter((input) => {
     if (isInCopilotUi(input) || isLegacySelectWidgetInput(input)) return false;
+    if (input.disabled || input.readOnly || input.getAttribute?.("aria-disabled") === "true") return false;
+    if (isReactSelectRequiredInput(input)) return false;
     // intl-tel-input's internal country-search box is widget chrome, not a field.
     if (input.closest?.(".iti__dropdown-content, .iti__country-list")) return false;
     if (visibleOnly && input.tagName !== "SELECT" && !isVisibleFillTarget(input)) return false;
@@ -1346,24 +1802,104 @@ function collectFillableElements({ visibleOnly = false } = {}) {
 
 function isFieldAlreadyAnswered(input) {
   if (!input) return true;
-  if (input.tagName === "SELECT") return input.selectedIndex > 0;
+  if (input.tagName === "SELECT") {
+    if (input.selectedIndex < 0) return false;
+    const option = input.options?.[input.selectedIndex];
+    const text = clean(option?.text || "");
+    const value = clean(option?.value || "");
+    return Boolean((text && !isPlaceholderOptionText(text)) || (value && !isPlaceholderOptionText(value)));
+  }
   if (isChoiceInput(input)) {
+    // A hidden checkbox/radio backing a Yes/No button group reflects its answer
+    // in the buttons, not in `.checked` — read the group's state instead.
+    const backingGroup = getButtonChoiceGroupContainer(input);
+    if (backingGroup) return buttonChoiceGroupAnswered(backingGroup);
     const type = getInputType(input);
     if (type === "radio") return getChoiceGroup(input).some((option) => option.checked);
     return input.checked;
   }
+  if (isButtonChoiceGroup(input)) return buttonChoiceGroupAnswered(input);
   if (isAriaComboboxInput(input)) return comboboxLooksAnswered(input);
   return Boolean(input.value && input.value.trim());
 }
 
 // React-Select-style widgets clear the text input after a pick and show the
 // chosen value in a sibling node, so input.value alone under-reports.
+function getElementClassText(el) {
+  return typeof el?.className === "string" ? el.className : "";
+}
+
+function isReactSelectHostCandidate(el) {
+  const className = getElementClassText(el);
+  return /\bselect__control\b|\bselect-shell\b|(?:^|\s)select(?:\s|$)/i.test(className) ||
+    Boolean(el?.matches?.('[role="combobox"], [data-baseweb]'));
+}
+
+function getComboboxHost(input) {
+  let node = getComposedParent(input);
+  while (node && node !== document.body) {
+    if (node.querySelector?.('[class*="single-value" i], [class*="singleValue" i]')) return node;
+    node = getComposedParent(node);
+  }
+
+  node = getComposedParent(input);
+  while (node && node !== document.body) {
+    if (isReactSelectHostCandidate(node)) return node;
+    node = getComposedParent(node);
+  }
+  return input?.parentElement?.parentElement || input?.parentElement || null;
+}
+
+function getComboboxToggleButton(input) {
+  const openerSelector = [
+    'button[aria-label="Toggle flyout"]',
+    'button[title="Toggle flyout"]',
+    'button[aria-label="Open menu"]',
+    'button[title="Open menu"]',
+    'button[aria-haspopup="listbox"]',
+  ].join(",");
+
+  let node = getComposedParent(input);
+  while (node && node !== document.body) {
+    const nodeClass = getElementClassText(node);
+    const isLikelyComboboxWrapper =
+      isReactSelectHostCandidate(node) ||
+      /\bselect__container\b|\bselect__control\b|\bselect-shell\b/i.test(nodeClass);
+
+    if (isLikelyComboboxWrapper && !isInCopilotUi(node)) {
+      const opener = Array.from(node.querySelectorAll?.(openerSelector) || [])
+        .find((button) => elementLooksVisible(button) && !isSubmitLikeControl(button));
+      if (opener) return opener;
+    }
+
+    node = getComposedParent(node);
+  }
+
+  return null;
+}
+
+function getComboboxSelectedText(input) {
+  if (input?.value && input.value.trim()) return clean(input.value);
+  const host = getComboboxHost(input);
+  if (!host || isInCopilotUi(host)) return "";
+  const selected = host.querySelector('[class*="single-value" i], [class*="singleValue" i]');
+  return clean(selected?.textContent || "");
+}
+
+function comboboxValueMatches(input, val) {
+  const selected = normalizeChoiceText(getComboboxSelectedText(input));
+  const target = normalizeChoiceText(val);
+  if (!selected || !target) return false;
+  return selected === target ||
+    selected.startsWith(target) ||
+    target.startsWith(selected) ||
+    tokensInclude(selected, target) ||
+    tokensInclude(target, selected);
+}
+
 function comboboxLooksAnswered(input) {
   if (input.value && input.value.trim()) return true;
-  const host =
-    input.closest('[class*="select" i], [role="combobox"], [data-baseweb]') ||
-    input.parentElement?.parentElement ||
-    input.parentElement;
+  const host = getComboboxHost(input);
   if (!host || isInCopilotUi(host)) return false;
   if (host.querySelector('[class*="single-value" i], [class*="singleValue" i]')) return true;
   return /\bhas-value\b/i.test(typeof host.className === "string" ? host.className : "");
@@ -1383,8 +1919,233 @@ function wasFieldFilled(filledElements, input) {
   return isChoiceInput(input) && getChoiceGroup(input).some((option) => filledElements.has(option));
 }
 
+function noteAlreadyAnswered(input, alreadyAnsweredElements) {
+  if (!input || wasFieldFilled(alreadyAnsweredElements, input)) return false;
+  markFieldFilled(alreadyAnsweredElements, input);
+  return true;
+}
+
 function getAutofillFieldLabel(input) {
-  return clean((isChoiceInput(input) ? getChoiceQuestionText(input) : getLabelText(input)) || input?.name || input?.id || "Unnamed Field");
+  const text = isChoiceInput(input)
+    ? getChoiceQuestionText(input)
+    : isButtonChoiceGroup(input)
+      ? getButtonChoiceQuestionText(input)
+      : getLabelText(input);
+  return clean(text || input?.name || input?.id || "Unnamed Field");
+}
+
+function makeAuditEntry(inputOrLabel, value, { ai = false, status = "filled", reason = "" } = {}) {
+  const label = typeof inputOrLabel === "string"
+    ? clean(inputOrLabel)
+    : getAutofillFieldLabel(inputOrLabel);
+  const rawValue = String(value ?? "");
+  const cleanReason = clean(reason || "");
+  const displayValue = status === "skipped"
+    ? `Not filled${cleanReason ? `: ${cleanReason}` : ""}`
+    : rawValue;
+  const copyLines = [
+    `Field: ${label || "Unnamed Field"}`,
+    `Source: ${ai ? "Gemma" : "Profile"}`,
+    `Status: ${status === "skipped" ? "Not filled" : "Filled"}`,
+  ];
+  if (cleanReason) copyLines.push(`Reason: ${cleanReason}`);
+  if (rawValue) copyLines.push(`${status === "skipped" ? "Proposed value" : "Value"}: ${rawValue}`);
+
+  return {
+    label: (label || "Unnamed Field").slice(0, 120),
+    value: displayValue.slice(0, 180),
+    copyValue: rawValue,
+    reason: cleanReason,
+    ai,
+    status,
+    copyText: copyLines.join("\n"),
+  };
+}
+
+function makeSkippedAuditEntry(inputOrLabel, proposedValue, reason, { ai = true } = {}) {
+  return makeAuditEntry(inputOrLabel, proposedValue, { ai, status: "skipped", reason });
+}
+
+// Requiredness, used to keep Gemma off optional fields (user request: optional
+// fields don't need prefilling). A field counts as required when the DOM says
+// so or its label carries the * convention; a form "marks requiredness" when
+// at least one of its fields does — only then is the absence of a marker
+// meaningful enough to skip a field.
+function fieldLooksRequired(input) {
+  if (!input) return false;
+  if (input.required || input.getAttribute?.("aria-required") === "true") return true;
+  if (isChoiceInput(input) && getChoiceGroup(input).some((option) => option.required || option.getAttribute?.("aria-required") === "true")) return true;
+  const label = getAutofillFieldLabel(input);
+  if (/\*/.test(label)) return true;
+  if (/\brequired\b/i.test(label)) return true;
+  // The visible row often renders the asterisk OUTSIDE the aria-linked label
+  // ("Location" + a styled "*"), so check the question row — both its text
+  // and CSS-rendered marks. For radio/checkbox groups, the prompt sits above
+  // the GROUP CONTAINER, not above the individual input.
+  const probe = isChoiceInput(input) ? (getChoiceGroupContainer(input) || input) : input;
+  // Ashby marks required questions with a CSS-::after "*" on a "_required_"
+  // heading label INSIDE the field container — invisible to textContent and a
+  // CHILD of the fieldset, so the previous-sibling row scan below misses it.
+  const fieldBox = probe?.closest?.('fieldset, [class*="fieldEntry"], [class*="field-entry"]') || probe;
+  if (containerMarksRequired(fieldBox)) return true;
+  const row = getQuestionRowElement(probe);
+  if (!row) return false;
+  if (/\*/.test(clean(row.textContent || ""))) return true;
+  return elementHasCssRequiredMark(row);
+}
+
+function fieldLooksExplicitlyOptional(input) {
+  const label = getAutofillFieldLabel(input);
+  return /\(\s*optional\s*\)|\boptional\b/i.test(label);
+}
+
+function fieldIsSkippableOptional(input, formMarksRequired) {
+  if (fieldLooksExplicitlyOptional(input)) return true;
+  if (!formMarksRequired) return false;
+  return !fieldLooksRequired(input);
+}
+
+function fieldSignals(input) {
+  const label = getAutofillFieldLabel(input).toLowerCase();
+  const choiceContext = isChoiceInput(input) ? getChoiceQuestionText(input).toLowerCase() : "";
+  const name = (input.name || "").toLowerCase();
+  const id = (input.id || "").toLowerCase();
+  const placeholder = (input.placeholder || "").toLowerCase();
+  const autocomplete = (input.getAttribute("autocomplete") || "").toLowerCase();
+  const inputMode = (input.getAttribute("inputmode") || "").toLowerCase();
+  const inputType = (input.type || "").toLowerCase();
+  const ariaLabel = (input.getAttribute("aria-label") || "").toLowerCase();
+  const combined = `${label} ${choiceContext} ${name} ${id} ${placeholder} ${autocomplete} ${inputMode} ${inputType} ${ariaLabel}`;
+  return {
+    combined,
+    autocomplete,
+    inputMode,
+    inputType,
+    normalizedLabel: normalizeChoiceText(label.replace(/\*/g, "")),
+    normalizedId: normalizeChoiceText(id),
+    normalizedName: normalizeChoiceText(name),
+  };
+}
+
+function knownProfileFieldKind(input) {
+  const signal = fieldSignals(input);
+  const exact = [signal.normalizedLabel, signal.normalizedId, signal.normalizedName].filter(Boolean);
+  const hasExact = (...values) => exact.some((item) => values.includes(item));
+
+  // Radio/checkbox groups answer QUESTIONS — they are never free-text identity
+  // fields. Crucially, their signal text contains their own OPTION LABELS, so
+  // a "How did you hear?" group with a "LinkedIn" option false-matched the
+  // linkedin kind (and "…Page/Website" matched portfolio). Free-text kinds are
+  // therefore gated to non-choice controls.
+  const isChoice = isChoiceInput(input);
+
+  if (!isChoice) {
+    if (
+      signal.autocomplete === "given-name" ||
+      hasExact("first name", "given name", "fname", "preferred first name") ||
+      /\b(first|given)[_\-\s]*name\b|^fname$/i.test(signal.combined)
+    ) return "firstName";
+
+    if (
+      signal.autocomplete === "family-name" ||
+      hasExact("last name", "family name", "surname", "lname") ||
+      /\b(last|family|sur)[_\-\s]*name\b|^lname$|^surname$/i.test(signal.combined)
+    ) return "lastName";
+
+    if (
+      hasExact("full name", "whole name", "name", "candidate name", "applicant name") ||
+      /\b(full|whole)[_\-\s]*name\b/i.test(signal.combined)
+    ) {
+      if (!/\b(first|last|given|family|middle|preferred|user)\b/i.test(signal.combined)) return "fullName";
+    }
+
+    if (/\bemail\b/i.test(signal.combined)) return "email";
+    if (/\blinkedin\b/i.test(signal.combined)) return "linkedin";
+    if (
+      signal.autocomplete.startsWith("tel") ||
+      signal.inputMode === "tel" ||
+      signal.inputType === "tel" ||
+      /(?:phone|tel|mobile|cell|contact)/i.test(signal.combined)
+    ) return "phone";
+    if (/\bcountry\b|country[_\-\s]*of[_\-\s]*residence|residence[_\-\s]*country/i.test(signal.combined)) return "country";
+    if (/location\s*\(\s*city\s*\)|candidate[_\-\s]*location|\bcity\b|current[_\-\s]*(?:city|location)|\bresid(?:e|ing)\b|where[_\-\s]*do[_\-\s]*you[_\-\s]*(?:currently[_\-\s]*)?live/i.test(signal.combined)) return "city";
+    // Bare "Location" labels (Ashby, Workable…) ask where the candidate lives.
+    // Exclude native selects (usually office/region lists Gemma should pick
+    // from) and preference/eligibility phrasings ("preferred work location",
+    // "remote or onsite?") — those are real questions, not identity fields.
+    if (
+      input.tagName !== "SELECT" &&
+      /\blocation\b/i.test(signal.normalizedLabel || "") &&
+      !/prefer|remote|hybrid|onsite|on[_\-\s]*site|office|relocat|eligib|authoriz|willing|which/i.test(signal.combined)
+    ) return "city";
+    if (/\bprovince\b|\bstate\b|\bregion\b/i.test(signal.combined)) return "province";
+  }
+  if (/(?:authorized[_\-\s]*to[_\-\s]*work|authorization[_\-\s]*to[_\-\s]*work|legal[_\-\s]*right[_\-\s]*to[_\-\s]*work|right[_\-\s]*to[_\-\s]*work|work[_\-\s]*authorization|legally[_\-\s]*authorized)/i.test(signal.combined)) return "legallyAuthorized";
+  if (/(?:require[_\-\s]*sponsorship|visa[_\-\s]*sponsorship|sponsorship[_\-\s]*require|work[_\-\s]*visa)/i.test(signal.combined)) return "requiresSponsorship";
+  if (/(?:currently|current)[_\-\s]*located[_\-\s]*in[_\-\s]*canada|located[_\-\s]*in[_\-\s]*canada|based[_\-\s]*in[_\-\s]*canada/i.test(signal.combined)) return "currentlyLocatedInCanada";
+  if (!isChoice && /(?:desired[_\-\s]*salary|salary[_\-\s]*expectation|compensation[_\-\s]*expectation|salary[_\-\s]*target)/i.test(signal.combined)) return "desiredSalary";
+  if (/(?:notice[_\-\s]*period|start[_\-\s]*date|earliest[_\-\s]*start|how[_\-\s]*soon[_\-\s]*can[_\-\s]*you[_\-\s]*start)/i.test(signal.combined)) return "noticePeriod";
+  if (!isChoice && /(?:intro[_\-\s]*one[_\-\s]*liner|short[_\-\s]*intro|brief[_\-\s]*intro|elevator[_\-\s]*pitch)/i.test(signal.combined)) return "introOneLiner";
+  if (/how[_\-\s]*(?:did|do)[_\-\s]*you[_\-\s]*(?:hear|find[_\-\s]*out|learn)[_\-\s]*about|how[_\-\s]*you[_\-\s]*heard|hear[_\-\s]*about[_\-\s]*(?:us|this)|referral[_\-\s]*source|source[_\-\s]*of[_\-\s]*(?:application|referral)/i.test(signal.combined)) return "howHeard";
+  if (/(?:why[_\-\s]*company|why[_\-\s]*this[_\-\s]*role|why[_\-\s]*do[_\-\s]*you[_\-\s]*want[_\-\s]*to[_\-\s]*join|cover[_\-\s]*letter)/i.test(signal.combined) && input.tagName === "TEXTAREA") return "whyCompany";
+  if (/(?:gender|sex|pronouns)/i.test(signal.combined)) return "gender";
+  if (/(?:race|ethnicity|ethnic[_\-\s]*origin|racial[_\-\s]*identity)/i.test(signal.combined)) return "race";
+  if (/(?:veteran|military[_\-\s]*service|protected[_\-\s]*veteran)/i.test(signal.combined)) return "veteranStatus";
+  if (/(?:disability|disabilities|differently[_\-\s]*abled)/i.test(signal.combined)) return "disabilityStatus";
+  if (!isChoice && /(?:portfolio|website|personal[_\-\s]*site|personal[_\-\s]*url)/i.test(signal.combined)) return "portfolio";
+  if (!isChoice && /(?:github|gitlab|bitbucket)/i.test(signal.combined)) return "github";
+  return "";
+}
+
+function valueLooksLikePhoneNumber(value) {
+  const text = clean(value);
+  if (!text) return false;
+  const digits = text.replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 15) return false;
+  return /^\+?[\d\s().-]+$/.test(text);
+}
+
+function fieldAcceptsPhoneValue(input) {
+  if (knownProfileFieldKind(input) === "phone") return true;
+  const signal = fieldSignals(input);
+  return (
+    signal.autocomplete.startsWith("tel") ||
+    signal.inputMode === "tel" ||
+    signal.inputType === "tel" ||
+    /(?:phone|tel|mobile|cell|contact)/i.test(signal.combined)
+  );
+}
+
+function getUnsafeAiValueReason(input, value) {
+  if (valueLooksLikePhoneNumber(value) && !fieldAcceptsPhoneValue(input)) {
+    return "Gemma returned a phone-looking value for a non-phone field.";
+  }
+  return "";
+}
+
+function profileValueForKnownField(kind, profile) {
+  if (!kind || !profile) return "";
+  const nameParts = (profile.fullName || "").trim().split(/\s+/);
+  const firstName = nameParts.slice(0, -1).join(" ") || nameParts[0] || "";
+  const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+  if (kind === "firstName") return firstName;
+  if (kind === "lastName") return lastName;
+  if (kind === "fullName") return profile.fullName || "";
+  if (kind === "email") return profile.email || "";
+  if (kind === "country") return profileCountryInfo(profile).name;
+  if (kind === "city") return profileCityValue(profile);
+  if (kind === "province") return profileProvinceValue(profile);
+  if (kind === "phone") {
+    let phoneVal = profile.phone || "";
+    if (phoneVal && !phoneVal.startsWith("+")) phoneVal = "+1" + phoneVal.replace(/[^\d]/g, "");
+    return phoneVal;
+  }
+  if (kind === "currentlyLocatedInCanada") {
+    const country = profileCountryInfo(profile).name.toLowerCase();
+    return /^(canada|ca)$/i.test(country) ? "Yes" : "No";
+  }
+  if (kind === "howHeard") return profile.howHeard || "LinkedIn";
+  return profile[kind] || "";
 }
 
 function findInputs() {
@@ -1392,80 +2153,36 @@ function findInputs() {
   const mapped = {};
 
   inputs.forEach((input) => {
-    const label = getAutofillFieldLabel(input).toLowerCase();
-    const choiceContext = isChoiceInput(input) ? getChoiceQuestionText(input).toLowerCase() : "";
-    const name = (input.name || "").toLowerCase();
-    const id = (input.id || "").toLowerCase();
-    const placeholder = (input.placeholder || "").toLowerCase();
-    const autocomplete = (input.getAttribute("autocomplete") || "").toLowerCase();
+    const kind = knownProfileFieldKind(input);
+    const key = {
+      firstName: "firstName",
+      lastName: "lastName",
+      fullName: "fullName",
+      email: "email",
+      country: "country",
+      city: "city",
+      province: "province",
+      phone: "phone",
+      linkedin: "linkedin",
+      legallyAuthorized: "legallyAuthorized",
+      requiresSponsorship: "requiresSponsorship",
+      currentlyLocatedInCanada: "currentlyLocatedInCanada",
+      desiredSalary: "desiredSalary",
+      noticePeriod: "noticePeriod",
+      introOneLiner: "introOneLiner",
+      howHeard: "howHeard",
+      whyCompany: "whyCompany",
+      gender: "gender",
+      race: "race",
+      veteranStatus: "veteranStatus",
+      disabilityStatus: "disabilityStatus",
+      portfolio: "portfolio",
+      github: "github",
+    }[kind];
 
-    const matches = (regex) => {
-      return (
-        regex.test(label) ||
-        regex.test(choiceContext) ||
-        regex.test(name) ||
-        regex.test(id) ||
-        regex.test(placeholder) ||
-        regex.test(autocomplete)
-      );
-    };
-
-    if (matches(/(?:first|given)[_\-\s]*name|^fname$/i)) {
-      mapped.firstName = mapped.firstName || [];
-      mapped.firstName.push(input);
-    } else if (matches(/(?:last|family|sur)[_\-\s]*name|^lname$|^surname$/i)) {
-      mapped.lastName = mapped.lastName || [];
-      mapped.lastName.push(input);
-    } else if (matches(/(?:full|whole)?[_\-\s]*name|^name$/i)) {
-      if (!matches(/(?:first|last|given|family|middle)/i)) {
-        mapped.fullName = mapped.fullName || [];
-        mapped.fullName.push(input);
-      }
-    } else if (matches(/email/i)) {
-      mapped.email = mapped.email || [];
-      mapped.email.push(input);
-    } else if (matches(/(?:phone|tel|mobile|cell|contact)/i)) {
-      mapped.phone = mapped.phone || [];
-      mapped.phone.push(input);
-    } else if (matches(/linkedin/i)) {
-      mapped.linkedin = mapped.linkedin || [];
-      mapped.linkedin.push(input);
-    } else if (matches(/(?:authorized[_\-\s]*to[_\-\s]*work|legal[_\-\s]*right[_\-\s]*to[_\-\s]*work|work[_\-\s]*authorization|legally[_\-\s]*authorized)/i)) {
-      mapped.legallyAuthorized = mapped.legallyAuthorized || [];
-      mapped.legallyAuthorized.push(input);
-    } else if (matches(/(?:require[_\-\s]*sponsorship|visa[_\-\s]*sponsorship|sponsorship[_\-\s]*require|work[_\-\s]*visa)/i)) {
-      mapped.requiresSponsorship = mapped.requiresSponsorship || [];
-      mapped.requiresSponsorship.push(input);
-    } else if (matches(/(?:desired[_\-\s]*salary|salary[_\-\s]*expectation|compensation[_\-\s]*expectation|salary[_\-\s]*target)/i)) {
-      mapped.desiredSalary = mapped.desiredSalary || [];
-      mapped.desiredSalary.push(input);
-    } else if (matches(/(?:notice[_\-\s]*period|start[_\-\s]*date|earliest[_\-\s]*start|how[_\-\s]*soon[_\-\s]*can[_\-\s]*you[_\-\s]*start)/i)) {
-      mapped.noticePeriod = mapped.noticePeriod || [];
-      mapped.noticePeriod.push(input);
-    } else if (matches(/(?:intro[_\-\s]*one[_\-\s]*liner|short[_\-\s]*intro|brief[_\-\s]*intro|elevator[_\-\s]*pitch)/i)) {
-      mapped.introOneLiner = mapped.introOneLiner || [];
-      mapped.introOneLiner.push(input);
-    } else if (matches(/(?:why[_\-\s]*company|why[_\-\s]*this[_\-\s]*role|why[_\-\s]*do[_\-\s]*you[_\-\s]*want[_\-\s]*to[_\-\s]*join|cover[_\-\s]*letter)/i) && input.tagName === "TEXTAREA") {
-      mapped.whyCompany = mapped.whyCompany || [];
-      mapped.whyCompany.push(input);
-    } else if (matches(/(?:gender|sex|pronouns)/i)) {
-      mapped.gender = mapped.gender || [];
-      mapped.gender.push(input);
-    } else if (matches(/(?:race|ethnicity|ethnic[_\-\s]*origin|racial[_\-\s]*identity)/i)) {
-      mapped.race = mapped.race || [];
-      mapped.race.push(input);
-    } else if (matches(/(?:veteran|military[_\-\s]*service|protected[_\-\s]*veteran)/i)) {
-      mapped.veteranStatus = mapped.veteranStatus || [];
-      mapped.veteranStatus.push(input);
-    } else if (matches(/(?:disability|disabilities|differently[_\-\s]*abled)/i)) {
-      mapped.disabilityStatus = mapped.disabilityStatus || [];
-      mapped.disabilityStatus.push(input);
-    } else if (matches(/(?:portfolio|website|personal[_\-\s]*site|personal[_\-\s]*url)/i)) {
-      mapped.portfolio = mapped.portfolio || [];
-      mapped.portfolio.push(input);
-    } else if (matches(/(?:github|gitlab|bitbucket)/i)) {
-      mapped.github = mapped.github || [];
-      mapped.github.push(input);
+    if (key) {
+      mapped[key] = mapped[key] || [];
+      mapped[key].push(input);
     }
   });
 
@@ -1482,6 +2199,20 @@ function isLegacySelectWidgetInput(el) {
   }
   const className = el.className || "";
   return typeof className === "string" && (className.includes("chosen") || className.includes("select2"));
+}
+
+function isReactSelectRequiredInput(el) {
+  if (!el || el.tagName !== "INPUT") return false;
+  const className = typeof el.className === "string" ? el.className : "";
+  if (/requiredInput/i.test(className)) return true;
+  if (el.id || el.name || el.getAttribute("role") || el.getAttribute("aria-label") || el.getAttribute("aria-labelledby")) return false;
+  if (!el.closest?.('[class*="select" i]')) return false;
+  try {
+    const style = window.getComputedStyle(el);
+    return style.opacity === "0";
+  } catch {
+    return false;
+  }
 }
 
 // ARIA comboboxes (React-Select, Greenhouse/Workday city pickers…) have NO
@@ -1506,15 +2237,30 @@ function isAriaComboboxInput(el) {
 // keyboard input rather than a scripted single assignment.
 function setNativeValue(input, val) {
   const prototype = input.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const lastValue = input.value;
   const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
   if (descriptor && descriptor.set) {
     descriptor.set.call(input, val);
   } else {
     input.value = val;
   }
+  // React 16+ caches each field's value in an internal `_valueTracker` and only
+  // fires onChange when tracker.getValue() differs from the live value. Setting
+  // the value via the prototype setter (above) bypasses React's instance setter,
+  // so the tracker normally keeps the OLD value — but if React re-synced it (a
+  // re-render between fill and submit) the change is missed, the controlled state
+  // stays empty, and the form rejects the field as "required/not populated" on
+  // submit even though it LOOKS filled. Forcing the tracker back to the previous
+  // value guarantees the input/change events below register as a real edit.
+  try {
+    const tracker = input._valueTracker;
+    if (tracker && typeof tracker.setValue === "function" && lastValue !== val) {
+      tracker.setValue(lastValue);
+    }
+  } catch { /* no tracker / non-React field — the plain set above suffices */ }
 }
 
-function setInputValue(input, val) {
+function setInputValueKeepFocus(input, val) {
   if (!input) return;
   try {
     input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
@@ -1543,12 +2289,68 @@ function setInputValue(input, val) {
     input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
     input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
   }
+}
+
+function blurInputLikeUser(input) {
   try {
     input.blur();
     input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
   } catch (e) {
     input.dispatchEvent(new Event("blur", { bubbles: true }));
   }
+}
+
+function setInputValue(input, val) {
+  if (!input) return;
+  setInputValueKeepFocus(input, val);
+  blurInputLikeUser(input);
+}
+
+// Per-keystroke typing into a focused control. Several lookups (Rippling's
+// Location, verified live) only fire their suggestion fetch on real key
+// events — a single bulk input event never triggers them.
+async function typeCharsLikeUser(input, text) {
+  setNativeValue(input, "");
+  try {
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "deleteContentBackward" }));
+  } catch {
+    input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+  }
+  for (const ch of Array.from(String(text))) {
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: ch }));
+    try {
+      input.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
+    } catch { /* unsupported */ }
+    setNativeValue(input, (input.value || "") + ch);
+    try {
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
+    } catch {
+      input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    }
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: ch }));
+    await sleep(24 + Math.random() * 30);
+  }
+}
+
+// For plain inputs that secretly drive a suggestion lookup (Rippling Location
+// has no combobox ARIA at all): focus, type per-keystroke WITHOUT blurring
+// (blur kills the panel), give the suggestions a moment, click the best one —
+// falling back to the FIRST suggestion, the lookup's own best match for the
+// query — then blur.
+async function fillLookupTextField(input, val) {
+  try {
+    input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    input.focus();
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    input.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  } catch { /* typing below still works */ }
+  await typeCharsLikeUser(input, val);
+  input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  await commitTypedSuggestionIfAppears(input, val, { preferFirst: true });
+  blurInputLikeUser(input);
+  return true;
 }
 
 function setNativeChecked(input, checked) {
@@ -1602,6 +2404,10 @@ function normalizeChoiceText(value) {
   return clean(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function isGenericChoiceValue(value) {
+  return /^(on|off)$/i.test(clean(value));
+}
+
 function choiceValueMeansYes(value) {
   const text = normalizeChoiceText(value);
   return /^(yes|y|true|1|checked|agree|agreed|accept|accepted)$/.test(text) || /\b(i agree|i accept|yes)\b/.test(text);
@@ -1613,12 +2419,12 @@ function choiceValueMeansNo(value) {
 }
 
 function optionLooksYes(option) {
-  const text = normalizeChoiceText(`${option.label} ${option.value}`);
+  const text = normalizeChoiceText(`${option.label} ${isGenericChoiceValue(option.value) ? "" : option.value}`);
   return /^(yes|y|true|1|agree|accept)\b/.test(text) || /\b(i agree|i accept)\b/.test(text);
 }
 
 function optionLooksNo(option) {
-  const text = normalizeChoiceText(`${option.label} ${option.value}`);
+  const text = normalizeChoiceText(`${option.label} ${isGenericChoiceValue(option.value) ? "" : option.value}`);
   return /^(no|n|false|0|decline|disagree)\b/.test(text) || /\b(do not|don t|not agree|opt out)\b/.test(text);
 }
 
@@ -1629,7 +2435,7 @@ function pickChoiceOption(input, val) {
 
   const exact = options.find((option) => (
     normalizeChoiceText(option.label) === answer ||
-    normalizeChoiceText(option.value) === answer
+    (!isGenericChoiceValue(option.value) && normalizeChoiceText(option.value) === answer)
   ));
   if (exact) return exact.input;
 
@@ -1642,11 +2448,24 @@ function pickChoiceOption(input, val) {
     if (noOption) return noOption.input;
   }
 
+  if ((choiceValueMeansYes(val) || choiceValueMeansNo(val)) && options.length === 2) {
+    const groupText = normalizeChoiceText(getChoiceGroupContainer(input)?.textContent || "");
+    const yesIndex = groupText.indexOf("yes");
+    const noIndex = groupText.indexOf("no");
+    if (yesIndex !== -1 && noIndex !== -1) {
+      const yesFirst = yesIndex < noIndex;
+      const targetIndex = choiceValueMeansYes(val)
+        ? (yesFirst ? 0 : 1)
+        : (yesFirst ? 1 : 0);
+      return options[targetIndex]?.input || null;
+    }
+  }
+
   // Whole-token partial match only — substring matching here is how "No" got
   // checked for answers that merely contained those letters.
   const partial = options.find((option) => {
     const label = normalizeChoiceText(option.label);
-    const value = normalizeChoiceText(option.value);
+    const value = isGenericChoiceValue(option.value) ? "" : normalizeChoiceText(option.value);
     return tokensInclude(label, answer) || tokensInclude(answer, label) ||
            tokensInclude(value, answer) || tokensInclude(answer, value);
   });
@@ -1668,6 +2487,225 @@ function setChoiceValue(input, val) {
     return input.checked ? setCheckedInput(input, false) : true;
   }
   return false;
+}
+
+/* ==========================================================================
+   Button / role-based choice groups (Ashby-style Yes/No segmented controls)
+   --------------------------------------------------------------------------
+   Some ATS — Ashby especially — render Yes/No and other single-select
+   questions as a row of clickable <button>/[role=radio]/[role=button] toggles
+   instead of native <input type="radio">. These never satisfy isChoiceInput,
+   so the AI pass used to fall through and "type" the answer into them: a silent
+   no-op that still reported success (a filled audit row for an empty control).
+   The helpers below detect such a group, match the answer to an option by its
+   visible text, and actually click it.
+   ========================================================================== */
+
+const BUTTON_CHOICE_OPTION_SELECTOR =
+  'button, [role="radio"], [role="button"], [role="option"], [role="switch"], [role="tab"]';
+
+// A single clickable option inside a button choice group.
+function isButtonChoiceOptionEl(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (isInCopilotUi(el)) return false;
+  if (el.disabled || el.getAttribute?.("aria-disabled") === "true") return false;
+  const role = (el.getAttribute?.("role") || "").toLowerCase();
+  if (el.tagName !== "BUTTON" && !["radio", "button", "option", "switch", "tab"].includes(role)) return false;
+  const type = (el.getAttribute?.("type") || "").toLowerCase();
+  if (type === "submit" || type === "reset") return false;
+  if (isSubmitLikeControl(el)) return false; // never Apply/Submit/Next
+  // Leaf options only — a wrapper that itself contains form controls is a
+  // container, not an option.
+  if (el.querySelector?.(FILLABLE_FIELD_SELECTOR)) return false;
+  const text = clean(el.textContent || el.innerText || el.getAttribute?.("aria-label") || "");
+  if (!text || text.length > 60) return false;
+  return true;
+}
+
+function buttonOptionSelected(el) {
+  if (!el) return false;
+  const aria = (name) => el.getAttribute?.(name) === "true";
+  if (aria("aria-checked") || aria("aria-pressed") || aria("aria-selected")) return true;
+  const dataState = (el.getAttribute?.("data-state") || "").toLowerCase();
+  if (["checked", "on", "active", "selected", "current"].includes(dataState)) return true;
+  // CSS-module class names look like "_active_1svni_57" (Ashby's selected Yes/No
+  // option). Underscores are \w, so /\bactive\b/ never matches — split on every
+  // non-alphanumeric and match a state token exactly, so "inactive"/"_option_"
+  // never false-positive.
+  return getElementClassText(el)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .some((token) => ["active", "selected", "checked", "current", "isactive", "isselected"].includes(token));
+}
+
+function getButtonChoiceOptions(container) {
+  if (!container) return [];
+  const seen = new Set();
+  const options = [];
+  for (const el of Array.from(container.querySelectorAll?.(BUTTON_CHOICE_OPTION_SELECTOR) || [])) {
+    if (!isButtonChoiceOptionEl(el)) continue;
+    // Skip an option nested inside (or wrapping) one we already kept.
+    if (options.some((o) => o.el.contains(el) || el.contains(o.el))) continue;
+    const label = clean(el.textContent || el.innerText || el.getAttribute("aria-label") || "");
+    const key = normalizeChoiceText(label);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    options.push({ el, label });
+  }
+  return options;
+}
+
+// True when `el` is a container holding 2–8 clickable button options whose only
+// native control is a HIDDEN backing input (Ashby's pattern: a hidden checkbox
+// behind visible <button>Yes/No</button>). A container that owns a VISIBLE field
+// (real radios/text/select/textarea) is a normal form section, not a segmented
+// toggle — this also stops a distant ancestor of a real radio group from being
+// mistaken for a button group just because Yes/No buttons live elsewhere inside.
+function isHiddenBackingField(f) {
+  const type = (f.type || "").toLowerCase();
+  if (["hidden", "submit", "button", "reset", "image"].includes(type)) return true;
+  if (f.offsetParent === null) return true; // display:none / detached
+  const rect = f.getBoundingClientRect?.();
+  return Boolean(rect && rect.width <= 1 && rect.height <= 1);
+}
+
+function isButtonChoiceGroup(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (isInCopilotUi(el)) return false;
+  if (el.matches?.(FILLABLE_FIELD_SELECTOR)) return false; // a native input itself
+  const opts = getButtonChoiceOptions(el);
+  if (opts.length < 2 || opts.length > 8) return false;
+  const ownsVisibleField = Array.from(el.querySelectorAll?.("input, textarea, select") || [])
+    .some((field) => !isInCopilotUi(field) && !isHiddenBackingField(field));
+  return !ownsVisibleField;
+}
+
+// Resolve any element (an option, the group wrapper, or a nearby backing input)
+// to the smallest enclosing button choice group.
+function getButtonChoiceGroupContainer(el) {
+  if (!el || el.nodeType !== 1) return null;
+  const strong = el.closest?.('fieldset, [role="radiogroup"], [role="group"]');
+  if (strong && isButtonChoiceGroup(strong)) return strong;
+  let node = el.matches?.(BUTTON_CHOICE_OPTION_SELECTOR) ? el.parentElement : el;
+  for (let depth = 0; node && node !== document.body && depth < 6; depth++, node = node.parentElement) {
+    if (isInCopilotUi(node)) return null;
+    if (isButtonChoiceGroup(node)) return node;
+  }
+  return null;
+}
+
+function buttonChoiceGroupAnswered(container) {
+  return getButtonChoiceOptions(container).some((option) => buttonOptionSelected(option.el));
+}
+
+// Reuse the radio question heuristics so Gemma sees a real prompt, not "YesNo".
+function getButtonChoiceQuestionText(container) {
+  const pieces = [];
+  const fieldset = container?.closest?.("fieldset");
+  const legend = fieldset?.querySelector?.("legend");
+  if (legend) pieces.push(clean(legend.textContent || legend.innerText || ""));
+  const previousPrompt = getPreviousPromptText(container);
+  if (previousPrompt) pieces.push(previousPrompt);
+  const ariaLabel = clean(container?.getAttribute?.("aria-label") || "");
+  if (ariaLabel) pieces.push(ariaLabel);
+  const unique = [];
+  pieces.forEach((piece) => { if (piece && !unique.includes(piece)) unique.push(piece); });
+  return clean(unique.join(" ")).slice(0, 200);
+}
+
+// A button choice group reads as a real question (vs. a nav/tab strip) — used
+// to keep discovery off segmented page chrome.
+function buttonChoiceGroupLooksLikeQuestion(container) {
+  const opts = getButtonChoiceOptions(container);
+  const yesNoShape = (o) => ({ label: o.label, value: "" });
+  if (opts.length === 2 && opts.some((o) => optionLooksYes(yesNoShape(o))) && opts.some((o) => optionLooksNo(yesNoShape(o)))) return true;
+  const question = getButtonChoiceQuestionText(container);
+  if (!question || question.length < 6) return false;
+  return /\?/.test(question) || /\*/.test(question) || question.split(/\s+/).length >= 3;
+}
+
+function pickButtonChoiceOption(container, val) {
+  const options = getButtonChoiceOptions(container);
+  const answer = normalizeChoiceText(val);
+  if (!answer || !options.length) return null;
+
+  const exact = options.find((option) => normalizeChoiceText(option.label) === answer);
+  if (exact) return exact;
+
+  if (choiceValueMeansYes(val)) {
+    const yesOption = options.find((option) => optionLooksYes({ label: option.label, value: "" }));
+    if (yesOption) return yesOption;
+  }
+  if (choiceValueMeansNo(val)) {
+    const noOption = options.find((option) => optionLooksNo({ label: option.label, value: "" }));
+    if (noOption) return noOption;
+  }
+
+  if ((choiceValueMeansYes(val) || choiceValueMeansNo(val)) && options.length === 2) {
+    const groupText = normalizeChoiceText(container?.textContent || "");
+    const yesIndex = groupText.indexOf("yes");
+    const noIndex = groupText.indexOf("no");
+    if (yesIndex !== -1 && noIndex !== -1) {
+      const yesFirst = yesIndex < noIndex;
+      const targetIndex = choiceValueMeansYes(val) ? (yesFirst ? 0 : 1) : (yesFirst ? 1 : 0);
+      return options[targetIndex] || null;
+    }
+  }
+
+  // Whole-token partial match only (same guard as native radios).
+  const partial = options.find((option) => {
+    const label = normalizeChoiceText(option.label);
+    return tokensInclude(label, answer) || tokensInclude(answer, label);
+  });
+  return partial || null;
+}
+
+function clickButtonChoiceOption(container, option) {
+  if (!option?.el) return false;
+  const el = option.el;
+  try { el.scrollIntoView?.({ block: "center", inline: "nearest" }); } catch { /* ignore */ }
+  try {
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    el.focus?.();
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    el.click();
+  } catch {
+    try { el.click(); } catch { /* ignore */ }
+  }
+  // Mirror ARIA state for widgets that read it back (only attributes already
+  // present — never invent state on the page).
+  const role = (el.getAttribute?.("role") || "").toLowerCase();
+  getButtonChoiceOptions(container).forEach((other) => {
+    const isTarget = other.el === el;
+    if (other.el.hasAttribute?.("aria-checked") || role === "radio") other.el.setAttribute("aria-checked", String(isTarget));
+    if (other.el.hasAttribute?.("aria-pressed")) other.el.setAttribute("aria-pressed", String(isTarget));
+    if (other.el.hasAttribute?.("aria-selected") || role === "tab" || role === "option") other.el.setAttribute("aria-selected", String(isTarget));
+  });
+  return true;
+}
+
+function setButtonChoiceValue(container, val) {
+  const option = pickButtonChoiceOption(container, val);
+  if (!option) return false;
+  return clickButtonChoiceOption(container, option);
+}
+
+// Discover button choice groups for the AI pass. Conservative: only fieldset /
+// role=group / role=radiogroup wrappers that read like real questions, so we
+// never click segmented nav/tab chrome.
+function collectButtonChoiceGroups({ visibleOnly = true } = {}) {
+  const found = [];
+  for (const el of querySelectorAllDeep(document, 'fieldset, [role="radiogroup"], [role="group"]')) {
+    if (isInCopilotUi(el)) continue;
+    if (!isButtonChoiceGroup(el)) continue;
+    if (visibleOnly && !elementLooksVisible(el)) continue;
+    if (!buttonChoiceGroupLooksLikeQuestion(el)) continue;
+    found.push(el);
+  }
+  // Keep the innermost group when wrappers nest.
+  return found.filter((group) => !found.some((other) => other !== group && group.contains(other)));
 }
 
 // Type free-text into a field one character at a time with small randomized
@@ -1731,9 +2769,18 @@ function tokensInclude(haystack, needle) {
   return new RegExp(`(?:^| )${escapeRegExp(needle)}(?: |$)`).test(haystack);
 }
 
+// Callers pass raw option text ("Select...", "-- Please choose --") as well as
+// pre-normalized text, so normalize here — matching raw text against a
+// lowercase-only pattern silently classified every "Select..." default as a
+// real answer and made isFieldAlreadyAnswered skip the whole dropdown.
 function isPlaceholderOptionText(text) {
-  if (!text) return true;
-  return /^(select|select one|choose|choose one|please select|please choose|pick one|pick an option|none)$/.test(text) || /^-+$/.test(String(text));
+  if (/^\s*-+\s*$/.test(String(text || ""))) return true;
+  const normalized = normalizeChoiceText(text);
+  if (!normalized) return true;
+  return (
+    /^(please )?(select|choose|pick)( (one|an option|a option|option|options|an answer|a value|value|from( the)? list|below))?( below)?( required)?$/.test(normalized) ||
+    /^(none|no selection|not selected|not specified|select a response|choose a response)$/.test(normalized)
+  );
 }
 
 // Ordered, strict matcher for native <select> options. Returns -1 rather than
@@ -1771,7 +2818,39 @@ function findBestSelectOptionIndex(select, val) {
   if (found) return found.index;
 
   found = entries.find((entry) => tokensInclude(entry.text, target) || tokensInclude(target, entry.text));
-  return found ? found.index : -1;
+  if (found) return found.index;
+
+  // Last resort: token-overlap scoring, because Gemma paraphrases options it
+  // was told to copy verbatim ("Master's degree" vs "Master's Degree (M.A.,
+  // M.S., M.Eng.)"). Only accept a UNIQUE option sharing at least half its
+  // tokens with the answer — ties or weak overlap keep the strict -1.
+  const scored = scoreOptionEntries(entries, target);
+  return scored ? scored.index : -1;
+}
+
+// Shared overlap scorer for select options and combobox option lists. Returns
+// the entry only when it is the single clear winner (score >= 0.5, no tie).
+function scoreOptionEntries(entries, target) {
+  const targetTokens = target.split(" ").filter((token) => token.length > 1);
+  if (!targetTokens.length) return null;
+  const targetSet = new Set(targetTokens);
+  let best = null;
+  let bestScore = 0;
+  let tied = false;
+  for (const entry of entries) {
+    const optionTokens = entry.text.split(" ").filter((token) => token.length > 1);
+    if (!optionTokens.length) continue;
+    const overlap = optionTokens.filter((token) => targetSet.has(token)).length;
+    const score = overlap / Math.max(optionTokens.length, targetTokens.length);
+    if (score > bestScore) {
+      best = entry;
+      bestScore = score;
+      tied = false;
+    } else if (score === bestScore && score > 0) {
+      tied = true;
+    }
+  }
+  return best && !tied && bestScore >= 0.5 ? best : null;
 }
 
 // ── Dynamic combobox fill (React-Select, Workday/Greenhouse pickers…) ──
@@ -1784,9 +2863,10 @@ function findComboboxListbox(input) {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
+  const root = getFieldRoot(input);
   for (const id of ids) {
     try {
-      const el = document.getElementById(id);
+      const el = getRootElementById(root, id) || document.getElementById(id);
       if (el) return el;
     } catch {
       // invalid id — keep looking
@@ -1817,14 +2897,17 @@ function getComboboxOptions(input) {
   //    matching against those starves the real menu.
   const inIti = Boolean(input.closest?.(".iti"));
   if (!options.length) {
-    options = Array.from(document.querySelectorAll('[role="option"]'))
+    options = querySelectorAllDeep(document, '[role="option"]')
       .filter(elementLooksVisible)
       .filter((option) => inIti || !option.closest(".iti"));
   }
 
   return options.filter(
     (option) => !isInCopilotUi(option) &&
-      !option.getAttribute("aria-disabled") &&
+      // Strict equality: Rippling stamps aria-disabled="false" on every
+      // option, and the string "false" is truthy — a truthiness check
+      // discarded ALL of its options and the fill retyped in a loop.
+      option.getAttribute("aria-disabled") !== "true" &&
       (inIti || !option.closest(".iti"))
   );
 }
@@ -1840,10 +2923,32 @@ function pickBestOptionElement(options, val) {
   found = entries.find((entry) => entry.text.startsWith(target) || target.startsWith(entry.text));
   if (found) return found.el;
   found = entries.find((entry) => tokensInclude(entry.text, target) || tokensInclude(target, entry.text));
-  return found ? found.el : null;
+  if (found) return found.el;
+  // Overlap scoring rescues near-misses like "Vancouver, BC, Canada" against a
+  // rendered "Vancouver, British Columbia, Canada" row.
+  const scored = scoreOptionEntries(entries, target);
+  return scored ? scored.el : null;
+}
+
+function getComboboxControl(input) {
+  const toggleButton = getComboboxToggleButton(input);
+  if (toggleButton) return toggleButton;
+
+  let node = getComposedParent(input);
+  while (node && node !== document.body) {
+    if (node.matches?.('[class*="select__control" i], [role="combobox"], [data-baseweb]')) return node;
+    node = getComposedParent(node);
+  }
+  node = getComposedParent(input);
+  while (node && node !== document.body) {
+    if (node.matches?.('[class*="select" i]')) return node;
+    node = getComposedParent(node);
+  }
+  return input;
 }
 
 function clickElementLikeUser(el) {
+  if (!el || isSubmitLikeControl(el)) return false;
   try {
     el.scrollIntoView({ block: "nearest" });
     el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
@@ -1857,11 +2962,28 @@ function clickElementLikeUser(el) {
   }
 }
 
-async function fillComboboxField(input, val) {
+async function settleComboboxField(input) {
+  if (!input) return;
+  try {
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape", keyCode: 27 }));
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Escape", keyCode: 27 }));
+  } catch { /* ignore */ }
+  try {
+    input.blur();
+    input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  } catch {
+    input.dispatchEvent(new Event("blur", { bubbles: true }));
+  }
+  await sleep(120);
+}
+
+async function fillComboboxField(input, val, { preferFirstOnFilter = false } = {}) {
   if (!input || val === undefined || val === null || val === "") return false;
   const value = String(val);
+  const control = getComboboxControl(input);
 
   try {
+    if (control && control !== input) clickElementLikeUser(control);
     input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     input.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     input.focus();
@@ -1873,54 +2995,104 @@ async function fillComboboxField(input, val) {
     // typing below may still open the listbox
   }
 
-  // Type to filter — deliberately NO blur between keys, blur closes the listbox.
-  setNativeValue(input, "");
-  for (const ch of Array.from(value)) {
-    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: ch }));
+  if (input.getAttribute("aria-expanded") !== "true") {
     try {
-      input.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
-    } catch { /* unsupported */ }
-    setNativeValue(input, (input.value || "") + ch);
-    try {
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: ch }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown", keyCode: 40 }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "ArrowDown", keyCode: 40 }));
+      await sleep(120);
     } catch {
-      input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+      // Some custom controls ignore keyboard-open events; typing below can still filter.
     }
-    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: ch }));
-    await sleep(24 + Math.random() * 30);
   }
+
+  // Type to filter — deliberately NO blur between keys, blur closes the listbox.
+  const typeFilter = (text) => typeCharsLikeUser(input, text);
+
+  // Lookup values like "Vancouver, BC, Canada" can return zero rows when fed
+  // verbatim to a remote city service — the first comma segment is the retry.
+  const firstSegment = clean(String(value).split(/[,(]/)[0] || "");
+  const hasRetrySegment = firstSegment && normalizeChoiceText(firstSegment) !== normalizeChoiceText(value);
+  const valueCommitted = () =>
+    comboboxValueMatches(input, value) || (hasRetrySegment && comboboxValueMatches(input, firstSegment));
 
   // Poll for the filtered option list. Remote lookups render LATE — Greenhouse's
   // city service was measured taking 3-5s, so the window must be generous.
-  let option = null;
-  for (let waited = 0; waited < 8000; waited += 250) {
-    await sleep(250);
-    // Some widgets auto-commit while we wait (e.g. single exact match).
-    if (input.getAttribute("aria-expanded") === "false" && comboboxLooksAnswered(input)) return true;
+  const pollForOption = async (matchValues, timeoutMs) => {
+    for (let waited = 0; waited < timeoutMs; waited += 250) {
+      await sleep(250);
+      // Some widgets auto-commit while we wait (e.g. single exact match).
+      if (input.getAttribute("aria-expanded") === "false" && valueCommitted()) return { committed: true };
+      const rendered = getComboboxOptions(input);
+      for (const matchValue of matchValues) {
+        const found = pickBestOptionElement(rendered, matchValue);
+        if (found) return { option: found };
+      }
+      // Location lookups: once the filtered rows have had time to settle, the
+      // FIRST row is the service's own best match for what we typed.
+      if (preferFirstOnFilter && waited >= 1000) {
+        const first = rendered.filter(elementLooksVisible).find((el) => !isPlaceholderOptionText(el.textContent || ""));
+        if (first) return { option: first };
+      }
+    }
+    return {};
+  };
+
+  await typeFilter(value);
+  let { option, committed } = await pollForOption([value], hasRetrySegment ? 5000 : 8000);
+
+  if (!option && !committed && hasRetrySegment) {
+    await typeFilter(firstSegment);
+    // Match rendered rows against the full value first so "Vancouver" typed
+    // still picks "Vancouver, British Columbia, Canada" over "Vancouver, WA".
+    ({ option, committed } = await pollForOption([value, firstSegment], 5000));
+  }
+
+  // Typing filtered everything out (the widget's wording shares no prefix
+  // with the answer — "Canadian Permanent Resident" vs "Canadian Citizen or
+  // Permanent Resident"). Clear the filter so EVERY option renders and score
+  // the answer against the full list.
+  if (!option && !committed) {
+    await typeFilter("");
+    try {
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown", keyCode: 40 }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "ArrowDown", keyCode: 40 }));
+    } catch { /* ignore */ }
+    await sleep(700);
     option = pickBestOptionElement(getComboboxOptions(input), value);
-    if (option) break;
+  }
+
+  if (committed) {
+    await settleComboboxField(input);
+    return true;
   }
 
   if (option) {
+    const optionText = clean(option.textContent || "");
     clickElementLikeUser(option);
     await sleep(250);
     // If the click didn't commit (some widgets only listen for keyboard), the
     // option is highlighted from the click — Enter confirms it.
-    if (!comboboxLooksAnswered(input)) {
+    if (!valueCommitted() && !comboboxValueMatches(input, optionText)) {
       input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 }));
       input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", keyCode: 13 }));
       await sleep(150);
     }
     input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
-    return true;
+    // Success means the widget committed the row we clicked — judge against the
+    // option's own text too, not only the (possibly differently spelled) value.
+    const ok = valueCommitted() || comboboxValueMatches(input, optionText) || comboboxLooksAnswered(input);
+    await settleComboboxField(input);
+    return ok;
   }
 
-  // No matching option appeared: commit the typed text with Enter (many widgets
-  // accept it) and leave the text in place for the user to confirm.
-  input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", keyCode: 13 }));
-  input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", keyCode: 13 }));
-  input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
-  return comboboxLooksAnswered(input);
+  // No matching option anywhere. Leave the field CLEAN instead of committing
+  // loose text — leftover junk ("Decline to Self-Identify" typed into a picker
+  // whose options say "Choose not to disclose") blocks the user's own pick,
+  // and a value the widget never offered is suspect anyway. The skip lands in
+  // the audit log with the proposed value so nothing is silent.
+  await typeFilter("");
+  await settleComboboxField(input);
+  return false;
 }
 
 // ── Split phone widgets (intl-tel-input ".iti", react-phone-number-input) ──
@@ -1942,15 +3114,145 @@ function nationalPhoneDigits(rawPhone) {
 }
 
 const PROFILE_COUNTRY_ISO = {
-  canada: "ca",
-  "united states": "us",
-  usa: "us",
-  "united states of america": "us",
+  canada: { iso2: "ca", dialCode: "1" },
+  "united states": { iso2: "us", dialCode: "1" },
+  usa: { iso2: "us", dialCode: "1" },
+  "united states of america": { iso2: "us", dialCode: "1" },
 };
 
 function profileCountryInfo(profile) {
   const name = clean(profile?.country || "") || "Canada";
-  return { name, iso2: PROFILE_COUNTRY_ISO[name.toLowerCase()] || "" };
+  const info = PROFILE_COUNTRY_ISO[name.toLowerCase()] || {};
+  return { name, iso2: info.iso2 || "", dialCode: info.dialCode || "" };
+}
+
+function profileCityValue(profile) {
+  return clean(profile?.city || profile?.location || "") || "Vancouver";
+}
+
+function profileProvinceValue(profile) {
+  return clean(profile?.province || profile?.region || profile?.state || "") || "BC";
+}
+
+const PROVINCE_FULL_NAMES = {
+  bc: "British Columbia", ab: "Alberta", sk: "Saskatchewan", mb: "Manitoba",
+  on: "Ontario", qc: "Quebec", ns: "Nova Scotia", nb: "New Brunswick",
+  nl: "Newfoundland and Labrador", pe: "Prince Edward Island",
+  yt: "Yukon", nt: "Northwest Territories", nu: "Nunavut",
+};
+
+// Ordered candidate values for location fields. Option lists spell locations
+// every which way ("Vancouver", "Vancouver, BC", "Vancouver, British Columbia,
+// Canada", "British Columbia", "Canada") — try from most to least specific.
+function locationValueCandidates(kind, profile) {
+  const city = profileCityValue(profile);
+  const prov = profileProvinceValue(profile);
+  const provFull = PROVINCE_FULL_NAMES[normalizeChoiceText(prov)] || prov;
+  const country = profileCountryInfo(profile).name;
+  const cityBase = clean(city.split(",")[0]) || city;
+  const list =
+    kind === "province" ? [prov, provFull, country]
+    : kind === "country" ? [country]
+    : [city, `${cityBase}, ${prov}`, `${cityBase}, ${provFull}`, cityBase, provFull, country];
+  return [...new Set(list.map((value) => clean(value)).filter(Boolean))];
+}
+
+// "Decline" answers are worded differently per ATS ("Decline to Self-Identify",
+// "Choose not to disclose", "Prefer not to say"…); offer the synonyms.
+function declineAnswerCandidates(primary) {
+  return [...new Set([
+    clean(primary),
+    "Choose not to disclose",
+    "Prefer not to say",
+    "Decline to answer",
+    "I do not wish to answer",
+  ].filter(Boolean))];
+}
+
+// Some plain text inputs are really lookup pickers with no combobox ARIA at
+// all (Rippling's Location): suggestions render after typing and the value
+// only commits when a suggestion is CLICKED. After typing, briefly watch for
+// suggestion rows and click the best match; harmless when none appear.
+async function commitTypedSuggestionIfAppears(input, val, { preferFirst = false } = {}) {
+  for (let waited = 0; waited < 2500; waited += 300) {
+    await sleep(300);
+    const options = getComboboxOptions(input).filter(elementLooksVisible);
+    if (!options.length) continue;
+    const best = pickBestOptionElement(options, val);
+    if (best) {
+      clickElementLikeUser(best);
+      await sleep(200);
+      return true;
+    }
+    // For lookups filtered by what we just typed (city pickers), the first
+    // suggestion is the service's own best interpretation of the query —
+    // "Vancouver, BC" → "Vancouver, BC, Canada". Take it.
+    if (preferFirst && !isPlaceholderOptionText(options[0].textContent || "")) {
+      clickElementLikeUser(options[0]);
+      await sleep(200);
+      return true;
+    }
+    return false; // suggestions exist but none match — leave typed text alone
+  }
+  return false;
+}
+
+function findNearbyCountryCombobox(input) {
+  const scopes = getNearbyFieldScopes(input);
+
+  for (const scope of scopes) {
+    const candidates = querySelectorAllDeep(scope, "input")
+      .filter((el) => el !== input && isAriaComboboxInput(el))
+      .filter((el) => !el.closest?.(".iti__dropdown-content, .iti__country-list"))
+      .filter((el) => /\bcountry\b/i.test(`${getAutofillFieldLabel(el)} ${el.id || ""} ${el.name || ""} ${el.getAttribute("aria-label") || ""}`));
+    if (candidates.length) return candidates[0];
+  }
+  return null;
+}
+
+function getNearbyFieldScopes(input) {
+  const scopes = [];
+  let node = input;
+  let depth = 0;
+  while (node && node !== document.body && depth < 6) {
+    const parent = getComposedParent(node);
+    if (!parent) break;
+    scopes.push(parent);
+    node = parent;
+    depth++;
+  }
+  scopes.push(input?.closest?.("fieldset"), input?.closest?.(".phone-input"), input?.closest?.(".PhoneInput"), input?.form, getFieldRoot(input), document);
+  return scopes.filter((scope, index, all) => scope && all.indexOf(scope) === index);
+}
+
+// Rippling-style split phones pair the number input with a combobox whose
+// VALUE is the dial code ("+1 US") — no .iti/.PhoneInput class, no "country"
+// in any label. The dial-code-shaped value is the only reliable signal.
+function findNearbyDialCodeCombobox(input) {
+  const scopes = getNearbyFieldScopes(input).slice(0, 4);
+  for (const scope of scopes) {
+    const candidate = querySelectorAllDeep(scope, "input")
+      .filter((el) => el !== input && isAriaComboboxInput(el))
+      .find((el) => /^\+\d{1,4}\b/.test(clean(el.value || "")));
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function findNearbyCountrySelect(input) {
+  const scopes = getNearbyFieldScopes(input);
+  for (const scope of scopes) {
+    const candidates = querySelectorAllDeep(scope, "select")
+      .filter((el) => el !== input)
+      .filter((el) => /\bcountry\b/i.test(`${getAutofillFieldLabel(el)} ${el.id || ""} ${el.name || ""} ${el.getAttribute("aria-label") || ""}`));
+    if (candidates.length) return candidates[0];
+  }
+  return null;
+}
+
+function hasNearbyCountryPicker(input) {
+  const scopes = getNearbyFieldScopes(input).slice(0, 4);
+  return scopes.some((scope) => /\bcountry\b/i.test(clean(scope.textContent || scope.innerText || "")));
 }
 
 // Select a country in an intl-tel-input widget: open the flag dropdown, click
@@ -1980,13 +3282,29 @@ async function fillSplitPhoneField(input, rawPhone, profile) {
   const national = nationalPhoneDigits(rawPhone);
   if (!national) return false;
   const widget = getPhoneCountryWidget(input);
+  const country = profileCountryInfo(profile);
+  const countryCombobox = findNearbyCountryCombobox(input);
+  const countrySelect = findNearbyCountrySelect(input);
+  const dialCodeCombobox = findNearbyDialCodeCombobox(input);
+  const hasCountryPicker = Boolean(countryCombobox || countrySelect || dialCodeCombobox || hasNearbyCountryPicker(input));
   if (widget) {
-    const country = profileCountryInfo(profile);
+    if (countryCombobox && !isFieldAlreadyAnswered(countryCombobox)) {
+      await fillComboboxField(countryCombobox, country.name);
+    }
     if (widget.kind === "iti") {
       await setItiCountry(widget.root, country);
     } else if (widget.kind === "pni" && country.iso2) {
       setSelectValue(widget.root.querySelector("select"), country.iso2.toUpperCase());
     }
+    setInputValue(input, national);
+    return true;
+  }
+  if (countryCombobox && !isFieldAlreadyAnswered(countryCombobox)) {
+    await fillComboboxField(countryCombobox, country.name);
+  } else if (countrySelect && !isFieldAlreadyAnswered(countrySelect)) {
+    setSelectValue(countrySelect, country.name, "country");
+  }
+  if (hasCountryPicker) {
     setInputValue(input, national);
     return true;
   }
@@ -2048,7 +3366,7 @@ function applySelectIndex(select, index) {
 }
 
 function setSelectValue(select, val, type) {
-  if (!select) return;
+  if (!select) return false;
   const options = Array.from(select.options);
   const lowerVal = String(val).toLowerCase().trim();
 
@@ -2117,7 +3435,9 @@ function setSelectValue(select, val, type) {
 
   if (matchedIndex !== -1) {
     applySelectIndex(select, matchedIndex);
+    return true;
   }
+  return false;
 }
 
 function pickResumeText(profile) {
@@ -2134,8 +3454,188 @@ function pickResumeText(profile) {
   return { text: cv1, label: "Backend CV (auto)" };
 }
 
-async function autofillWebForm(profile, { useAi = false } = {}) {
+// Describe one form control for the Gemma autofill prompt. Shared between the
+// bulk custom-field pass and the toolbar "Ask Gemma" single-field flow.
+function buildAiFieldDescriptor(el) {
+  const desc = {
+    label: getAutofillFieldLabel(el).slice(0, 200),
+    name: (el.name || "").slice(0, 100),
+    id: (el.id || "").slice(0, 100),
+    // "combobox" tells Gemma this is a dynamic search picker (city etc.)
+    // expecting one short canonical value, not a sentence.
+    tag: isAriaComboboxInput(el) ? "combobox" : el.tagName.toLowerCase(),
+    placeholder: (el.placeholder || "").slice(0, 150),
+    inputType: (el.type || "").toLowerCase(),
+  };
+  // Segmented button group (Ashby Yes/No etc.) — either `el` IS the group
+  // (discovery) or `el` is a field BACKED by one (a hidden checkbox/radio, or a
+  // plain input behind the buttons). The buttons are the real options, so prefer
+  // them over the backing input's own (often useless) value list.
+  const buttonGroup = isButtonChoiceGroup(el) ? el : getButtonChoiceGroupContainer(el);
+  if (buttonGroup) {
+    const options = getButtonChoiceOptions(buttonGroup)
+      .map((option) => option.label)
+      .filter((text) => text && text.length < 120)
+      .slice(0, 20);
+    if (options.length) {
+      desc.tag = "radio";
+      desc.options = options;
+      const question = getButtonChoiceQuestionText(buttonGroup);
+      if (question && question.length > (desc.label || "").length) desc.label = question.slice(0, 200);
+      return desc;
+    }
+  }
+  // For select elements, include the options so AI can pick from them
+  if (el.tagName === "SELECT") {
+    desc.options = Array.from(el.options)
+      .map((opt) => opt.text.trim())
+      .filter((t) => t && !isPlaceholderOptionText(t) && t.length < 100)
+      .slice(0, 30);
+  }
+  if (isChoiceInput(el)) {
+    desc.options = getChoiceOptions(el)
+      .map((option) => {
+        const label = option.label || option.value;
+        if (!label) return "";
+        return option.value &&
+          !isGenericChoiceValue(option.value) &&
+          normalizeChoiceText(option.value) !== normalizeChoiceText(label)
+          ? `${label} (${option.value})`
+          : label;
+      })
+      .filter((text) => text && text.length < 120)
+      .slice(0, 20);
+  }
+  return desc;
+}
+
+// Write a Gemma-proposed value into any supported control. Returns the outcome
+// for the audit log; never throws. respectProfileGuard pins identity-ish
+// fields (city, sponsorship…) to the profile value — the toolbar Ask flow
+// turns it off because there the user's instruction is the authority.
+async function applyAiValueToField(el, value, { profile = localProfile, respectProfileGuard = true } = {}) {
+  const knownKind = respectProfileGuard ? knownProfileFieldKind(el) : "";
+  const guardedValue = ["country", "city", "province", "legallyAuthorized", "requiresSponsorship", "currentlyLocatedInCanada", "howHeard"].includes(knownKind)
+    ? profileValueForKnownField(knownKind, profile)
+    : "";
+  const valueToFill = guardedValue || value;
+  const isLocationKind = ["country", "city", "province"].includes(knownKind);
+  // Location answers come in many spellings — try the profile's candidate
+  // forms (city → "city, prov" → province → country) against option widgets.
+  const candidateValues = isLocationKind
+    ? [...new Set([String(valueToFill), ...locationValueCandidates(knownKind, profile)])]
+    : [String(valueToFill)];
+  // Defense in depth: never fill a fabricated placeholder URL (the
+  // server scrubs these too, but cached/legacy responses may slip by).
+  if (/^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|test\.com|yourwebsite\.com|website\.com|url\.com|placeholder\.[a-z]+|sample\.com|mywebsite\.com|my-?portfolio\.[a-z]+|portfolio\.com|yoursite\.com|yourname\.com|johndoe\.[a-z]+|janedoe\.[a-z]+)(?:\/.*)?$/i.test(String(valueToFill).trim())) {
+    return { filled: false, skippedSilently: true, displayValue: valueToFill, reason: "Placeholder URL discarded." };
+  }
+  const unsafeReason = getUnsafeAiValueReason(el, valueToFill);
+  if (unsafeReason) {
+    return { filled: false, displayValue: valueToFill, reason: unsafeReason };
+  }
+
+  if (el.tagName === "SELECT") {
+    // Strict match only — if Gemma answered with text that isn't one of
+    // the options, leave the select untouched and say so in the audit.
+    for (const candidate of candidateValues) {
+      const matchIdx = findBestSelectOptionIndex(el, candidate);
+      if (matchIdx !== -1) {
+        applySelectIndex(el, matchIdx);
+        return { filled: true, displayValue: Array.from(el.options)[matchIdx]?.text || candidate };
+      }
+    }
+    return { filled: false, displayValue: valueToFill, reason: "The proposed value did not match any listed option." };
+  }
+  if (isChoiceInput(el)) {
+    // Ashby renders Yes/No as visible <button>s backed by a HIDDEN checkbox.
+    // Toggling that hidden box leaves the question "unanswered" (and never moves
+    // the visible UI) — when a backing button group exists, click the button.
+    const backingGroup = getButtonChoiceGroupContainer(el);
+    if (backingGroup) {
+      for (const candidate of candidateValues) {
+        if (setButtonChoiceValue(backingGroup, candidate)) return { filled: true, displayValue: candidate };
+      }
+    }
+    for (const candidate of candidateValues) {
+      if (setChoiceValue(el, candidate)) return { filled: true, displayValue: candidate };
+    }
+    return { filled: false, displayValue: valueToFill, reason: "The proposed value did not match any radio/checkbox option." };
+  }
+  if (isButtonChoiceGroup(el)) {
+    for (const candidate of candidateValues) {
+      if (setButtonChoiceValue(el, candidate)) return { filled: true, displayValue: candidate };
+    }
+    return { filled: false, displayValue: valueToFill, reason: "The proposed value did not match any Yes/No option." };
+  }
+  if (isAriaComboboxInput(el)) {
+    // Cap retries — every failed candidate is a visible retype of the field.
+    for (const candidate of candidateValues.slice(0, 3)) {
+      if (await fillComboboxField(el, candidate, { preferFirstOnFilter: isLocationKind })) {
+        return { filled: true, displayValue: getComboboxSelectedText(el) || candidate };
+      }
+    }
+    return { filled: false, displayValue: valueToFill, reason: "No matching combobox option appeared after typing." };
+  }
+  if (isLocationKind && el.tagName === "INPUT") {
+    await fillLookupTextField(el, String(valueToFill));
+    return { filled: true, displayValue: el.value || valueToFill };
+  }
+  // A segmented Yes/No / button group associated with this field — Ashby's real
+  // control is the button, not the (often hidden) backing input. Click the
+  // matching option. We only act when the answer actually matches an option, so
+  // genuine text fields that merely sit near buttons fall through to typing.
+  const adjacentGroup = getButtonChoiceGroupContainer(el);
+  if (adjacentGroup) {
+    for (const candidate of candidateValues) {
+      if (setButtonChoiceValue(adjacentGroup, candidate)) return { filled: true, displayValue: candidate };
+    }
+  }
+  // Only TYPE into genuine free-text controls. Typing into anything else (a
+  // styled toggle's backing element) is a silent no-op — reporting that as
+  // filled is exactly what hid the Ashby Yes/No bug.
+  const elType = (el.type || "").toLowerCase();
+  const isTextLike =
+    el.tagName === "TEXTAREA" ||
+    (el.tagName === "INPUT" && ["text", "email", "tel", "url", "search", "number", "month", "week", "date", ""].includes(elType));
+  if (isTextLike) {
+    setInputValue(el, valueToFill);
+    return { filled: true, displayValue: valueToFill };
+  }
+  return {
+    filled: false,
+    displayValue: valueToFill,
+    reason: adjacentGroup
+      ? "Could not match the answer to a Yes/No option — set it manually."
+      : "Unsupported control type — please set this one manually.",
+  };
+}
+
+async function autofillWebForm(profile, { useAi = false, runId = "" } = {}) {
   if (!profile) return;
+  const now = Date.now();
+  if (autofillRunInProgress && now - autofillRunStartedAt < 30000) {
+    if (IS_TOP_FRAME) showToast("Autofill is already running on this form.");
+    return;
+  }
+  autofillRunInProgress = true;
+  autofillRunStartedAt = now;
+  try {
+    return await autofillWebFormLocked(profile, { useAi, runId });
+  } finally {
+    autofillRunInProgress = false;
+  }
+}
+
+async function autofillWebFormLocked(profile, { useAi = false, runId = "" } = {}) {
+  if (!profile) return;
+  if (IS_TOP_FRAME) {
+    currentAutofillRunId = runId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    frameAutofillResults = [];
+    lastAutofillAuditLog = [];
+    lastAutofillSkippedAlreadyFilledCount = 0;
+  }
+  const activeRunId = IS_TOP_FRAME ? currentAutofillRunId : runId;
   ensureCopilotPanel(profile);
   expandWidget();
   attachFormSubmitTracker("scan/prefill clicked", { silent: true });
@@ -2146,7 +3646,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (IS_TOP_FRAME && window.frames.length > 0) {
     try {
       chrome.runtime
-        .sendMessage({ type: "JH_BROADCAST_AUTOFILL", profile, useAi, cv: selectedCv })
+        .sendMessage({ type: "JH_BROADCAST_AUTOFILL", profile, useAi, cv: selectedCv, runId: activeRunId })
         .catch(() => {});
     } catch {
       // extension context invalidated — top-frame fill still proceeds
@@ -2172,7 +3672,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
     icon.textContent = "⚡";
     const lbl = document.createElement("span");
     lbl.className = "jh-btn-label";
-    lbl.textContent = `Filled · ${cvLabel}`;
+    lbl.textContent = "Fill";
     fillBtn.append(icon, lbl);
     fillBtn.title = `Used: ${cvLabel}`;
   }
@@ -2192,6 +3692,10 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   const mapped = findInputs();
   let filledCount = 0;
 
+  // Requiredness context for this form: only meaningful when at least one
+  // field is actually marked required (attribute, aria, or * in the label).
+  const formMarksRequired = collectFillableElements().some(fieldLooksRequired);
+
   const nameParts = (profile.fullName || "").trim().split(/\s+/);
   const firstName = nameParts.slice(0, -1).join(" ") || nameParts[0] || "";
   const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
@@ -2201,50 +3705,91 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (phoneVal && !phoneVal.startsWith("+")) {
     phoneVal = "+1" + phoneVal.replace(/[^\d]/g, "");
   }
+  const countryInfo = profileCountryInfo(profile);
+  const cityVal = profileCityValue(profile);
+  const provinceVal = profileProvinceValue(profile);
 
   // Track which DOM elements were already filled by regex
   const regexFilledElements = new Set();
+  const alreadyAnsweredElements = new Set();
+  let skippedAlreadyFilledCount = 0;
 
   // Audit log stores plain objects — rendered via DOM methods to avoid XSS from
   // third-party page label text landing in innerHTML.
   const auditLog = [];
+
+  const skipIfAlreadyAnswered = (input) => {
+    if (!isFieldAlreadyAnswered(input)) return false;
+    if (noteAlreadyAnswered(input, alreadyAnsweredElements)) skippedAlreadyFilledCount++;
+    return true;
+  };
 
   // Combobox and split-phone fills are async (type → wait → click), and only
   // one dropdown can be open at a time — queue them and run sequentially after
   // the synchronous pass.
   const asyncFillQueue = [];
 
+  // `val` may be a single value or an ORDERED list of candidates (location
+  // spellings, decline synonyms) — tried until one matches the widget.
+  const LOCATION_KINDS = new Set(["city", "province", "country"]);
   const fillList = (inputs, val, type) => {
-    if (!inputs || val === undefined || val === null || val === "") return;
+    const values = (Array.isArray(val) ? val : [val])
+      .filter((value) => value !== undefined && value !== null && value !== "")
+      .map(String);
+    if (!inputs || !values.length) return;
+    const primary = values[0];
     inputs.forEach((input) => {
+      if (wasFieldFilled(regexFilledElements, input)) return;
+      if (skipIfAlreadyAnswered(input)) return;
       let didFill = true;
+      let filledWith = primary;
       if (input.tagName === "SELECT") {
-        setSelectValue(input, val, type);
+        filledWith = values.find((value) => setSelectValue(input, value, type));
+        didFill = filledWith !== undefined;
       } else if (isChoiceInput(input)) {
-        didFill = setChoiceValue(input, val);
+        filledWith = values.find((value) => setChoiceValue(input, value));
+        didFill = filledWith !== undefined;
       } else if (type === "phone" && input.tagName === "INPUT") {
         // fillSplitPhoneField decides national-vs-international from the DOM
         // (paired country picker → national number + set the country itself).
         asyncFillQueue.push({
           input,
-          run: () => fillSplitPhoneField(input, profile.phone || val, profile),
-          auditValue: () => input.value || String(val),
+          run: () => fillSplitPhoneField(input, profile.phone || primary, profile),
+          auditValue: () => input.value || primary,
         });
         return;
       } else if (isAriaComboboxInput(input)) {
         asyncFillQueue.push({
           input,
-          run: () => fillComboboxField(input, val),
-          auditValue: () => String(val),
+          run: async () => {
+            // Cap retries: each failed candidate is a visible retype of the
+            // field. With preferFirstOnFilter the first candidate commits
+            // whenever the widget shows ANY suggestions, so more than a few
+            // attempts only ever replays the failure.
+            for (const value of values.slice(0, 3)) {
+              if (await fillComboboxField(input, value, { preferFirstOnFilter: LOCATION_KINDS.has(type) })) return true;
+            }
+            return false;
+          },
+          auditValue: () => getComboboxSelectedText(input) || primary,
+        });
+        return;
+      } else if (LOCATION_KINDS.has(type) && input.tagName === "INPUT") {
+        // Plain-looking inputs can still be suggestion lookups (Rippling's
+        // Location): type, then click the suggestion that appears.
+        asyncFillQueue.push({
+          input,
+          run: () => fillLookupTextField(input, primary),
+          auditValue: () => input.value || primary,
         });
         return;
       } else {
-        setInputValue(input, val);
+        setInputValue(input, primary);
       }
       if (!didFill) return;
       markFieldFilled(regexFilledElements, input);
       filledCount++;
-      auditLog.push({ label: getAutofillFieldLabel(input).slice(0, 60), value: String(val).slice(0, 80), ai: false });
+      auditLog.push(makeAuditEntry(input, filledWith ?? primary, { ai: false }));
     });
   };
 
@@ -2253,18 +3798,32 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   if (mapped.lastName) fillList(mapped.lastName, lastName);
   if (mapped.fullName) fillList(mapped.fullName, profile.fullName);
   if (mapped.email) fillList(mapped.email, profile.email);
+  if (mapped.country) fillList(mapped.country, locationValueCandidates("country", profile), "country");
+  if (mapped.city) fillList(mapped.city, locationValueCandidates("city", profile), "city");
+  if (mapped.province) fillList(mapped.province, locationValueCandidates("province", profile), "province");
   if (mapped.phone) fillList(mapped.phone, phoneVal, "phone");
   if (mapped.linkedin) fillList(mapped.linkedin, profile.linkedin);
   if (mapped.legallyAuthorized) fillList(mapped.legallyAuthorized, profile.legallyAuthorized || "Yes", "legallyAuthorized");
   if (mapped.requiresSponsorship) fillList(mapped.requiresSponsorship, profile.requiresSponsorship || "No", "requiresSponsorship");
+  if (mapped.currentlyLocatedInCanada) fillList(mapped.currentlyLocatedInCanada, profileValueForKnownField("currentlyLocatedInCanada", profile), "currentlyLocatedInCanada");
   if (mapped.desiredSalary) fillList(mapped.desiredSalary, profile.desiredSalary);
   if (mapped.noticePeriod) fillList(mapped.noticePeriod, profile.noticePeriod);
   if (mapped.introOneLiner) fillList(mapped.introOneLiner, profile.introOneLiner);
   if (mapped.whyCompany) fillList(mapped.whyCompany, profile.whyCompany);
-  if (mapped.gender) fillList(mapped.gender, profile.gender || "Decline to Self-Identify", "gender");
-  if (mapped.race) fillList(mapped.race, profile.race || "Decline to Self-Identify", "race");
-  if (mapped.veteranStatus) fillList(mapped.veteranStatus, profile.veteranStatus || "No", "veteranStatus");
-  if (mapped.disabilityStatus) fillList(mapped.disabilityStatus, profile.disabilityStatus || "No, I don't have a disability", "disabilityStatus");
+  // Demographic/self-ID fields: only auto-fill when the form requires them.
+  // Optional pronouns/race/veteran pickers stay untouched (user request) —
+  // typing "Decline to Self-Identify" into an optional pronouns search box
+  // just leaves junk text.
+  const requiredOnlyDemographics = (inputs) => (inputs || []).filter((input) => {
+    if (!fieldIsSkippableOptional(input, formMarksRequired)) return true;
+    auditLog.push(makeSkippedAuditEntry(input, "", "Optional demographic field — left for you.", { ai: false }));
+    return false;
+  });
+  if (mapped.gender) fillList(requiredOnlyDemographics(mapped.gender), declineAnswerCandidates(profile.gender || "Decline to Self-Identify"), "gender");
+  if (mapped.race) fillList(requiredOnlyDemographics(mapped.race), declineAnswerCandidates(profile.race || "Decline to Self-Identify"), "race");
+  if (mapped.veteranStatus) fillList(requiredOnlyDemographics(mapped.veteranStatus), profile.veteranStatus || "No", "veteranStatus");
+  if (mapped.disabilityStatus) fillList(requiredOnlyDemographics(mapped.disabilityStatus), profile.disabilityStatus || "No, I don't have a disability", "disabilityStatus");
+  if (mapped.howHeard) fillList(mapped.howHeard, profile.howHeard || "LinkedIn", "howHeard");
   if (mapped.portfolio) fillList(mapped.portfolio, profile.portfolio);
   if (mapped.github) fillList(mapped.github, profile.github);
 
@@ -2272,6 +3831,8 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   for (const task of asyncFillQueue) {
     let ok = false;
     try {
+      if (wasFieldFilled(regexFilledElements, task.input)) continue;
+      if (skipIfAlreadyAnswered(task.input)) continue;
       ok = await task.run();
     } catch {
       ok = false;
@@ -2279,7 +3840,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
     if (!ok) continue;
     markFieldFilled(regexFilledElements, task.input);
     filledCount++;
-    auditLog.push({ label: getAutofillFieldLabel(task.input).slice(0, 60), value: task.auditValue().slice(0, 80), ai: false });
+    auditLog.push(makeAuditEntry(task.input, task.auditValue(), { ai: false }));
   }
 
   // ── CV text injection: paste resume text into visible textareas ──
@@ -2288,26 +3849,38 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
     allInputs.forEach((el) => {
       if (el.tagName !== "TEXTAREA") return;
       if (wasFieldFilled(regexFilledElements, el)) return;
-      if (isFieldAlreadyAnswered(el)) return;
+      if (skipIfAlreadyAnswered(el)) return;
       const label = getAutofillFieldLabel(el).toLowerCase();
       if (/\b(resume|cv|curriculum\s*vitae|paste\s*resume|copy\s*paste\s*(your\s*)?resume)\b/.test(label)) {
         setInputValue(el, resumeText);
         markFieldFilled(regexFilledElements, el);
         filledCount++;
-        auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `[${cvLabel} — ${resumeText.length} chars]`, ai: false });
+        auditLog.push(makeAuditEntry(el, `[${cvLabel} — ${resumeText.length} chars]`, { ai: false }));
       }
     });
   }
 
   // ── CV file injection: upload the real CV file (PDF/DOCX) into the form ──
-  // The variant follows the same auto-selection as the CV text above, so the
-  // attached file always matches the text Gemma was shown.
-  const cvVariantForFile =
-    selectedCv === "architect" ? "architect"
-    : selectedCv === "backend" ? "backend"
-    : cvLabel.toLowerCase().startsWith("architect") ? "architect" : "backend";
-  const cvInjection = await injectCvFileToInputs(cvVariantForFile, auditLog);
-  if (cvInjection.injected) filledCount++;
+  // Deliberately deferred to run as the LAST autofill step (user request):
+  // every text/select/combobox fill lands first, so a slow upload widget or an
+  // ATS re-render triggered by the file can't disrupt them. The variant
+  // follows the same auto-selection as the CV text above, so the attached
+  // file always matches the text Gemma was shown.
+  let cvInjectionDone = false;
+  const injectCvFileLastStep = async () => {
+    if (cvInjectionDone) return;
+    cvInjectionDone = true;
+    const cvVariantForFile =
+      selectedCv === "architect" ? "architect"
+      : selectedCv === "backend" ? "backend"
+      : cvLabel.toLowerCase().startsWith("architect") ? "architect" : "backend";
+    try {
+      const cvInjection = await injectCvFileToInputs(cvVariantForFile, auditLog);
+      if (cvInjection.injected) filledCount++;
+    } catch (err) {
+      console.warn("CV file injection failed:", err);
+    }
+  };
 
   updateWorkflowSteps("autofill", [
     { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
@@ -2317,9 +3890,10 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
   ]);
 
   if (!useAi) {
+    await injectCvFileLastStep();
     showToast(`Auto-filled ${filledCount} fields. Gemma was not used. ⚡`);
-    renderAutofillAudit(auditLog);
-    return;
+    renderAutofillAudit(auditLog, { skippedAlreadyFilledCount });
+    return { filledCount, auditLog, skippedAlreadyFilledCount };
   }
 
   showToast(`Filled ${filledCount} basic fields. Asking Gemma for custom questions...`);
@@ -2332,10 +3906,37 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
     const unmatchedFields = allInputs.filter((el) => {
       if (wasFieldFilled(regexFilledElements, el)) return false;
       // Skip already-filled fields (user or regex)
-      if (isFieldAlreadyAnswered(el)) return false;
-      if (el.tagName === "SELECT") return true; // Keep SELECT elements even if hidden by custom styled elements.
-      return isVisibleFillTarget(el);
+      if (skipIfAlreadyAnswered(el)) return false;
+      // Keep SELECT elements even if hidden by custom styled elements.
+      if (el.tagName !== "SELECT" && !isVisibleFillTarget(el)) return false;
+      // Optional fields stay empty (user request) — Gemma only answers what
+      // the form actually demands. Surfaced in the audit so it's not silent.
+      if (fieldIsSkippableOptional(el, formMarksRequired)) {
+        auditLog.push(makeSkippedAuditEntry(el, "", "Optional field — Gemma fills required fields only.", { ai: true }));
+        return false;
+      }
+      return true;
     });
+
+    // Ashby-style Yes/No and segmented single-selects have no native <input>, so
+    // collectFillableElements never sees them. Gather them separately and let
+    // Gemma answer them like any other choice question.
+    const buttonGroups = collectButtonChoiceGroups().filter((group) => {
+      // Already represented by a collected native field (the group's backing
+      // input) — that field's apply path clicks the button, so don't double-ask.
+      if (unmatchedFields.some((field) => group.contains(field))) return false;
+      if (wasFieldFilled(regexFilledElements, group)) return false;
+      if (buttonChoiceGroupAnswered(group)) {
+        if (noteAlreadyAnswered(group, alreadyAnsweredElements)) skippedAlreadyFilledCount++;
+        return false;
+      }
+      if (fieldIsSkippableOptional(group, formMarksRequired)) {
+        auditLog.push(makeSkippedAuditEntry(group, "", "Optional question — Gemma fills required fields only.", { ai: true }));
+        return false;
+      }
+      return true;
+    });
+    unmatchedFields.push(...buttonGroups);
 
     if (unmatchedFields.length > 0 && unmatchedFields.length <= 40) {
       const jobContext = extractJob();
@@ -2346,38 +3947,7 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
         { status: "active", label: "Gemma custom-field pass", detail: `${unmatchedFields.length} field${unmatchedFields.length === 1 ? "" : "s"}, ${jobContext.pageText.length} cleaned chars.` },
       ]);
       // Build field descriptors for AI
-      const fieldDescriptors = unmatchedFields.map((el) => {
-        const desc = {
-          label: getAutofillFieldLabel(el).slice(0, 200),
-          name: (el.name || "").slice(0, 100),
-          id: (el.id || "").slice(0, 100),
-          // "combobox" tells Gemma this is a dynamic search picker (city etc.)
-          // expecting one short canonical value, not a sentence.
-          tag: isAriaComboboxInput(el) ? "combobox" : el.tagName.toLowerCase(),
-          placeholder: (el.placeholder || "").slice(0, 150),
-          inputType: (el.type || "").toLowerCase(),
-        };
-        // For select elements, include the options so AI can pick from them
-        if (el.tagName === "SELECT") {
-          desc.options = Array.from(el.options)
-            .map((opt) => opt.text.trim())
-            .filter((t) => t && t !== "--" && t !== "Select" && t.length < 100)
-            .slice(0, 30);
-        }
-        if (isChoiceInput(el)) {
-          desc.options = getChoiceOptions(el)
-            .map((option) => {
-              const label = option.label || option.value;
-              if (!label) return "";
-              return option.value && normalizeChoiceText(option.value) !== normalizeChoiceText(label)
-                ? `${label} (${option.value})`
-                : label;
-            })
-            .filter((text) => text && text.length < 120)
-            .slice(0, 20);
-        }
-        return desc;
-      });
+      const fieldDescriptors = unmatchedFields.map(buildAiFieldDescriptor);
 
       const aiResult = await apiProxy(
         "http://127.0.0.1:8787/api/autofill-ai",
@@ -2391,44 +3961,20 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
           const idx = parseInt(indexStr, 10);
           const el = unmatchedFields[idx];
           if (!el || !value || value === "") continue;
-          // Defense in depth: never fill a fabricated placeholder URL (the
-          // server scrubs these too, but cached/legacy responses may slip by).
-          if (/^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|test\.com|yourwebsite\.com|website\.com|url\.com|placeholder\.[a-z]+|sample\.com|mywebsite\.com|my-?portfolio\.[a-z]+|portfolio\.com|yoursite\.com|yourname\.com|johndoe\.[a-z]+|janedoe\.[a-z]+)(?:\/.*)?$/i.test(String(value).trim())) continue;
-
-          if (el.tagName === "SELECT") {
-            // Strict match only — if Gemma answered with text that isn't one of
-            // the options, leave the select untouched and say so in the audit.
-            const matchIdx = findBestSelectOptionIndex(el, value);
-            if (matchIdx !== -1) {
-              applySelectIndex(el, matchIdx);
-              aiFilledCount++;
-              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: Array.from(el.options)[matchIdx]?.text?.slice(0, 80) || String(value).slice(0, 80), ai: true });
-            } else {
-              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `⚠ skipped — "${String(value).slice(0, 50)}" matches no option`, ai: true });
-            }
-          } else if (isChoiceInput(el)) {
-            if (setChoiceValue(el, value)) {
-              aiFilledCount++;
-              markFieldFilled(regexFilledElements, el);
-              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
-            } else {
-              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `⚠ skipped — "${String(value).slice(0, 50)}" matches no option`, ai: true });
-            }
-          } else if (isAriaComboboxInput(el)) {
-            if (await fillComboboxField(el, value)) {
-              aiFilledCount++;
-              markFieldFilled(regexFilledElements, el);
-              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
-            } else {
-              auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: `⚠ typed "${String(value).slice(0, 50)}" but no option appeared`, ai: true });
-            }
-          } else {
-            setInputValue(el, value);
+          if (wasFieldFilled(regexFilledElements, el)) continue;
+          if (skipIfAlreadyAnswered(el)) continue;
+          const outcome = await applyAiValueToField(el, value, { profile });
+          if (outcome.skippedSilently) continue;
+          if (outcome.filled) {
             aiFilledCount++;
-            auditLog.push({ label: getAutofillFieldLabel(el).slice(0, 60), value: String(value).slice(0, 80), ai: true });
+            if (el.tagName !== "SELECT") markFieldFilled(regexFilledElements, el);
+            auditLog.push(makeAuditEntry(el, outcome.displayValue, { ai: true }));
+          } else {
+            auditLog.push(makeSkippedAuditEntry(el, outcome.displayValue, outcome.reason, { ai: true }));
           }
         }
       filledCount += aiFilledCount;
+      await injectCvFileLastStep();
       updateWorkflowSteps("autofill", [
         { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
         { status: "done", label: "Scanned visible form controls" },
@@ -2436,7 +3982,10 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
         { status: "done", label: "Gemma custom-field pass", detail: `${aiFilledCount} field${aiFilledCount === 1 ? "" : "s"} filled from cleaned page context.` },
       ]);
       showToast(`Auto-filled ${filledCount} fields total (${aiFilledCount} with Gemma).`);
+      renderAutofillAudit(auditLog, { skippedAlreadyFilledCount });
+      return { filledCount, auditLog, skippedAlreadyFilledCount };
       } else {
+        await injectCvFileLastStep();
         updateWorkflowSteps("autofill", [
           { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
           { status: "done", label: "Scanned visible form controls" },
@@ -2444,8 +3993,11 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
           { status: "error", label: "Gemma custom-field pass", detail: "No confident answers returned." },
         ]);
         showToast(`Auto-filled ${filledCount} fields. Gemma did not return confident custom answers.`);
+        renderAutofillAudit(auditLog, { skippedAlreadyFilledCount });
+        return { filledCount, auditLog, skippedAlreadyFilledCount };
       }
     } else {
+      await injectCvFileLastStep();
       updateWorkflowSteps("autofill", [
         { status: "done", label: "Submit tracker attached", detail: "Final submit will be saved automatically." },
         { status: "done", label: "Scanned visible form controls" },
@@ -2455,6 +4007,8 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
           : { status: "done", label: "Gemma custom-field pass", detail: "No empty custom fields left." },
       ]);
       showToast(`Auto-filled ${filledCount} fields. ${unmatchedFields.length > 40 ? "Too many custom fields for one Gemma pass." : "No custom fields left for Gemma."}`);
+      renderAutofillAudit(auditLog, { skippedAlreadyFilledCount });
+      return { filledCount, auditLog, skippedAlreadyFilledCount };
     }
   } catch (err) {
     console.warn("AI autofill phase failed:", err);
@@ -2467,46 +4021,132 @@ async function autofillWebForm(profile, { useAi = false } = {}) {
     showToast(`Auto-filled ${filledCount} fields. Gemma autofill failed or is busy.`);
   }
 
-  renderAutofillAudit(auditLog);
+  await injectCvFileLastStep();
+  renderAutofillAudit(auditLog, { skippedAlreadyFilledCount });
+  return { filledCount, auditLog, skippedAlreadyFilledCount };
 }
 
-function renderAutofillAudit(auditLog) {
+function renderAutofillAudit(auditLog, { skippedAlreadyFilledCount = 0 } = {}) {
   const logContainer = document.getElementById("jh-autofill-audit-log");
   const logList = document.getElementById("jh-autofill-audit-list");
   const summaryEl = document.getElementById("jh-autofill-summary");
+  if (IS_TOP_FRAME) {
+    lastAutofillAuditLog = Array.isArray(auditLog) ? auditLog.slice() : [];
+    lastAutofillSkippedAlreadyFilledCount = skippedAlreadyFilledCount;
+  }
+
+  const nestedLogs = IS_TOP_FRAME
+    ? frameAutofillResults.flatMap((result) => (result.auditLog || []).map((item) => ({
+      ...item,
+      label: `${result.frameHost || "embedded form"}: ${item.label || "Unnamed field"}`,
+    })))
+    : [];
+  const nestedSkipped = IS_TOP_FRAME
+    ? frameAutofillResults.reduce((sum, result) => sum + Number(result.skippedAlreadyFilledCount || 0), 0)
+    : 0;
+  const combinedAuditLog = [...(auditLog || []), ...nestedLogs];
+  const totalSkippedAlreadyFilled = skippedAlreadyFilledCount + nestedSkipped;
+  const itemIsSkipped = (item) => item?.status === "skipped" || /^\s*⚠/.test(String(item?.value || ""));
+  const changedLog = combinedAuditLog.filter((item) => !itemIsSkipped(item));
+  const profileCount = changedLog.filter((item) => !item.ai).length;
+  const aiCount = changedLog.filter((item) => item.ai).length;
+  const skippedCount = combinedAuditLog.length - changedLog.length;
 
   if (summaryEl) {
-    summaryEl.textContent = auditLog.length
-      ? `${auditLog.length} field${auditLog.length === 1 ? "" : "s"} injected into the visible form.`
-      : "No supported empty form fields were found on this page.";
+    if (combinedAuditLog.length) {
+      summaryEl.textContent = `${changedLog.length} field${changedLog.length === 1 ? "" : "s"} changed: ${profileCount} profile, ${aiCount} Gemma.${skippedCount ? ` ${skippedCount} proposed value${skippedCount === 1 ? "" : "s"} not filled.` : ""}${totalSkippedAlreadyFilled ? ` ${totalSkippedAlreadyFilled} already-filled field${totalSkippedAlreadyFilled === 1 ? "" : "s"} left alone.` : ""}`;
+    } else if (totalSkippedAlreadyFilled) {
+      summaryEl.textContent = `No empty fields changed. ${totalSkippedAlreadyFilled} supported field${totalSkippedAlreadyFilled === 1 ? "" : "s"} already had values.`;
+    } else {
+      summaryEl.textContent = "No supported empty form fields were found on this page.";
+    }
   }
 
   if (!logContainer || !logList) return;
   logContainer.hidden = false;
   logList.replaceChildren();
 
-  if (!auditLog.length) {
+  if (!combinedAuditLog.length) {
     const li = document.createElement("li");
-    li.textContent = "No fields changed.";
+    li.className = "jh-audit-row empty";
+    const emptyText = document.createElement("span");
+    emptyText.className = "jh-audit-empty";
+    emptyText.textContent = totalSkippedAlreadyFilled
+      ? "Already-filled fields were left untouched."
+      : "No fields changed.";
+    li.appendChild(emptyText);
     logList.appendChild(li);
     return;
   }
 
-  auditLog.forEach(({ label, value, ai }) => {
+  combinedAuditLog.forEach((item) => {
+    const { label, value, copyValue, reason, ai, status, copyText } = item || {};
+    const isSkipped = status === "skipped" || /^\s*⚠/.test(String(value || ""));
     const li = document.createElement("li");
-    li.style.marginBottom = "2px";
+    li.className = `jh-audit-row${isSkipped ? " skipped" : ""}`;
 
-    const strong = document.createElement("strong");
-    strong.style.color = ai ? "#00C853" : "#FFB300";
-    strong.textContent = ai ? `[AI] ${label}` : label;
+    const fieldWrap = document.createElement("div");
+    fieldWrap.className = "jh-audit-field-wrap";
 
-    const sep = document.createTextNode(": ");
+    const field = document.createElement("strong");
+    field.className = "jh-audit-field";
+    field.textContent = label || "Unnamed field";
 
     const val = document.createElement("span");
-    val.style.opacity = "0.8";
-    val.textContent = value;
+    val.className = "jh-audit-value";
+    val.textContent = value || "(empty)";
 
-    li.append(strong, sep, val);
+    fieldWrap.append(field, val);
+
+    if (isSkipped && copyValue) {
+      const proposed = document.createElement("span");
+      proposed.className = "jh-audit-proposed";
+      proposed.textContent = `Proposed: ${copyValue}`;
+      fieldWrap.appendChild(proposed);
+    }
+
+    if (isSkipped && reason) {
+      const reasonEl = document.createElement("span");
+      reasonEl.className = "jh-audit-reason";
+      reasonEl.textContent = `Why: ${reason}`;
+      fieldWrap.appendChild(reasonEl);
+    }
+
+    const metaWrap = document.createElement("div");
+    metaWrap.className = "jh-audit-meta";
+
+    const source = document.createElement("span");
+    source.className = ai ? "jh-audit-source ai" : "jh-audit-source profile";
+    source.textContent = ai ? "Gemma" : "Profile";
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "jh-audit-copy";
+    copyButton.textContent = "Copy";
+    copyButton.title = isSkipped ? "Copy proposed value and reason" : "Copy value";
+    copyButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const fallbackCopy = [
+        `Field: ${label || "Unnamed field"}`,
+        `Source: ${ai ? "Gemma" : "Profile"}`,
+        `Status: ${isSkipped ? "Not filled" : "Filled"}`,
+        reason ? `Reason: ${reason}` : "",
+        copyValue ? `${isSkipped ? "Proposed value" : "Value"}: ${copyValue}` : `Value: ${value || ""}`,
+      ].filter(Boolean).join("\n");
+      try {
+        await copyTextToClipboard(copyText || fallbackCopy);
+        copyButton.textContent = "Copied";
+        setTimeout(() => {
+          copyButton.textContent = "Copy";
+        }, 1200);
+      } catch {
+        showToast("Could not copy this field text.");
+      }
+    });
+
+    metaWrap.append(source, copyButton);
+    li.append(fieldWrap, metaWrap);
     logList.appendChild(li);
   });
 }
@@ -2854,6 +4494,15 @@ function injectWebCopilot(profile) {
   todayBtn.setAttribute("aria-label", "Show applications tracked today");
   todayBtn.innerHTML = `<span class="jh-icon">📅</span><span class="jh-btn-label">Today</span>`;
 
+  // Ask Gemma button — answer a single field the autofill pass missed
+  const askBtn = document.createElement("button");
+  askBtn.id = "jh-btn-ask";
+  askBtn.type = "button";
+  askBtn.className = "jh-floating-btn jh-ask-btn";
+  askBtn.title = "Ask Gemma to answer one specific field";
+  askBtn.setAttribute("aria-label", "Ask Gemma to answer one specific field");
+  askBtn.innerHTML = `<span class="jh-icon">🪄</span><span class="jh-btn-label">Ask</span>`;
+
   // Create Manual Track button for ATS pages whose submit event cannot be observed
   const trackBtn = document.createElement("button");
   trackBtn.id = "jh-btn-track";
@@ -2862,6 +4511,43 @@ function injectWebCopilot(profile) {
   trackBtn.title = "Manually add this application now";
   trackBtn.setAttribute("aria-label", "Manually add this application now");
   trackBtn.innerHTML = `<span class="jh-icon">＋</span><span class="jh-btn-label">Track</span>`;
+
+  // Secondary tools stay tucked away until needed.
+  const toolbarMenu = document.createElement("div");
+  toolbarMenu.id = "jh-toolbar-menu";
+  toolbarMenu.className = "jh-toolbar-menu";
+  toolbarMenu.hidden = true;
+  toolbarMenu.setAttribute("role", "menu");
+  toolbarMenu.setAttribute("aria-label", "Claire secondary actions");
+
+  const moreBtn = document.createElement("button");
+  moreBtn.id = "jh-btn-more";
+  moreBtn.type = "button";
+  moreBtn.className = "jh-floating-btn jh-more-btn";
+  moreBtn.title = "Show more Claire actions";
+  moreBtn.setAttribute("aria-label", "Show more Claire actions");
+  moreBtn.setAttribute("aria-expanded", "false");
+  moreBtn.innerHTML = `<span class="jh-icon">...</span><span class="jh-btn-label">More</span>`;
+
+  const setToolbarMenuOpen = (open) => {
+    toolbarMenu.hidden = !open;
+    toolbarMenu.classList.toggle("visible", open);
+    moreBtn.setAttribute("aria-expanded", String(open));
+  };
+
+  moreBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setToolbarMenuOpen(!toolbarMenu.classList.contains("visible"));
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    if (!actionsBar.contains(event.target)) setToolbarMenuOpen(false);
+  }, { capture: true });
+
+  [askBtn, cvBtn, evalBtn, todayBtn, trackBtn].forEach((button) => {
+    button.addEventListener("click", () => setToolbarMenuOpen(false));
+  });
 
   // Create Close/Hide button
   const hideBtn = document.createElement("button");
@@ -2872,18 +4558,25 @@ function injectWebCopilot(profile) {
   hideBtn.setAttribute("aria-label", "Hide Copilot toolbar");
   hideBtn.innerHTML = `<span class="jh-icon">✕</span>`;
   hideBtn.addEventListener("click", () => {
+    setToolbarMenuOpen(false);
     actionsBar.style.display = "none";
     const w = document.getElementById("jh-copilot-widget");
     if (w) w.style.display = "none";
   });
 
-  actionsBar.appendChild(prefillBtn);
-  actionsBar.appendChild(cvBtn);
+  // Fill (prefillBtn) and Applied? (companyBtn) are intentionally NOT added to
+  // the toolbar — they now run automatically when the toolbar opens (see
+  // runAutoOpenFlow). The button objects are still created above so their logic
+  // can be reused by the auto-open flow and the company search panel.
+  toolbarMenu.append(cvBtn);
+  actionsBar.appendChild(askBtn);
   actionsBar.appendChild(evalBtn);
-  actionsBar.appendChild(companyBtn);
   actionsBar.appendChild(todayBtn);
   actionsBar.appendChild(trackBtn);
+  actionsBar.appendChild(moreBtn);
   actionsBar.appendChild(hideBtn);
+  actionsBar.appendChild(toolbarMenu);
+  setToolbarMenuOpen(false);
   document.body.appendChild(actionsBar);
   makeFloatingActionsDraggable(actionsBar);
 
@@ -2945,13 +4638,23 @@ function injectWebCopilot(profile) {
           </div>
           <p id="jh-submit-listener-detail">Click Scan/Prefill to attach the submit tracker.</p>
         </div>
-        <div class="jh-workflow-card">
-          <div class="jh-workflow-summary" id="jh-autofill-workflow-summary">Ready</div>
-          <ol class="jh-workflow-list" id="jh-autofill-workflow-list"></ol>
-        </div>
         <div id="jh-autofill-audit-log">
           <div id="jh-autofill-summary" class="jh-audit-summary">Form scanned successfully.</div>
           <ul id="jh-autofill-audit-list" class="jh-audit-list"></ul>
+        </div>
+        <div id="jh-autofill-payload-card" class="jh-payload-card" hidden>
+          <div class="jh-payload-header">
+            <div>
+              <strong>Last JSON sent</strong>
+              <span id="jh-autofill-payload-meta"></span>
+            </div>
+            <button id="jh-autofill-payload-copy" class="jh-payload-copy" type="button" disabled>Copy JSON</button>
+          </div>
+          <pre id="jh-autofill-payload-json" class="jh-payload-json"></pre>
+        </div>
+        <div class="jh-workflow-card">
+          <div class="jh-workflow-summary" id="jh-autofill-workflow-summary">Ready</div>
+          <ol class="jh-workflow-list" id="jh-autofill-workflow-list"></ol>
         </div>
       </div>
 
@@ -2965,6 +4668,16 @@ function injectWebCopilot(profile) {
         <div class="jh-workflow-card">
           <div class="jh-workflow-summary" id="jh-track-workflow-summary">Ready</div>
           <ol class="jh-workflow-list" id="jh-track-workflow-list"></ol>
+        </div>
+        <div id="jh-track-payload-card" class="jh-payload-card" hidden>
+          <div class="jh-payload-header">
+            <div>
+              <strong>Last JSON sent</strong>
+              <span id="jh-track-payload-meta"></span>
+            </div>
+            <button id="jh-track-payload-copy" class="jh-payload-copy" type="button" disabled>Copy JSON</button>
+          </div>
+          <pre id="jh-track-payload-json" class="jh-payload-json"></pre>
         </div>
         <form id="jh-track-form" class="jh-widget-form">
           <div class="jh-form-field">
@@ -3011,6 +4724,15 @@ function injectWebCopilot(profile) {
         <div id="jh-today-result"></div>
       </div>
 
+      <!-- Ask Gemma View -->
+      <div id="jh-ask-panel" class="jh-panel-section" hidden>
+        <h3 class="jh-section-title">🪄 Ask Gemma</h3>
+        <p class="jh-ask-hint">Gemma answers one field the autofill missed. Optionally tell her how to answer, then pick the field on the page.</p>
+        <textarea id="jh-ask-instruction" class="jh-form-input jh-ask-instruction" rows="3" placeholder="Optional guidance — e.g. &quot;Answer Yes&quot;, &quot;Mention my AWS experience&quot;, &quot;Pick the closest option&quot;."></textarea>
+        <button id="jh-ask-pick" class="jh-form-submit-btn" type="button">🎯 Pick a field to fill</button>
+        <div id="jh-ask-status" class="jh-ask-status" hidden></div>
+      </div>
+
       <!-- Company Check View -->
       <div id="jh-company-panel" class="jh-panel-section" hidden>
         <h3 class="jh-section-title">🏢 Applied Here?</h3>
@@ -3033,10 +4755,23 @@ function injectWebCopilot(profile) {
   positionWidgetRelativeToToolbar();
   window.addEventListener("resize", positionWidgetRelativeToToolbar, { passive: true });
   updateSubmitListenerStatus("ready");
+  bindPayloadCopyButton("jh-autofill-payload-copy");
+  bindPayloadCopyButton("jh-track-payload-copy");
+  loadLastTrackedPayloadPreview();
 
   // Bind close button
   document.getElementById("jh-widget-close").addEventListener("click", () => {
     widget.classList.add("minimized");
+  });
+
+  // Ask Gemma handlers
+  askBtn.addEventListener("click", () => {
+    showCopilotPanel("ask");
+    document.getElementById("jh-ask-instruction")?.focus();
+  });
+  document.getElementById("jh-ask-pick").addEventListener("click", (event) => {
+    event.preventDefault();
+    startAskFieldPick();
   });
 
   // Evaluate Button Handler
@@ -3080,27 +4815,10 @@ function injectWebCopilot(profile) {
     }
   });
 
-  // Prefill Button Handler — also silently syncs the application to the dashboard
-  // so it appears without the user having to submit or manually click "+".
+  // Prefill Button Handler — fills the ATS form only. Tracker cards are created
+  // by the actual submit action, or by the explicit Track form.
   prefillBtn.addEventListener("click", () => {
     showCopilotPanel("autofill");
-
-    // Auto-save to dashboard in parallel with filling the form. Uses the same
-    // dedupe key (sourceUrl) as the submit-tracker path, so if the user later
-    // submits the ATS form the update is silent (no duplicate toast).
-    const now = new Date();
-    const appliedAt = now.toISOString();
-    const fillJobData = extractJob();
-    fillJobData.dateApplied = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    fillJobData.appliedAt = appliedAt;
-    fillJobData.stageDateTimes = { Applied: appliedAt };
-    fillJobData.status = "Applied";
-    trackApplicationViaBackground(fillJobData, { trigger: "fill form", runEvaluation: false })
-      .then((res) => {
-        if (res.ok && fillJobData.sourceUrl) trackedAppUrls.add(fillJobData.sourceUrl);
-      })
-      .catch(() => {});
-
     autofillWebForm(profile, { useAi: true });
   });
 
@@ -3217,6 +4935,7 @@ function injectWebCopilot(profile) {
       pageText: extractedContext.pageText || "",
       description: extractedContext.description || "",
     };
+    renderTrackedPayload(jobData, { panel: "track", trigger: "manual save" });
 
     try {
       updateWorkflowSteps("track", [
@@ -3227,6 +4946,7 @@ function injectWebCopilot(profile) {
       const result = await trackApplicationViaBackground(jobData, { trigger: "manual save", runEvaluation: true });
       if (!result.ok) throw new Error(result.error || "Tracker save failed.");
       const status = result.status;
+      renderTrackedPayload(jobData, { panel: "track", trigger: "manual save", status });
       // 200 = matched & updated an existing record; 201 = brand-new entry. Telling
       // them apart stops the "it said done but nothing appeared" confusion when a
       // job (same URL or company+role) was already in the tracker.
@@ -3235,6 +4955,8 @@ function injectWebCopilot(profile) {
         { status: "done", label: status === 200 ? "Updated dashboard card" : "Saved dashboard card" },
         result.evaluationSaved
           ? { status: "done", label: "Stored Gemma evaluation", detail: `${result.evaluation?.decision || "Decision"} · ${result.evaluation?.score ?? 0}/100` }
+          : result.evaluationQueued
+            ? { status: "done", label: "Queued Gemma evaluation", detail: "The card is saved; Gemma can update it in the background." }
           : { status: result.evaluationError ? "error" : "pending", label: "Gemma evaluation", detail: result.evaluationError || "No evaluation returned." },
       ]);
       showToast(
@@ -3331,16 +5053,9 @@ function injectWebCopilot(profile) {
       const apps = await apiProxy("http://127.0.0.1:8787/api/applications");
       const now = new Date();
       // Local date string, matching the dashboard's todayString convention.
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      const isToday = (app) => {
-        if (app.dateApplied === todayStr) return true;
-        if (!app.appliedAt) return false;
-        const applied = new Date(app.appliedAt);
-        return !Number.isNaN(applied.getTime()) &&
-          `${applied.getFullYear()}-${String(applied.getMonth() + 1).padStart(2, "0")}-${String(applied.getDate()).padStart(2, "0")}` === todayStr;
-      };
-      const todays = (apps || []).filter(isToday).sort(
-        (a, b) => new Date(b.appliedAt || b.dateApplied || 0) - new Date(a.appliedAt || a.dateApplied || 0)
+      const todayStr = getLocalDateKey(now);
+      const todays = (apps || []).filter((app) => applicationWasAppliedOnLocalDate(app, todayStr)).sort(
+        (a, b) => getAppliedSortTime(b) - getAppliedSortTime(a)
       );
       if (loadingEl) loadingEl.classList.remove("visible");
       renderTodayPanel(resultEl, todays);
@@ -3349,6 +5064,72 @@ function injectWebCopilot(profile) {
       renderTodayPanel(resultEl, null);
     }
   });
+
+  // Auto-open flow: when the toolbar opens, check "Applied?" first. If this job
+  // (by URL) or company is already in the tracker, show it and let the user
+  // decide (with an explicit "Fill anyway"). Otherwise, autofill automatically.
+  // Replaces the old manual Fill / Applied? buttons.
+  const runAutoOpenFlow = async () => {
+    const currentUrl = locationHref();
+    if (copilotAutoRanForUrl === currentUrl) return; // once per page open
+    copilotAutoRanForUrl = currentUrl;
+
+    const detectedCompany = clean(extractJob().company || "");
+    showCopilotPanel("company");
+    const searchInput = document.getElementById("jh-company-search-input");
+    if (searchInput) searchInput.value = detectedCompany;
+    const detectedEl = document.getElementById("jh-company-detected-name");
+    const loadingEl = document.getElementById("jh-company-loading");
+    const resultEl = document.getElementById("jh-company-result");
+    if (detectedEl) detectedEl.textContent = detectedCompany ? `Checking: ${detectedCompany}` : "Checking this page…";
+    if (loadingEl) loadingEl.classList.add("visible");
+    if (resultEl) resultEl.replaceChildren();
+
+    let apps = null;
+    try {
+      apps = await apiProxy("http://127.0.0.1:8787/api/applications");
+    } catch {
+      apps = null;
+    }
+    if (loadingEl) loadingEl.classList.remove("visible");
+
+    if (!apps) {
+      // Couldn't reach the tracker — surface the error; don't silently autofill.
+      renderCompanyPanel(resultEl, detectedCompany, null);
+      return;
+    }
+
+    const normalizeName = (s) => (s || "").toLowerCase().trim().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    const normalizeUrl = (u) => {
+      try { const x = new URL(u); return (x.origin + x.pathname).replace(/\/+$/, "").toLowerCase(); }
+      catch { return String(u || "").split(/[?#]/)[0].replace(/\/+$/, "").toLowerCase(); }
+    };
+    const nb = normalizeName(detectedCompany);
+    const here = normalizeUrl(currentUrl);
+    const matches = (apps || []).filter((app) => {
+      if (app.sourceUrl && normalizeUrl(app.sourceUrl) === here) return true; // same posting
+      if (!nb || !app.company) return false;
+      const na = normalizeName(app.company);
+      return na === nb || na.includes(nb) || nb.includes(na);
+    });
+
+    if (matches.length > 0) {
+      // Already tracked — show the record and pause. The user decides.
+      renderCompanyPanel(resultEl, detectedCompany || "this role", matches, {
+        onFillAnyway: () => {
+          showCopilotPanel("autofill");
+          autofillWebForm(profile, { useAi: true });
+        },
+      });
+      showToast(`Already in your tracker (${matches.length}). Review before filling.`);
+      return;
+    }
+
+    // Not tracked yet → autofill automatically.
+    showCopilotPanel("autofill");
+    autofillWebForm(profile, { useAi: true });
+  };
+  runCopilotAutoOpen = runAutoOpenFlow;
 
   // Expose toggle helpers for other parts of extension compatibility
   window.openCopilotDrawer = () => {
@@ -3386,6 +5167,10 @@ function updatePrefillButtonState(prefillBtn = document.getElementById("jh-btn-p
   if (icon) {
     icon.textContent = submitTrackerAttached ? "✓" : "⚡";
   }
+  const label = prefillBtn.querySelector(".jh-btn-label");
+  if (label) {
+    label.textContent = "Fill";
+  }
 }
 
 function makeFloatingActionsDraggable(actionsBar) {
@@ -3399,7 +5184,7 @@ function makeFloatingActionsDraggable(actionsBar) {
 
   actionsBar.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
-    if (event.target?.closest?.(".jh-floating-btn")) return;
+    if (event.target?.closest?.(".jh-floating-btn, .jh-toolbar-menu")) return;
     const rect = actionsBar.getBoundingClientRect();
     dragFloatingActionsState = {
       pointerId: event.pointerId,
@@ -3657,6 +5442,240 @@ async function typeIntoField(element, text) {
   await typeHumanLike(element, text);
 }
 
+/* ==========================================================================
+   🪄 ASK GEMMA — pick one field on the page and have Gemma answer it
+   ========================================================================== */
+// Runs in every frame: the user clicks "Ask" in the top-frame toolbar, types
+// optional guidance, then clicks the field. The frame that owns the clicked
+// field calls /api/autofill-ai with just that field (plus the instruction) and
+// applies the answer through the same machinery as the bulk autofill pass.
+
+let askPickActive = false;
+let askPickInstruction = "";
+let askPickHover = null;
+let askPickHoverPrevOutline = "";
+let askPickPrevCursor = "";
+
+function broadcastAskMode(action, instruction = "") {
+  try {
+    chrome.runtime
+      .sendMessage({ type: "JH_BROADCAST_ASK_MODE", action, instruction })
+      .catch(() => {});
+  } catch {
+    // extension context invalidated — local mode still works in this frame
+  }
+}
+
+function askPickCandidateFromEvent(event) {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+  for (const node of path) {
+    if (!node || node === document || node === window) continue;
+    if (isInCopilotUi(node)) return null;
+    if (node.matches?.(FILLABLE_FIELD_SELECTOR) && !isLegacySelectWidgetInput(node) && !isReactSelectRequiredInput(node)) return node;
+    if (node.tagName === "LABEL" && node.control) return node.control;
+  }
+  // Clicking a custom widget's chrome (react-select control, combobox shell)
+  // should resolve to the typing input inside it.
+  for (const node of path) {
+    if (!node?.querySelector || node === document.body || node === document.documentElement) continue;
+    if (node.matches?.('[role="combobox"], [class*="select__control" i], [class*="select-shell" i], .iti')) {
+      const inner = node.querySelector(FILLABLE_FIELD_SELECTOR);
+      if (inner && !isInCopilotUi(inner)) return inner;
+    }
+  }
+  // Clicking a segmented Yes/No / button-choice option resolves to its group so
+  // Gemma answers the question and we click the matching button.
+  for (const node of path) {
+    if (!node || node.nodeType !== 1 || node === document.body || node === document.documentElement) continue;
+    if (isInCopilotUi(node)) return null;
+    const container = getButtonChoiceGroupContainer(node);
+    if (container) return container;
+  }
+  return null;
+}
+
+function setAskPickHover(el) {
+  if (askPickHover === el) return;
+  if (askPickHover) askPickHover.style.outline = askPickHoverPrevOutline;
+  askPickHover = el || null;
+  askPickHoverPrevOutline = el ? el.style.outline : "";
+  if (el) el.style.outline = "2px solid #FFB300";
+}
+
+function handleAskPickPointerDown(event) {
+  if (!askPickActive || isInCopilotUi(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const target = askPickCandidateFromEvent(event);
+  if (!target) return; // not a fillable control — keep picking
+  const instruction = askPickInstruction;
+  broadcastAskMode("exit");
+  exitAskPickMode();
+  runAskGemmaOnField(target, instruction);
+}
+
+function swallowAskPickEvent(event) {
+  if (!askPickActive || isInCopilotUi(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function handleAskPickHover(event) {
+  if (!askPickActive) return;
+  setAskPickHover(askPickCandidateFromEvent(event));
+}
+
+function handleAskPickKeydown(event) {
+  if (!askPickActive || event.key !== "Escape") return;
+  event.preventDefault();
+  event.stopPropagation();
+  broadcastAskMode("exit");
+  exitAskPickMode();
+  if (IS_TOP_FRAME) {
+    renderAskResult({ state: "error", detail: "Field pick cancelled." });
+    showToast("Ask Gemma cancelled.");
+  }
+}
+
+function enterAskPickMode(instruction) {
+  askPickInstruction = instruction || "";
+  if (askPickActive) return;
+  askPickActive = true;
+  askPickPrevCursor = document.documentElement.style.cursor;
+  document.documentElement.style.cursor = "crosshair";
+  document.addEventListener("pointerdown", handleAskPickPointerDown, true);
+  document.addEventListener("mouseup", swallowAskPickEvent, true);
+  document.addEventListener("click", swallowAskPickEvent, true);
+  document.addEventListener("mouseover", handleAskPickHover, true);
+  document.addEventListener("keydown", handleAskPickKeydown, true);
+}
+
+function exitAskPickMode() {
+  if (!askPickActive) return;
+  askPickActive = false;
+  setAskPickHover(null);
+  document.documentElement.style.cursor = askPickPrevCursor;
+  document.removeEventListener("pointerdown", handleAskPickPointerDown, true);
+  document.removeEventListener("mouseup", swallowAskPickEvent, true);
+  document.removeEventListener("click", swallowAskPickEvent, true);
+  document.removeEventListener("mouseover", handleAskPickHover, true);
+  document.removeEventListener("keydown", handleAskPickKeydown, true);
+}
+
+// Surface progress/results in the top-frame Ask panel regardless of which
+// frame ran the fill.
+function reportAskStatus(result) {
+  if (IS_TOP_FRAME) {
+    renderAskResult(result);
+    return;
+  }
+  try {
+    chrome.runtime
+      .sendMessage({ type: "JH_ASK_RESULT", result: { ...result, frameHost: location.hostname } })
+      .catch(() => {});
+  } catch {
+    // extension context gone — nothing to surface
+  }
+}
+
+async function runAskGemmaOnField(input, instruction) {
+  const label = getAutofillFieldLabel(input);
+  reportAskStatus({ state: "working", label, detail: instruction ? `Instruction: ${instruction}` : "Asking Gemma..." });
+  showToast(`Asking Gemma about “${label.slice(0, 60)}”... 🧠`);
+  try {
+    const jobContext = extractJob();
+    const data = await apiProxy("http://127.0.0.1:8787/api/autofill-ai", "POST", {
+      fields: [buildAiFieldDescriptor(input)],
+      job: jobContext,
+      pageText: jobContext.pageText || jobContext.description || "",
+      instruction: (instruction || "").slice(0, 500),
+    });
+    const value = data?.mappings ? data.mappings["0"] : undefined;
+    if (!data?.ok || value === undefined || String(value).trim() === "") {
+      reportAskStatus({ state: "error", label, detail: data?.error || "Gemma returned no confident answer for this field." });
+      showToast("Gemma had no answer for that field. ❌");
+      return;
+    }
+    // The user's explicit ask overrides the profile pin on identity-ish fields.
+    const outcome = await applyAiValueToField(input, value, { respectProfileGuard: false });
+    if (outcome.filled) {
+      reportAskStatus({ state: "done", label, value: String(outcome.displayValue ?? value), detail: "Filled — review it before submitting." });
+      showToast(`Gemma filled “${label.slice(0, 60)}”. ⚡`);
+    } else {
+      reportAskStatus({ state: "error", label, value: String(outcome.displayValue ?? value), detail: outcome.reason || "Could not apply the proposed value. It is shown above so you can paste it." });
+      showToast("Gemma answered but the value could not be applied — see the Ask panel.");
+    }
+  } catch (err) {
+    console.warn("Ask Gemma failed:", err);
+    reportAskStatus({ state: "error", label, detail: err?.message || "Local Gemma/server unavailable." });
+    showToast("Ask Gemma failed — is the cockpit server running?");
+  }
+}
+
+// Top-frame only: render state into the Ask panel (and reopen the widget for
+// final states so the user sees the outcome).
+function renderAskResult(result = {}) {
+  if (!IS_TOP_FRAME) return;
+  ensureCopilotPanel(localProfile);
+  const status = document.getElementById("jh-ask-status");
+  if (!status) return;
+  status.hidden = false;
+  status.className = `jh-ask-status ${result.state || ""}`;
+  status.replaceChildren();
+
+  const title = document.createElement("strong");
+  title.textContent =
+    result.state === "picking" ? "Click the field Gemma should answer (Esc cancels)." :
+    result.state === "working" ? `Gemma is answering: ${result.label || "field"}` :
+    result.state === "done" ? `Filled: ${result.label || "field"}` :
+    `Not filled${result.label ? ` — ${result.label}` : ""}`;
+  status.appendChild(title);
+
+  if (result.value) {
+    const valueRow = document.createElement("div");
+    valueRow.className = "jh-ask-value";
+    const valueText = document.createElement("span");
+    valueText.textContent = result.value;
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "jh-audit-copy";
+    copyBtn.textContent = "Copy";
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await copyTextToClipboard(result.value);
+        copyBtn.textContent = "Copied";
+        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
+      } catch {
+        showToast("Could not copy the answer.");
+      }
+    });
+    valueRow.append(valueText, copyBtn);
+    status.appendChild(valueRow);
+  }
+
+  if (result.detail) {
+    const detail = document.createElement("small");
+    detail.textContent = result.frameHost ? `${result.detail} (embedded form: ${result.frameHost})` : result.detail;
+    status.appendChild(detail);
+  }
+
+  if (result.state === "done" || result.state === "error") {
+    showCopilotPanel("ask");
+  }
+}
+
+// Entry point from the toolbar button / panel: minimize the widget so it does
+// not cover the form, then arm pick mode in every frame.
+function startAskFieldPick() {
+  const instruction = (document.getElementById("jh-ask-instruction")?.value || "").trim().slice(0, 500);
+  renderAskResult({ state: "picking" });
+  const widget = document.getElementById("jh-copilot-widget");
+  if (widget) widget.classList.add("minimized");
+  broadcastAskMode("enter", instruction);
+  enterAskPickMode(instruction); // local fallback if the relay fails
+  showToast("Pick mode: click the field Gemma should answer (Esc cancels).");
+}
+
 let toastHideTimer = null;
 let toastShowTimer = null;
 
@@ -3746,7 +5765,7 @@ function injectStyles() {
       bottom: 24px;
       right: 24px;
       width: auto;
-      max-width: min(94vw, 600px);
+      max-width: min(96vw, 760px);
       display: flex;
       gap: 4px;
       z-index: 1000000;
@@ -3763,6 +5782,7 @@ function injectStyles() {
       cursor: grab;
       touch-action: none;
       user-select: none;
+      overflow: visible;
       transition: box-shadow 0.3s, border-color 0.3s;
       animation: jh-bar-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -3775,6 +5795,34 @@ function injectStyles() {
     #jh-floating-actions.jh-dragging {
       cursor: grabbing;
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+    }
+
+    .jh-toolbar-menu {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 8px);
+      width: min(220px, 84vw);
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+      padding: 7px;
+      border-radius: 12px;
+      background: rgba(18, 20, 24, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(255,255,255,0.04) inset;
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      cursor: default;
+      animation: jh-dropdown-fade 0.16s ease-out;
+    }
+
+    .jh-toolbar-menu[hidden],
+    .jh-toolbar-menu:not(.visible) {
+      display: none !important;
+    }
+
+    .jh-toolbar-menu.visible {
+      display: flex;
     }
 
     .jh-floating-btn {
@@ -3796,6 +5844,25 @@ function injectStyles() {
       box-shadow: none;
       transition: background 0.18s, border-color 0.18s, transform 0.18s, filter 0.18s, opacity 0.18s;
       color: #E8E8EC;
+    }
+
+    .jh-toolbar-menu .jh-floating-btn {
+      width: 100%;
+      height: 36px;
+      justify-content: flex-start;
+      border-radius: 8px;
+      padding: 0 10px;
+      background: rgba(255, 255, 255, 0.045);
+    }
+
+    .jh-more-btn {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.075);
+    }
+
+    .jh-more-btn[aria-expanded="true"] {
+      background: rgba(255, 179, 0, 0.14);
+      border-color: rgba(255, 179, 0, 0.38);
     }
 
     .jh-icon {
@@ -3857,6 +5924,55 @@ function injectStyles() {
 
     .jh-today-btn .jh-btn-label { color: #FFE082; }
     .jh-today-btn:hover { border-color: rgba(255, 213, 79, 0.45); background: rgba(255, 213, 79, 0.12); }
+
+    .jh-ask-btn .jh-btn-label { color: #FFC9A3; }
+    .jh-ask-btn:hover { border-color: rgba(255, 145, 64, 0.45); background: rgba(255, 145, 64, 0.14); }
+
+    .jh-ask-hint {
+      margin: 0 0 10px;
+      color: #A5A5AB;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .jh-ask-instruction {
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+      min-height: 58px;
+      margin-bottom: 10px;
+      font-family: inherit;
+    }
+
+    .jh-ask-status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12.5px;
+      color: #E2E2E6;
+    }
+    .jh-ask-status.done { border-color: rgba(0, 200, 83, 0.4); }
+    .jh-ask-status.error { border-color: rgba(255, 109, 109, 0.4); }
+    .jh-ask-status small { color: #A5A5AB; line-height: 1.45; }
+
+    .jh-ask-value {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(255, 179, 0, 0.08);
+      border: 1px solid rgba(255, 179, 0, 0.25);
+      color: #FFD9A0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
 
     .jh-hide-btn {
       flex: 0 0 34px;
@@ -4206,27 +6322,218 @@ function injectStyles() {
       50% { box-shadow: 0 0 0 4px rgba(255, 179, 0, 0); }
     }
 
+    .jh-payload-card {
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(127, 196, 255, 0.22);
+      background: rgba(77, 146, 209, 0.085);
+    }
+
+    .jh-payload-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .jh-payload-header strong {
+      display: block;
+      color: #FFFFFF;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    .jh-payload-header span {
+      display: block;
+      color: #9FB3C8;
+      font-size: 10px;
+      line-height: 1.35;
+      margin-top: 2px;
+    }
+
+    .jh-payload-copy {
+      flex: 0 0 auto;
+      border: 1px solid rgba(127, 196, 255, 0.32);
+      border-radius: 8px;
+      background: rgba(127, 196, 255, 0.12);
+      color: #D7ECFF;
+      font-size: 10.5px;
+      font-weight: 800;
+      padding: 5px 8px;
+      cursor: pointer;
+    }
+
+    .jh-payload-copy:hover:not(:disabled) {
+      background: rgba(127, 196, 255, 0.2);
+      border-color: rgba(127, 196, 255, 0.48);
+    }
+
+    .jh-payload-copy:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+
+    .jh-payload-json {
+      max-height: 170px;
+      overflow: auto;
+      margin: 0;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.32);
+      color: #DDEBFA;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 10.5px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
     /* Autofill Logs specific styles */
     #jh-autofill-audit-log {
-      font-size: 11px;
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 8px;
+      font-size: 11.5px;
+      background: rgba(255, 179, 0, 0.055);
+      border: 1px solid rgba(255, 179, 0, 0.16);
+      border-radius: 10px;
       padding: 12px;
+      margin-bottom: 10px;
     }
 
     .jh-audit-summary {
       color: #FFB300;
-      font-weight: 600;
-      margin-bottom: 8px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      line-height: 1.35;
     }
 
     .jh-audit-list {
       margin: 0;
-      padding-left: 16px;
+      padding: 0;
+      list-style: none;
       color: #FFF;
-      line-height: 1.4;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
       word-break: break-word;
+    }
+
+    .jh-audit-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 8px;
+      padding: 8px 9px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .jh-audit-row.skipped {
+      border-color: rgba(255, 179, 0, 0.2);
+      background: rgba(255, 179, 0, 0.065);
+    }
+
+    .jh-audit-row.empty {
+      display: block;
+    }
+
+    .jh-audit-field-wrap {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      user-select: text;
+    }
+
+    .jh-audit-field {
+      color: #FFFFFF;
+      font-size: 11.5px;
+      font-weight: 700;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+
+    .jh-audit-value {
+      color: #C9C9D1;
+      font-size: 11px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+
+    .jh-audit-proposed,
+    .jh-audit-reason {
+      color: #B8B8C0;
+      font-size: 10.5px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+
+    .jh-audit-proposed {
+      color: #FFE1A1;
+    }
+
+    .jh-audit-meta {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+    }
+
+    .jh-audit-source {
+      flex: 0 0 auto;
+      align-self: start;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 9.5px;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      line-height: 1.3;
+      white-space: nowrap;
+    }
+
+    .jh-audit-copy {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #D7D7DD;
+      font-size: 9.5px;
+      font-weight: 800;
+      line-height: 1.2;
+      padding: 4px 7px;
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .jh-audit-copy:hover {
+      background: rgba(255, 179, 0, 0.14);
+      border-color: rgba(255, 179, 0, 0.34);
+      color: #FFD56F;
+    }
+
+    .jh-audit-source.profile {
+      color: #FFD56F;
+      background: rgba(255, 179, 0, 0.12);
+      border-color: rgba(255, 179, 0, 0.28);
+    }
+
+    .jh-audit-source.ai {
+      color: #7EE6A7;
+      background: rgba(0, 200, 83, 0.12);
+      border-color: rgba(0, 200, 83, 0.3);
+    }
+
+    .jh-audit-empty {
+      color: #A5A5AB;
+      font-size: 11.5px;
     }
 
     /* Inline Assistant Dropdown Styles */
@@ -4470,6 +6777,96 @@ function injectStyles() {
       white-space: nowrap;
       flex-shrink: 0;
     }
+
+    .jh-today-list {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .jh-today-card {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 10px 11px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: background 0.18s, border-color 0.18s;
+    }
+
+    .jh-today-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.13);
+    }
+
+    .jh-today-info {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .jh-today-company {
+      display: block;
+      color: #FFFFFF;
+      font-size: 12.5px;
+      font-weight: 800;
+      line-height: 1.18;
+      overflow-wrap: anywhere;
+    }
+
+    .jh-today-role {
+      display: block;
+      color: #CFCFD6;
+      font-size: 11.5px;
+      font-weight: 600;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    .jh-today-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+      color: #8E8E96;
+      font-size: 10px;
+      line-height: 1.3;
+    }
+
+    .jh-today-time,
+    .jh-today-meta-text,
+    .jh-today-source {
+      display: inline-flex;
+      min-width: 0;
+      max-width: 100%;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.055);
+      color: #A5A5AB;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    .jh-today-source:hover {
+      color: #FFB300;
+      background: rgba(255, 179, 0, 0.1);
+    }
+
+    .jh-today-status {
+      align-self: start;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -4537,8 +6934,69 @@ function renderInlineEvaluation(evaluation, parentDiv) {
   parentDiv.innerHTML = html;
 }
 
-// Applied-today list. null = API error. Reuses the company-panel row styling;
-// built with DOM methods only (app data is user-controlled text).
+function getLocalDateKey(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function parseTrackerDate(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(text)
+    ? new Date(`${text}T12:00:00`)
+    : new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function applicationWasAppliedOnLocalDate(app, dateKey) {
+  if (!app || !dateKey) return false;
+  if (app.dateApplied === dateKey || app.stageDates?.Applied === dateKey) return true;
+  const timestampCandidates = [app.appliedAt, app.stageDateTimes?.Applied];
+  return timestampCandidates.some((candidate) => {
+    const date = parseTrackerDate(candidate);
+    return date && getLocalDateKey(date) === dateKey;
+  });
+}
+
+function getAppliedSortTime(app) {
+  const timestamp = parseTrackerDate(app?.appliedAt || app?.stageDateTimes?.Applied);
+  if (timestamp) return timestamp.getTime();
+  const dateOnly = parseTrackerDate(app?.dateApplied || app?.stageDates?.Applied);
+  return dateOnly ? dateOnly.getTime() : 0;
+}
+
+function getAppliedTimeLabel(app) {
+  const timestamp = parseTrackerDate(app?.appliedAt || app?.stageDateTimes?.Applied);
+  if (!timestamp) return "today";
+  return timestamp.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function compactTrackerText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function getSourceHostLabel(sourceUrl) {
+  try {
+    return new URL(sourceUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function getApplicationTitleParts(app) {
+  const company = compactTrackerText(app?.company) ||
+    compactTrackerText(app?.companyName) ||
+    getSourceHostLabel(app?.sourceUrl) ||
+    "Unknown company";
+  const role = compactTrackerText(app?.role) ||
+    compactTrackerText(app?.title) ||
+    "Unknown role";
+  return { company, role };
+}
+
+// Applied-today list. null = API error. Built with DOM methods only
+// because app data can contain user-controlled text.
 function renderTodayPanel(container, apps) {
   if (!container) return;
 
@@ -4576,49 +7034,70 @@ function renderTodayPanel(container, apps) {
 
   const badge = document.createElement("span");
   badge.className = "jh-company-badge applied";
-  badge.textContent = `📅 ${apps.length} tracked today`;
+  badge.textContent = `${apps.length} applied today`;
 
   const appsDiv = document.createElement("div");
-  appsDiv.className = "jh-company-apps";
+  appsDiv.className = "jh-today-list";
 
   apps.forEach((app) => {
     const color = statusColors[app.status] || "#A5A5AB";
+    const { company, role } = getApplicationTitleParts(app);
+    const sourceHost = getSourceHostLabel(app.sourceUrl);
     const row = document.createElement("div");
-    row.className = "jh-app-row";
+    row.className = "jh-today-card";
 
     const info = document.createElement("div");
-    info.className = "jh-app-info";
+    info.className = "jh-today-info";
+
+    const companyEl = document.createElement("span");
+    companyEl.className = "jh-today-company";
+    companyEl.textContent = company;
 
     const roleEl = document.createElement("span");
-    roleEl.className = "jh-app-role";
-    roleEl.textContent = `${(app.company || "").trim() || "Unknown Company"} — ${(app.role || "").trim() || "Unknown Role"}`;
-    roleEl.style.cssText = "display:block;font-size:12.5px;font-weight:600;color:#E2E2E6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;";
+    roleEl.className = "jh-today-role";
+    roleEl.textContent = role;
 
-    const dateEl = document.createElement("span");
-    dateEl.className = "jh-app-date";
-    const appliedDate = app.appliedAt ? new Date(app.appliedAt) : null;
-    dateEl.textContent = appliedDate && !Number.isNaN(appliedDate.getTime())
-      ? appliedDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-      : "today";
-    dateEl.style.cssText = "display:block;font-size:10px;color:#8E8E96;";
+    const metaEl = document.createElement("div");
+    metaEl.className = "jh-today-meta";
 
-    info.appendChild(roleEl);
-    info.appendChild(dateEl);
+    const timeEl = document.createElement("span");
+    timeEl.className = "jh-today-time";
+    timeEl.textContent = getAppliedTimeLabel(app);
+    metaEl.appendChild(timeEl);
+
+    const location = compactTrackerText(app.location);
+    if (location) {
+      const locationEl = document.createElement("span");
+      locationEl.className = "jh-today-meta-text";
+      locationEl.textContent = location;
+      metaEl.appendChild(locationEl);
+    }
+
+    if (sourceHost && app.sourceUrl) {
+      const linkEl = document.createElement("a");
+      linkEl.className = "jh-today-source";
+      linkEl.href = app.sourceUrl;
+      linkEl.target = "_blank";
+      linkEl.rel = "noopener noreferrer";
+      linkEl.textContent = sourceHost;
+      metaEl.appendChild(linkEl);
+    }
+
+    info.append(companyEl, roleEl, metaEl);
 
     const statusEl = document.createElement("span");
-    statusEl.className = "jh-app-status";
+    statusEl.className = "jh-today-status";
     statusEl.textContent = app.status || "";
     statusEl.style.cssText = `background:${color}1a; color:${color}; border-color:${color}40;`;
 
-    row.appendChild(info);
-    row.appendChild(statusEl);
+    row.append(info, statusEl);
     appsDiv.appendChild(row);
   });
 
   container.replaceChildren(badge, appsDiv);
 }
 
-function renderCompanyPanel(container, company, matches) {
+function renderCompanyPanel(container, company, matches, { onFillAnyway = null } = {}) {
   if (!container) return;
 
   // null matches = API error
@@ -4713,7 +7192,29 @@ function renderCompanyPanel(container, company, matches) {
     appsDiv.appendChild(row);
   });
 
-  container.replaceChildren(badge, appsDiv);
+  const children = [badge, appsDiv];
+
+  // Auto-open flow paused here because this job/company is already tracked —
+  // let the user decide whether to fill the form anyway (the manual Fill button
+  // is gone now that filling is automatic).
+  if (typeof onFillAnyway === "function") {
+    const note = document.createElement("p");
+    note.className = "jh-company-empty";
+    note.textContent = "Already in your tracker — autofill was paused. Fill the form anyway?";
+    const fillBtn = document.createElement("button");
+    fillBtn.type = "button";
+    fillBtn.className = "jh-company-fill-anyway";
+    fillBtn.textContent = "⚡ Fill anyway";
+    fillBtn.style.cssText = "margin-top:8px;width:100%;padding:8px 12px;border-radius:8px;border:1px solid #006A6240;background:#006A621a;color:#39d3c6;font-weight:600;cursor:pointer;";
+    fillBtn.addEventListener("click", () => {
+      fillBtn.disabled = true;
+      fillBtn.textContent = "Filling…";
+      onFillAnyway();
+    });
+    children.push(note, fillBtn);
+  }
+
+  container.replaceChildren(...children);
 }
 
 // ── CV file injection ───────────────────────────────────────────
@@ -4780,7 +7281,7 @@ function getResumeInputLabel(input) {
 
 async function injectCvFileToInputs(variant, auditLog = []) {
   const fail = (reason, detail, { toast = false } = {}) => {
-    auditLog.push({ label: "CV file upload", value: detail, ai: false });
+    auditLog.push(makeSkippedAuditEntry("CV file upload", detail, reason, { ai: false }));
     if (toast) showToast(detail);
     return { injected: false, reason, detail };
   };
@@ -4827,11 +7328,7 @@ async function injectCvFileToInputs(variant, auditLog = []) {
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
         const targetLabel = getResumeInputLabel(input);
-        auditLog.push({
-          label: targetLabel.slice(0, 60) || "Resume upload",
-          value: `[CV file attached: ${cvData.fileName}]`,
-          ai: false,
-        });
+        auditLog.push(makeAuditEntry(targetLabel || "Resume upload", `[CV file attached: ${cvData.fileName}]`, { ai: false }));
         showToast(`CV attached: ${cvData.fileName}`);
         return { injected: true, fileName: cvData.fileName, targetLabel };
       } catch {

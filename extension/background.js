@@ -1,5 +1,7 @@
 const API = "http://127.0.0.1:8787/api/applications";
 const EVALUATE_API = "http://127.0.0.1:8787/api/evaluate-job";
+const TRACK_SAVE_TIMEOUT_MS = 30000;
+const TRACK_EVALUATION_TIMEOUT_MS = 45000;
 
 // sourceUrl -> { applied: boolean, status: string }. A job is "applied" once it
 // has an appliedAt/dateApplied (or has moved past the Applied stage); otherwise
@@ -8,6 +10,7 @@ let trackedByUrl = new Map();
 let lastFetch = 0;
 // Tabs where content.js flagged a likely job posting. Cleared on tab close.
 const jobPageTabs = new Set();
+let lastTrackedPayloadRecord = null;
 
 // "Applied" mirrors the dashboard's own definition (metrics.mjs):
 // a record counts as applied once it has an applied timestamp. A tracked record
@@ -73,12 +76,25 @@ async function applyBadge(tabId, url) {
   setBadge(tabId, "", null, "Capture job");
 }
 
-async function postJson(url, body, method = "POST") {
-  const res = await fetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+async function postJson(url, body, method = "POST", { timeoutMs = TRACK_SAVE_TIMEOUT_MS } = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
   let data = null;
   try {
     data = await res.json();
@@ -109,44 +125,66 @@ function normalizeStoredEvaluation(result) {
   };
 }
 
+async function evaluateTrackedApplicationInBackground(app, jobData, sender) {
+  let storedEvaluation = null;
+
+  try {
+    const evaluationPayload = {
+      ...app,
+      pageText: jobData.pageText || app.pageText || app.description || jobData.description || "",
+      description: jobData.description || app.description || "",
+      rulesGuess: jobData,
+    };
+    const evalResult = await postJson(EVALUATE_API, evaluationPayload, "POST", { timeoutMs: TRACK_EVALUATION_TIMEOUT_MS });
+    if (evalResult.data?.ok && evalResult.data?.evaluation) {
+      storedEvaluation = normalizeStoredEvaluation(evalResult.data);
+      await postJson(`${API}/${encodeURIComponent(app.id)}`, { ...app, evaluation: storedEvaluation }, "PUT", { timeoutMs: TRACK_SAVE_TIMEOUT_MS });
+      lastFetch = 0;
+      if (sender?.tab?.id && sender.tab.url) applyBadge(sender.tab.id, sender.tab.url);
+    }
+  } catch (err) {
+    console.warn("Background Gemma evaluation failed after tracker save:", err);
+  }
+
+  return storedEvaluation;
+}
+
 async function trackApplicationFromBackground(msg, sender) {
   const jobData = msg.jobData || {};
-  const saved = await postJson(API, jobData, "POST");
-  let app = saved.data;
-  let storedEvaluation = null;
-  let evaluationError = "";
-
-  if (msg.runEvaluation !== false) {
-    try {
-      const evaluationPayload = {
-        ...app,
-        pageText: jobData.pageText || app.pageText || app.description || jobData.description || "",
-        description: jobData.description || app.description || "",
-        rulesGuess: jobData,
-      };
-      const evalResult = await postJson(EVALUATE_API, evaluationPayload, "POST");
-      if (evalResult.data?.ok && evalResult.data?.evaluation) {
-        storedEvaluation = normalizeStoredEvaluation(evalResult.data);
-        const update = await postJson(`${API}/${encodeURIComponent(app.id)}`, { ...app, evaluation: storedEvaluation }, "PUT");
-        app = update.data;
-      } else {
-        evaluationError = evalResult.data?.error || "Gemma did not return an evaluation.";
-      }
-    } catch (err) {
-      evaluationError = err.message || "Gemma evaluation failed.";
-    }
-  }
+  lastTrackedPayloadRecord = {
+    sentAt: new Date().toISOString(),
+    trigger: msg.trigger || "submit",
+    method: "POST",
+    endpoint: API,
+    tabUrl: sender?.tab?.url || "",
+    payload: jobData,
+    status: "",
+    appId: "",
+  };
+  const saved = await postJson(API, jobData, "POST", { timeoutMs: TRACK_SAVE_TIMEOUT_MS });
+  const app = saved.data;
+  const evaluationQueued = msg.runEvaluation !== false;
+  lastTrackedPayloadRecord = {
+    ...lastTrackedPayloadRecord,
+    status: saved.status,
+    appId: app?.id || "",
+  };
 
   lastFetch = 0;
   if (sender?.tab?.id && sender.tab.url) applyBadge(sender.tab.id, sender.tab.url);
+
+  if (evaluationQueued) {
+    evaluateTrackedApplicationInBackground(app, jobData, sender);
+  }
 
   return {
     ok: true,
     status: saved.status,
     app,
-    evaluationSaved: Boolean(storedEvaluation),
-    evaluation: storedEvaluation,
-    evaluationError,
+    evaluationQueued,
+    evaluationSaved: false,
+    evaluation: null,
+    evaluationError: "",
   };
 }
 
@@ -232,7 +270,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // the top document cannot script directly.
   if (msg?.type === "JH_BROADCAST_AUTOFILL" && sender?.tab?.id) {
     chrome.tabs
-      .sendMessage(sender.tab.id, { type: "AUTOFILL_FRAME", profile: msg.profile, useAi: msg.useAi, cv: msg.cv })
+      .sendMessage(sender.tab.id, { type: "AUTOFILL_FRAME", profile: msg.profile, useAi: msg.useAi, cv: msg.cv, runId: msg.runId || "" })
+      .catch(() => {});
+    return;
+  }
+
+  if (msg?.type === "JH_FRAME_AUTOFILL_RESULT" && sender?.tab?.id) {
+    chrome.tabs
+      .sendMessage(sender.tab.id, { type: "AUTOFILL_FRAME_RESULT", result: msg.result }, { frameId: 0 })
+      .catch(() => {});
+    return;
+  }
+
+  // "Ask Gemma" field-pick mode: relay enter/exit to every frame in the tab —
+  // the field the user wants answered may live inside an embedded ATS iframe.
+  if (msg?.type === "JH_BROADCAST_ASK_MODE" && sender?.tab?.id) {
+    chrome.tabs
+      .sendMessage(sender.tab.id, { type: "ASK_MODE", action: msg.action, instruction: msg.instruction || "" })
+      .catch(() => {});
+    return;
+  }
+
+  // Result of an Ask Gemma run inside an iframe — deliver to the top frame,
+  // which owns the Ask panel UI.
+  if (msg?.type === "JH_ASK_RESULT" && sender?.tab?.id) {
+    chrome.tabs
+      .sendMessage(sender.tab.id, { type: "ASK_RESULT", result: msg.result }, { frameId: 0 })
+      .catch(() => {});
+    return;
+  }
+
+  // User opened Claire in the top frame; let embedded ATS iframes attach their
+  // submit listener only after that explicit opt-in.
+  if (msg?.type === "JH_BROADCAST_SUBMIT_TRACKING_ENABLED" && sender?.tab?.id) {
+    chrome.tabs
+      .sendMessage(sender.tab.id, { type: "ENABLE_SUBMIT_TRACKING", reason: msg.reason || "toolbar opened" })
       .catch(() => {});
     return;
   }
@@ -242,6 +314,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ ok: false, error: err.message || "Tracker request failed." }));
     return true;
+  }
+
+  if (msg?.type === "GET_LAST_TRACKED_PAYLOAD") {
+    sendResponse({ ok: true, record: lastTrackedPayloadRecord });
+    return;
   }
 
   // ── API Proxy for content scripts ────────────────────────────
