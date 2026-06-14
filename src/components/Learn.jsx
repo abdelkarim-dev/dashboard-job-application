@@ -72,7 +72,7 @@ export default function Learn({ sub, onNavigate, practiceProps = {}, onTrainPlan
       case "study-plans":
         return (
           <Suspense fallback={<div className="learning-empty"><strong>Loading study plans…</strong></div>}>
-            <StudyPlans onTrainPlan={onTrainPlan} />
+            <StudyPlans onTrainPlan={onTrainPlan} onNavigate={onNavigate} />
           </Suspense>
         );
       case "solid":

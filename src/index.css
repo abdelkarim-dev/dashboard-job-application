@@ -9333,6 +9333,82 @@ body.pane-resizing {
 .accent-rose { --plan-accent: #fb7185; }
 .accent-cyan { --plan-accent: #22d3ee; }
 
+/* ---- Prep coverage hub (Study Plans = whole loop, not just coding) ---- */
+.prep-coverage-section {
+  margin: 0 0 8px;
+}
+
+.prep-coverage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.prep-coverage-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.prep-coverage-head span {
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+}
+
+.prep-drills-head {
+  margin-top: 26px;
+}
+
+.prep-coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+  gap: 12px;
+}
+
+.prep-cov-card {
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 9px;
+  padding: 14px 15px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 14px;
+  background: var(--md-surface);
+  box-shadow: var(--shadow-1);
+  transition: border-color 150ms, transform 150ms;
+}
+
+.prep-cov-card:hover {
+  border-color: var(--md-primary);
+  transform: translateY(-1px);
+}
+
+.prep-cov-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prep-cov-top strong {
+  font-size: 13px;
+}
+
+.prep-cov-pct {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--md-primary);
+}
+
+.prep-cov-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--md-on-surface-variant);
+  font-size: 11.5px;
+}
+
 .plan-status-line {
   margin: 0 0 12px;
   color: var(--md-on-surface-variant);

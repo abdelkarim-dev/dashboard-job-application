@@ -79,7 +79,7 @@ export const PERSONALIZED_CONCEPTS = [
         body: [
           "Autodesk builds long-lived product software, so lead with end-to-end product ownership and your full-stack range.",
           "Present: I am a senior backend engineer and tech lead, hands-on from architecture to shipped code, and comfortable full-stack with React and TypeScript on top of a Java and Python backend.",
-          "Past: I rewrote a marketing application from .NET to Spring Boot and React as the sole engineer; I owned the architecture and stack choice, migrated the front end to TypeScript for type safety, and shipped real features on top including URL tracking, ad-action tracking, and a lead-priority API, taking startup from about 1.5 minutes to near-instant. I also own the Data department's Azure DevOps CI/CD platform across 7 codebases, which is developer-productivity work at platform scale. Future: I want product depth at a company whose software engineers and designers rely on every day, which is why this role stood out.",
+          "Past: I rewrote a marketing application from .NET to Spring Boot and React as the sole engineer; I owned the architecture and stack choice, migrated the front end to TypeScript for type safety, and shipped real features on top including URL tracking, ad-action tracking, and a lead-priority API, taking startup from about 1.5 minutes to near-instant. I also own the Data department's Azure DevOps CI/CD platform across 7 codebases, which is developer-productivity work at platform scale. Future: I want product depth at a company whose software engineers and designers rely on every day, and the way Autodesk is embedding AI across its products is exactly the kind of product-layer problem I want to work on, which is why this role stood out.",
         ],
       },
       {
@@ -87,9 +87,9 @@ export const PERSONALIZED_CONCEPTS = [
         card: true,
         tag: "Treasure Data",
         body: [
-          "Treasure Data is a customer-data platform built on large-scale, realtime data movement, so lead with event-driven ingestion and data processing at scale.",
-          "Present: I am a senior backend engineer and tech lead who builds event-driven, serverless data systems on AWS, end to end.",
-          "Past: I co-designed an ingestion platform for our lead-capture API: a unified schema with per-partner rules, deduplication, and fan-out routing to the database, internal systems, and the call center across 40+ integrations. I evolved a group-wide customer-record system that ingests around 10,000 notifications a day over SQS and 200,000 to 300,000 records per batch, and cut its SQL query time 30 percent through query-plan analysis and indexing to unblock a user-facing latency requirement. I also scaled a batch pipeline 233 percent with no new hardware. Future: I want to work on a realtime data platform at scale, which is the core of what Treasure Data does.",
+          "Treasure Data is a customer-data platform built on large-scale, realtime data movement and is moving AI-native (the Treasure AI direction), so lead with event-driven data work and your LLM/RAG experience.",
+          "Present: I am a senior backend engineer and tech lead who builds event-driven, serverless data systems on AWS, and I have shipped an LLM-grounded feature on top of one.",
+          "Past: I co-designed an ingestion platform for our lead-capture API: a unified schema with per-partner rules, deduplication, and fan-out routing to the database, internal systems, and the call center across 40+ integrations. I evolved a group-wide customer-record system that ingests around 10,000 notifications a day over SQS and 200,000 to 300,000 records per batch, and cut its SQL query time 30 percent. On top of that data I built a Retrieval-Augmented Generation pipeline on AWS Bedrock, so I have designed both the data movement and the AI layer that sits on it, with deliberate choices on chunking, retrieval, cost, and groundedness. Future: I want to work on a realtime, increasingly AI-native data platform at scale, which is exactly where Treasure Data is going.",
         ],
       },
       {
@@ -327,6 +327,7 @@ export const PERSONALIZED_CONCEPTS = [
           "You need one real, owned failure with a concrete Learning, and you should write the truthful version rather than borrow one, because interviewers drill into it. Refusing to name a real failure, or offering a humblebrag like \"I work too hard\", reads as low self-awareness and is a common rejection reason. The structure is the same STAR-L, but the Action is what you did to contain and fix it, and the Learning is the durable change you made.",
           "Candidate angles from your real work, pick the one that is genuinely true: a WAF rule you tuned that blocked a real partner before you caught it (what was the detection gap, what did you change so it would not recur); a migration or carve-out estimate that slipped (what did you misjudge, how did you re-plan and communicate); a design or stack decision you would now reverse (what did you learn that changed your judgment); or an incident on the customer-record or lead-capture system where your fix was incomplete the first time.",
           "Write it out in full STAR-L, quantify the impact and the recovery, and rehearse it cold. The recovery and the Learning are what you are actually being scored on, not the absence of failure.",
+          "Worked example of the shape (copy the structure, fill it with what actually happened to you, do not claim these specifics): Situation, a partner integration was silently dropping a class of leads. Task, find the cause and stop the loss. Action, I traced it to a WAF rule I had tightened during an attack surge that also matched a legitimate partner pattern; I rolled it back, added a targeted exception, then added a per-partner synthetic canary request so any future false-positive pages us in minutes. Result, leads flowed again and detection time for that failure mode dropped from days to minutes. Learning, at Staff level the durable fix was the detection gap and the process, not the single rule, so I now require a per-partner canary before any WAF tightening. Notice the Learning is about a system and a process, which is the Staff signal, not just personal craft.",
         ],
       },
     ],
@@ -413,9 +414,17 @@ export const PERSONALIZED_CONCEPTS = [
           "Think Big: Nexity's first microservices migration (Story 4), which started as one POC and became the foundation for a new modernization department. Learn and Be Curious: the Bedrock RAG pipeline (Story 12) and the move to passwordless federated identity (Story 8), both of which were new ground you took on and shipped.",
         ],
       },
+      {
+        heading: "The two newer LPs (2021): Earth's Best Employer, Success and Scale",
+        body: [
+          "Strive to be Earth's Best Employer: map the Orange Teaming rebuild (Story 9). Angle: I onboarded two frontend developers and the lead tester and set the code-review and PR standards for a brand-new team, so I was building people and a healthy engineering culture, not only shipping. Developing others and raising the bar is the evidence this principle looks for.",
+          "Success and Scale Bring Broad Responsibility: use the Bedrock RAG pipeline (Story 12) or the public lead-capture API. Angle: at scale the second-order effects are your responsibility too, so I built guardrails and a groundedness check into the RAG system, and on the public API I treated false-positive partner blocks as harm to prevent, not just attacks to stop. These two come up more for senior and leadership loops, so keep one ready for each.",
+        ],
+      },
     ],
     keyPoints: [
       "Pre-assign one primary story per principle so you never stall picking an example.",
+      "Newer LPs: Earth's Best Employer = Orange Teaming (Story 9); Success and Scale = RAG guardrails / API harm-prevention.",
       "Dive Deep is your strength — know the exact mechanism, not just the result.",
       "Hire and Develop / leadership = Orange Teaming (Story 9); don't default to backend wins.",
       "Memorize the numbers: +233%, 35%, 30%, 40+ partners, 1k-10k attacks, ~2,000 req/day, ~80 users, 7 codebases.",
@@ -455,6 +464,13 @@ export const PERSONALIZED_CONCEPTS = [
           "4. Coding (LeetCode patterns). Necessary, but do not over-index. For staff/senior the bar is clean, correct, and communicated, not competitive-programming speed. Drill patterns and recognition, not raw problem count.",
           "5. SOLID / Clean Architecture. Likely if a round is a code-review or refactor exercise, a format you have seen before. Medium priority unless a specific round flags it.",
           "6. AWS AI / Bedrock / RAG. Your differentiator, not a gate. Prep enough to present the RAG pipeline crisply and field follow-ups two layers deep. High return in \"tell me about a system\" moments and for AI-adjacent roles.",
+        ],
+      },
+      {
+        heading: "RAG / LLM in production: the follow-up stack",
+        body: [
+          "\"Two layers deep\" on your Bedrock RAG pipeline means three specific follow-ups you should answer cold. One, chunking strategy trade-offs: your chunk size and why, fixed vs semantic vs hierarchical, and how you measured the impact on retrieval quality. Two, fine-tune vs RAG vs prompt: the decision rule (RAG for knowledge, fine-tune for behavior, prompt first) plus a concrete call you actually made. Three, groundedness and evaluation: how you tested for hallucination, what eval set or LLM-as-judge you used, and a real number.",
+          "Treasure Data is moving AI-native (the Treasure AI direction) and Autodesk ships AI features across its suite, so rehearse narrating the pipeline as an async, event-driven system with explicit cost and latency choices, not just \"a tool I built.\" That framing reads as a Staff-level architectural decision. The RAG & Vector Search and AI System Design pages under Knowledge are your source material; the Production & Operability page covers the cost and eval-in-prod angle.",
         ],
       },
       {

@@ -1,6 +1,41 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { CONCEPTS } from "./learn/concepts.js";
+import { PERSONALIZED_CONCEPTS } from "./learn/personalized.js";
+import { loadConceptProgress, loadChecklistProgress } from "./learn/ConceptPage.jsx";
 
 const ACCENTS = ["violet", "sky", "amber", "emerald", "rose", "cyan"];
+
+// The non-coding prep tracks shown in the coverage hub, in the order they appear
+// in the Learn rail. Each maps to a concept group; "land" is where Open jumps to.
+const PREP_TRACKS = [
+  { group: "For You", label: "Pitch & stories", accent: "violet", land: "my-pitch" },
+  { group: "Companies", label: "Company prep", accent: "sky", land: "toast-interview" },
+  { group: "Interview", label: "Interview craft", accent: "amber", land: "behavioral" },
+  { group: "Knowledge", label: "Knowledge: AI & system design", accent: "emerald", land: "system-design-core" },
+  { group: "Principles", label: "Design principles", accent: "cyan", land: "dry" },
+];
+
+// Build prep-track coverage from the concept registry + persisted progress.
+function buildPrepCoverage() {
+  const all = [...PERSONALIZED_CONCEPTS, ...CONCEPTS];
+  const reviewed = loadConceptProgress();
+  const checks = loadChecklistProgress();
+  return PREP_TRACKS.map((track) => {
+    const pages = all.filter((c) => c.group === track.group);
+    const reviewedCount = pages.filter((c) => reviewed[c.id]).length;
+    let checkTotal = 0;
+    let checkDone = 0;
+    for (const c of pages) {
+      const list = Array.isArray(c.checklist) ? c.checklist : [];
+      checkTotal += list.length;
+      const done = checks[c.id] || {};
+      checkDone += list.reduce((n, _, i) => n + (done[i] ? 1 : 0), 0);
+    }
+    const land = pages.some((c) => c.id === track.land) ? track.land : pages[0]?.id;
+    const pct = pages.length ? Math.round((reviewedCount / pages.length) * 100) : 0;
+    return { ...track, pages: pages.length, reviewedCount, checkTotal, checkDone, pct, land };
+  }).filter((t) => t.pages > 0);
+}
 
 const BLANK_DRAFT = { id: null, name: "", description: "", accent: "violet", problemIds: [] };
 
@@ -12,7 +47,7 @@ function planProgress(plan, byId) {
   return { trainable, solved, missing, pct, total: trainable.length };
 }
 
-export default function StudyPlans({ onTrainPlan }) {
+export default function StudyPlans({ onTrainPlan, onNavigate }) {
   const [plans, setPlans] = useState([]);
   const [problems, setProblems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +60,17 @@ export default function StudyPlans({ onTrainPlan }) {
     problems.forEach((p) => { map[p.id] = p; });
     return map;
   }, [problems]);
+
+  // Prep coverage spans the whole Learn hub, not just coding. Recomputed when
+  // ConceptPage signals a review/checklist change so the bars stay live.
+  const [progressTick, setProgressTick] = useState(0);
+  useEffect(() => {
+    const onProgress = () => setProgressTick((t) => t + 1);
+    document.addEventListener("learn:progress", onProgress);
+    return () => document.removeEventListener("learn:progress", onProgress);
+  }, []);
+  const prepCoverage = useMemo(() => buildPrepCoverage(), [progressTick]);
+  const codingSolved = useMemo(() => problems.filter((p) => p.solved).length, [problems]);
 
   useEffect(() => {
     fetchAll();
@@ -279,6 +325,58 @@ export default function StudyPlans({ onTrainPlan }) {
       </div>
 
       {status && <p className="plan-status-line">{status}</p>}
+
+      <section className="prep-coverage-section">
+        <div className="prep-coverage-head">
+          <h3>Your prep coverage</h3>
+          <span>The whole loop, not just coding — click a track to open it</span>
+        </div>
+        <div className="prep-coverage-grid">
+          {prepCoverage.map((t) => (
+            <button
+              type="button"
+              key={t.group}
+              className="prep-cov-card"
+              onClick={() => onNavigate?.(t.land)}
+            >
+              <div className="prep-cov-top">
+                <strong>{t.label}</strong>
+                <span className="prep-cov-pct">{t.pct}%</span>
+              </div>
+              <div className="plan-progress-track">
+                <div className={`plan-progress-fill accent-${t.accent}`} style={{ width: `${t.pct}%` }} />
+              </div>
+              <div className="prep-cov-stats">
+                <span>{t.reviewedCount}/{t.pages} pages reviewed</span>
+                {t.checkTotal > 0 && <span>{t.checkDone}/{t.checkTotal} tasks</span>}
+              </div>
+            </button>
+          ))}
+          <button type="button" className="prep-cov-card" onClick={() => onNavigate?.("leetcode")}>
+            <div className="prep-cov-top">
+              <strong>Coding drills</strong>
+              <span className="prep-cov-pct">
+                {problems.length ? Math.round((codingSolved / problems.length) * 100) : 0}%
+              </span>
+            </div>
+            <div className="plan-progress-track">
+              <div
+                className="plan-progress-fill accent-rose"
+                style={{ width: `${problems.length ? Math.round((codingSolved / problems.length) * 100) : 0}%` }}
+              />
+            </div>
+            <div className="prep-cov-stats">
+              <span>{codingSolved}/{problems.length} problems solved</span>
+              <span>{plans.length} {plans.length === 1 ? "plan" : "plans"}</span>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <div className="prep-coverage-head prep-drills-head">
+        <h3>Coding drills</h3>
+        <span>Targeted LeetCode flows you build and train</span>
+      </div>
 
       {plans.length === 0 ? (
         <div className="learning-empty">

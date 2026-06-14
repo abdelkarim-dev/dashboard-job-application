@@ -34,6 +34,12 @@ function loadChecklist() {
   }
 }
 
+// Exposed so other surfaces (e.g. the Study Plans prep hub) can read checklist
+// progress without re-implementing the storage format.
+export function loadChecklistProgress() {
+  return loadChecklist();
+}
+
 function saveChecklistItem(conceptId, index, checked) {
   const all = loadChecklist();
   const forConcept = { ...(all[conceptId] || {}) };
