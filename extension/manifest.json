@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Claire — Job Hunt Copilot",
   "description": "Capture job posts into Claire, your local job-hunt copilot.",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "background": {
     "service_worker": "background.js"
   },

@@ -1388,6 +1388,15 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Stand-in URLs people save when they have no real portfolio/site (e.g. a bare
+// google.com) plus the usual fabricated placeholders. We never want these in an
+// OPTIONAL website field, and Gemma must never echo one back. Shared by the
+// profile fill and the AI-value guard.
+const PLACEHOLDER_URL_RE = /^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|test\.com|yourwebsite\.com|website\.com|url\.com|placeholder\.[a-z]+|sample\.com|mywebsite\.com|my-?portfolio\.[a-z]+|portfolio\.com|yoursite\.com|yourname\.com|johndoe\.[a-z]+|janedoe\.[a-z]+)(?:\/.*)?$/i;
+function isPlaceholderUrl(value) {
+  return PLACEHOLDER_URL_RE.test(String(value ?? "").trim());
+}
+
 
 /* ==========================================================================
    ⚡ FORM AUTOFILL PREFILL ENGINE (GREENHOUSE, LEVER, WORKDAY COMPATIBLE)
@@ -3547,7 +3556,7 @@ async function applyAiValueToField(el, value, { profile = localProfile, respectP
     : [String(valueToFill)];
   // Defense in depth: never fill a fabricated placeholder URL (the
   // server scrubs these too, but cached/legacy responses may slip by).
-  if (/^(?:https?:\/\/)?(?:www\.)?(?:goog?le\.[a-z.]+|example\.(?:com|org|net)|test\.com|yourwebsite\.com|website\.com|url\.com|placeholder\.[a-z]+|sample\.com|mywebsite\.com|my-?portfolio\.[a-z]+|portfolio\.com|yoursite\.com|yourname\.com|johndoe\.[a-z]+|janedoe\.[a-z]+)(?:\/.*)?$/i.test(String(valueToFill).trim())) {
+  if (isPlaceholderUrl(valueToFill)) {
     return { filled: false, skippedSilently: true, displayValue: valueToFill, reason: "Placeholder URL discarded." };
   }
   const unsafeReason = getUnsafeAiValueReason(el, valueToFill);
@@ -3844,8 +3853,20 @@ async function autofillWebFormLocked(profile, { useAi = false, runId = "" } = {}
   if (mapped.veteranStatus) fillList(requiredOnlyDemographics(mapped.veteranStatus), profile.veteranStatus || "No", "veteranStatus");
   if (mapped.disabilityStatus) fillList(requiredOnlyDemographics(mapped.disabilityStatus), profile.disabilityStatus || "No, I don't have a disability", "disabilityStatus");
   if (mapped.howHeard) fillList(mapped.howHeard, profile.howHeard || "LinkedIn", "howHeard");
-  if (mapped.portfolio) fillList(mapped.portfolio, profile.portfolio);
-  if (mapped.github) fillList(mapped.github, profile.github);
+  // Portfolio/GitHub/website links: when the stored value is only a placeholder
+  // (a google.com stand-in saved because the user has no real link), don't push
+  // it into OPTIONAL fields — leave them blank. Required ("forced") fields still
+  // get it so the form can be submitted. A real URL fills everywhere as before.
+  const linksForFields = (inputs, value) => {
+    if (!isPlaceholderUrl(value)) return inputs || [];
+    return (inputs || []).filter((input) => {
+      if (!fieldIsSkippableOptional(input, formMarksRequired)) return true;
+      auditLog.push(makeSkippedAuditEntry(input, "", "Optional link — no real URL on file, left for you.", { ai: false }));
+      return false;
+    });
+  };
+  if (mapped.portfolio) fillList(linksForFields(mapped.portfolio, profile.portfolio), profile.portfolio);
+  if (mapped.github) fillList(linksForFields(mapped.github, profile.github), profile.github);
 
   // Drain the queued async fills (comboboxes, split phones) one at a time.
   for (const task of asyncFillQueue) {
