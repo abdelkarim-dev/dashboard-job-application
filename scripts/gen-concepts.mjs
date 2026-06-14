@@ -55,6 +55,31 @@ const META = {
       "State complexity unprompted",
       "Negotiation: don't anchor first; negotiate total comp",
       "Thank-you / follow-up note template ready",
+      "Can reset cleanly after a bad round and drive a vague design prompt",
+      "Reverse questions prepared per interviewer altitude (peer / manager / exec)",
+    ],
+    extraSections: [
+      {
+        heading: "Recovering from a bad round mid-loop",
+        body: [
+          "One weak round rarely sinks a loop. Interviewers calibrate per round and the debrief weighs the whole signal, so the worst thing you can do is carry a bad room into the next one. Reset physically between rounds (water, a slow breath, stand up), and treat each interviewer as a clean slate who has not seen the previous one.",
+          "If you fumble a question inside a round, recover in-place rather than spiraling: a calm \"I'd actually approach that differently, here's how\" shows exactly the adaptability they are looking for, and it scores better than a flawless-but-rigid answer. Do not over-apologize; one acknowledgement and a correction is enough. If you realize a coding bug late, say what you see and fix it out loud, because catching your own mistake is a positive signal.",
+        ],
+      },
+      {
+        heading: "When the system-design prompt is deliberately vague",
+        body: [
+          "Some interviewers keep the prompt vague on purpose to test whether you can impose structure. Do not start drawing boxes. Restate the goal in your words, ask two or three sharp scoping questions (who the users are, the scale, the single most important requirement), state your assumptions explicitly, and name non-goals out loud (\"I'll treat analytics reporting as out of scope for now\").",
+          "Then commit to a focused slice and design it well, checking in once (\"does it make sense to go deep on the write path first?\"). They are grading your ability to drive clarity and make defensible choices under ambiguity, not your recall of a canonical solution. A candidate who scopes crisply and goes deep on one thing beats one who lists every component shallowly.",
+        ],
+      },
+      {
+        heading: "Reverse questions by interviewer altitude",
+        body: [
+          "Match your questions to who is in the room. Peer engineer: what is the on-call and tech-debt reality, what would you change about the codebase, how does code review work. Hiring manager: how is success measured at six and twelve months, how are technical decisions made and disagreements resolved, what does the path to the next level look like.",
+          "Executive or skip-level (VP, CTO, CPO): where is the org betting over the next two to three years, how does this team's roadmap ladder into that, and what distinguishes staff scope from senior here. Asking an exec a peer-level question (or vice versa) reads as not calibrating to the room, which itself is a judgment signal for senior roles.",
+        ],
+      },
     ],
   },
 
@@ -136,6 +161,17 @@ const META = {
       "Pitch tailored to Toast (reliability + throughput)",
       "Stories mapped to Toast's rounds",
       "Reverse questions specific to Toast ready",
+      "Can narrate a payments incident: stop the bleed → diagnose → prevent",
+    ],
+    extraSections: [
+      {
+        heading: "Worked example: on-call and incident response in payments",
+        body: [
+          "Toast is a payments and restaurant-operations platform, so reliability is graded harder than in generic SaaS, and interviewers probe how you think about money-correctness. Know the distinction: an incident is a correctness or money event (a charge double-applied, an order lost, funds not settled) and is high severity regardless of volume; a degradation (latency spike, a slow dashboard) is budgeted against your error budget. Saying that distinction out loud signals you understand payments.",
+          "A worked incident narration: a payments webhook consumer starts double-applying charges after a deploy. Detection comes from a reconciliation alert (expected versus settled mismatch), not a customer ticket. Triage: stop the bleed first, disable the consumer or flip a feature flag so no further double-charges happen. Diagnose: a retry without an idempotency key re-applied the charge on redelivery. Fix: add an idempotency key on the charge id plus a dedup table, then refund or reconcile the doubles with a backfill job. Prevent: an idempotency-key check in the payment path, a reconciliation canary, and a runbook.",
+          "What they are scoring: do you reach for idempotency, reconciliation, and stop-the-bleed-before-root-cause; do you weigh blast radius and customer trust; do you communicate status to stakeholders during the incident. Tailor from your real work: the WAF false-positive surge (Story 2) is judgment under live pressure, and your SQS/Lambda/DynamoDB batch system already runs on idempotent, at-least-once delivery, which is the exact muscle this round tests. Lead reliability stories with blast radius and money-correctness, not just uptime.",
+        ],
+      },
     ],
   },
   "autodesk-interview": {
@@ -145,6 +181,17 @@ const META = {
       "Pitch tailored to Autodesk (product depth + full-stack)",
       "Stories mapped to Autodesk's rounds",
       "Reverse questions specific to Autodesk ready",
+      "A 15-min project pitch rehearsed: decision + trade-off first, not chronology",
+    ],
+    extraSections: [
+      {
+        heading: "Worked example: nailing the 15-minute project discussion",
+        body: [
+          "Autodesk's senior loop often includes a 15 to 20 minute project discussion graded on depth, clarity, and judgment, not on the size of the project. Use a fixed arc so you do not ramble: about 2 minutes of context (what it was, why it mattered, your specific role), about 8 minutes on the meat (the hardest problem, the options you weighed, the decision and its trade-offs, what you personally did), about 3 minutes of results (quantified), and about 2 minutes of reflection (what you would change). Calibrate depth to the interviewer and pause for questions; lead with the decision and trade-off, not a timeline.",
+          "Worked pitch using your public lead-capture API: context, a public, WAF-hardened API that 40+ partners depend on, business-critical to the group. The hard problem, keep it available through 1,000 to 10,000 attack attempts on spike days without false-positive blocks that break real partners, while keeping a stable contract across 40+ consumers. The options, blanket WAF tightening versus per-partner handling and targeted exceptions, and how you balanced security against partner availability. What you did, the rule supervision and false-positive hunting. Results, availability held and partner traffic kept flowing. Reflection, you would add a per-partner canary so a false-positive pages you in minutes.",
+          "The failure mode is under-delivering (too shallow for a senior bar) or narrating chronologically until time runs out. Pick the project that matches the role: for Autodesk's product depth and growing AI focus, the solo .NET to Spring Boot and React rewrite (end-to-end product ownership) or the Bedrock RAG pipeline (a product-layer AI feature) are both strong alternates.",
+        ],
+      },
     ],
   },
   "treasure-data-interview": {
@@ -154,6 +201,17 @@ const META = {
       "Pitch tailored to Treasure Data (realtime / data platform)",
       "Streaming / event-driven stories front and center",
       "Reverse questions specific to Treasure Data ready",
+      "Can run the realtime customer-profile design end to end (~8 min)",
+    ],
+    extraSections: [
+      {
+        heading: "Worked example: design a realtime customer-profile service",
+        body: [
+          "This is the design question to have cold for a CDP. A tight ~8-minute script. Functional requirements: ingest events from many sources, resolve identities into one profile, serve low-latency profile reads for personalization, and support segment queries. Non-functional: events per second, read p99 (say under 50 ms), a freshness SLA (profile reflects an event within N seconds), and the consistency model. Estimate scale out loud (events/sec, number of profiles, read QPS) so the design is grounded.",
+          "Architecture: events land on a log (Kafka or Kinesis); a stream processor does identity resolution and upserts the profile; the profile store is a key-value store (DynamoDB or Cassandra) keyed by customer id, fronted by a serving cache for hot reads; a batch path handles backfills and reprocessing. Handle late and duplicate events with event-time plus idempotent upserts and watermarks, so a replay or a straggler does not corrupt the profile. Identity resolution merges deterministic keys (email, user id) and probabilistic signals; design the merge to be idempotent and reversible. Consistency: read-your-writes for the session doing the update, eventual elsewhere. At 10x, watch for hot keys (a few huge profiles) and identity-merge fan-out, and shard or queue accordingly.",
+          "Tailor it from your real work: you have built event-driven, serverless pipelines on SQS, Lambda, and DynamoDB, and you evolved a group-wide customer-record system ingesting around 10,000 notifications a day over SQS and 200,000 to 300,000 records per batch. That is a smaller version of this exact problem, so narrate the design as something you have lived, then scale it up.",
+        ],
+      },
     ],
   },
 };
@@ -178,9 +236,12 @@ const concepts = data
       icon: m.icon,
       title: t.title,
       tagline: m.tagline,
-      sections: t.sections,
+      // extraSections/extraChecklist are hand-authored additions appended after
+      // the researched content (e.g. company worked examples), so they survive
+      // regeneration from the same workflow output.
+      sections: [...t.sections, ...(m.extraSections || [])],
       keyPoints: t.keyPoints,
-      checklist: m.checklist,
+      checklist: [...m.checklist, ...(m.extraChecklist || [])],
       quiz: t.quiz,
       _order: m.order,
     };

@@ -458,6 +458,27 @@ export const GENERATED_CONCEPTS = [
           "Follow up promptly and proportionately. A brief thank-you note within roughly 24 hours that references something specific from the conversation keeps you top of mind without groveling, and it is a low-cost way to add one more data point. If you flubbed a question, a short follow-up with the correct approach can occasionally recover signal, but keep it tight and do not over-explain. Then route status and timeline through the recruiter, who is your single point of contact for scheduling, feedback, and pace; nudging individual interviewers directly is awkward and rarely helps.",
           "Know the behaviors that quietly tank otherwise-strong candidates, because they are easy to avoid once named. Badmouthing current or past employers is a deal-breaker for a large share of decision-makers (about 62 percent of executives in one Creative Group survey call it an immediate turnoff), so frame past friction as lessons and trade-offs, never as blame. Vagueness about your own contributions, inability to go one level deeper than your resume claims, and overclaiming expertise you cannot defend all read as dishonesty risk, which is the single biggest red flag hiring managers report. Dominating the conversation, ignoring interviewer hints, arguing defensively, or asking no questions signal poor collaboration. The through-line for senior hiring is the same: specific, honest, calibrated, and collaborative beats polished and inflated every time."
         ]
+      },
+      {
+        "heading": "Recovering from a bad round mid-loop",
+        "body": [
+          "One weak round rarely sinks a loop. Interviewers calibrate per round and the debrief weighs the whole signal, so the worst thing you can do is carry a bad room into the next one. Reset physically between rounds (water, a slow breath, stand up), and treat each interviewer as a clean slate who has not seen the previous one.",
+          "If you fumble a question inside a round, recover in-place rather than spiraling: a calm \"I'd actually approach that differently, here's how\" shows exactly the adaptability they are looking for, and it scores better than a flawless-but-rigid answer. Do not over-apologize; one acknowledgement and a correction is enough. If you realize a coding bug late, say what you see and fix it out loud, because catching your own mistake is a positive signal."
+        ]
+      },
+      {
+        "heading": "When the system-design prompt is deliberately vague",
+        "body": [
+          "Some interviewers keep the prompt vague on purpose to test whether you can impose structure. Do not start drawing boxes. Restate the goal in your words, ask two or three sharp scoping questions (who the users are, the scale, the single most important requirement), state your assumptions explicitly, and name non-goals out loud (\"I'll treat analytics reporting as out of scope for now\").",
+          "Then commit to a focused slice and design it well, checking in once (\"does it make sense to go deep on the write path first?\"). They are grading your ability to drive clarity and make defensible choices under ambiguity, not your recall of a canonical solution. A candidate who scopes crisply and goes deep on one thing beats one who lists every component shallowly."
+        ]
+      },
+      {
+        "heading": "Reverse questions by interviewer altitude",
+        "body": [
+          "Match your questions to who is in the room. Peer engineer: what is the on-call and tech-debt reality, what would you change about the codebase, how does code review work. Hiring manager: how is success measured at six and twelve months, how are technical decisions made and disagreements resolved, what does the path to the next level look like.",
+          "Executive or skip-level (VP, CTO, CPO): where is the org betting over the next two to three years, how does this team's roadmap ladder into that, and what distinguishes staff scope from senior here. Asking an exec a peer-level question (or vice versa) reads as not calibrating to the room, which itself is a judgment signal for senior roles."
+        ]
       }
     ],
     "keyPoints": [
@@ -475,7 +496,9 @@ export const GENERATED_CONCEPTS = [
       "Live-coding loop: clarify → examples → brute → optimize → test",
       "State complexity unprompted",
       "Negotiation: don't anchor first; negotiate total comp",
-      "Thank-you / follow-up note template ready"
+      "Thank-you / follow-up note template ready",
+      "Can reset cleanly after a bad round and drive a vague design prompt",
+      "Reverse questions prepared per interviewer altitude (peer / manager / exec)"
     ],
     "quiz": [
       {
@@ -1500,6 +1523,14 @@ export const GENERATED_CONCEPTS = [
           "Domain-specific reps that pay off for your background: be able to whiteboard an idempotency-key flow, the transactional outbox pattern, and a reconciliation or ledger-reconverge job; explain Pulsar and Kafka-style partitioning, ordering, consumer groups, and dead-letter queues; defend a DynamoDB single-table design versus a relational Aurora schema for a stated access pattern; and articulate exactly-once effect as at-least-once delivery plus idempotent consumers. Have one tight story each on the WAF-hardened public API, the SQS/Lambda/DynamoDB batch system, and the Bedrock RAG pipeline, and rehearse the trade-offs you would defend under follow-up questioning.",
           "Honest uncertainty. Toast does not publish its interview rubric, so the exact round count and naming vary by team, level, and year; the five-round senior shape (three technical, one culture, one executive) and the four-round onsite are what 2025 candidates report, not an official spec, and a staff loop may add or rename rounds. The specific coding questions cited (Valid Palindrome, Best Time to Buy and Sell Stock, Find the Celebrity) are reported examples, not a guaranteed bank; internalize the patterns rather than memorizing the questions. Confirm current values and the live process directly with your recruiter, and ask explicitly for the round breakdown and the languages allowed in the coding rounds. Reported difficulty and any pass-rate figures circulating on third-party aggregators (for example, a roughly 9 percent senior US pass rate) are unverified, directional signals, not precise statistics, so weight them lightly."
         ]
+      },
+      {
+        "heading": "Worked example: on-call and incident response in payments",
+        "body": [
+          "Toast is a payments and restaurant-operations platform, so reliability is graded harder than in generic SaaS, and interviewers probe how you think about money-correctness. Know the distinction: an incident is a correctness or money event (a charge double-applied, an order lost, funds not settled) and is high severity regardless of volume; a degradation (latency spike, a slow dashboard) is budgeted against your error budget. Saying that distinction out loud signals you understand payments.",
+          "A worked incident narration: a payments webhook consumer starts double-applying charges after a deploy. Detection comes from a reconciliation alert (expected versus settled mismatch), not a customer ticket. Triage: stop the bleed first, disable the consumer or flip a feature flag so no further double-charges happen. Diagnose: a retry without an idempotency key re-applied the charge on redelivery. Fix: add an idempotency key on the charge id plus a dedup table, then refund or reconcile the doubles with a backfill job. Prevent: an idempotency-key check in the payment path, a reconciliation canary, and a runbook.",
+          "What they are scoring: do you reach for idempotency, reconciliation, and stop-the-bleed-before-root-cause; do you weigh blast radius and customer trust; do you communicate status to stakeholders during the incident. Tailor from your real work: the WAF false-positive surge (Story 2) is judgment under live pressure, and your SQS/Lambda/DynamoDB batch system already runs on idempotent, at-least-once delivery, which is the exact muscle this round tests. Lead reliability stories with blast radius and money-correctness, not just uptime."
+        ]
       }
     ],
     "keyPoints": [
@@ -1515,7 +1546,8 @@ export const GENERATED_CONCEPTS = [
     "checklist": [
       "Pitch tailored to Toast (reliability + throughput)",
       "Stories mapped to Toast's rounds",
-      "Reverse questions specific to Toast ready"
+      "Reverse questions specific to Toast ready",
+      "Can narrate a payments incident: stop the bleed → diagnose → prevent"
     ],
     "quiz": [
       {
@@ -1625,6 +1657,14 @@ export const GENERATED_CONCEPTS = [
           "Behavioral and culture: write five to seven STAR stories emphasizing cross-team influence, a brave migration or risk you drove, an ingenious cost/latency win, and an incident you owned transparently, each with a measured result. Memorize the ORBIT values (Optimism, Relentless, Brave, Ingenious, Trusted) and map at least one story to each. Read the Forma, Fusion, Flow, and APS product pages and the Autodesk-AWS case studies so you can reference a real product and the Neural CAD / AI-native direction unprompted. Prepare four senior-level questions tied to a specific team and its technical bets.",
           "Logistics and de-risking: ask the recruiter for the exact round breakdown, the coding language policy (pick Java or Python if free to choose), and whether design is distributed-systems or product-style, then adjust prep accordingly. Note that your AWS Solutions Architect Associate exam is on 2026-06-21; if your Autodesk loop overlaps, the SA-Associate content (well-architected pillars, service-selection trade-offs) directly reinforces the 'build X on AWS' round, so let them compound rather than compete. Finally, since most public reports are non-US, treat specifics as directional and confirm the current process with your recruiter rather than assuming."
         ]
+      },
+      {
+        "heading": "Worked example: nailing the 15-minute project discussion",
+        "body": [
+          "Autodesk's senior loop often includes a 15 to 20 minute project discussion graded on depth, clarity, and judgment, not on the size of the project. Use a fixed arc so you do not ramble: about 2 minutes of context (what it was, why it mattered, your specific role), about 8 minutes on the meat (the hardest problem, the options you weighed, the decision and its trade-offs, what you personally did), about 3 minutes of results (quantified), and about 2 minutes of reflection (what you would change). Calibrate depth to the interviewer and pause for questions; lead with the decision and trade-off, not a timeline.",
+          "Worked pitch using your public lead-capture API: context, a public, WAF-hardened API that 40+ partners depend on, business-critical to the group. The hard problem, keep it available through 1,000 to 10,000 attack attempts on spike days without false-positive blocks that break real partners, while keeping a stable contract across 40+ consumers. The options, blanket WAF tightening versus per-partner handling and targeted exceptions, and how you balanced security against partner availability. What you did, the rule supervision and false-positive hunting. Results, availability held and partner traffic kept flowing. Reflection, you would add a per-partner canary so a false-positive pages you in minutes.",
+          "The failure mode is under-delivering (too shallow for a senior bar) or narrating chronologically until time runs out. Pick the project that matches the role: for Autodesk's product depth and growing AI focus, the solo .NET to Spring Boot and React rewrite (end-to-end product ownership) or the Bedrock RAG pipeline (a product-layer AI feature) are both strong alternates."
+        ]
       }
     ],
     "keyPoints": [
@@ -1640,7 +1680,8 @@ export const GENERATED_CONCEPTS = [
     "checklist": [
       "Pitch tailored to Autodesk (product depth + full-stack)",
       "Stories mapped to Autodesk's rounds",
-      "Reverse questions specific to Autodesk ready"
+      "Reverse questions specific to Autodesk ready",
+      "A 15-min project pitch rehearsed: decision + trade-off first, not chronology"
     ],
     "quiz": [
       {
@@ -1750,6 +1791,14 @@ export const GENERATED_CONCEPTS = [
           "System design: build one reusable realtime-CDP reference design you can draw in five minutes (ingest, stream processor, hot KV profile store, columnar batch layer, serving API, activation), and rehearse defending dedup, exactly-once, watermarks, ID stitching, hot keys, backpressure, and SLOs. Prepare the explicit AWS-to-Treasure mapping (SQS to ingest stream, Lambda to stream processor, DynamoDB to realtime profile store, EventBridge/SNS to activation) plus where you would diverge. Add one agentic-feature design (LLM reading profiles, grounding, guardrails, eval, cost and latency budgets).",
           "Behavioral and AI-native fit: write five to six STAR stories tied to the four values and to staff behaviors (cross-team influence, disagreement, incident ownership, mentoring, saying no), each with a real metric or a clearly described mechanism, never a fabricated number. Prepare a crisp two-minute narration of your Bedrock RAG project as proof of shipping LLMs in production, and a concrete account of how you use Claude Code or Gemini in your workflow (named in the Vancouver req). Your AWS SAA exam is 2026-06-21: if your loop overlaps, sequence prep so the exam does not collide with onsite days, and confirm interview dates early."
         ]
+      },
+      {
+        "heading": "Worked example: design a realtime customer-profile service",
+        "body": [
+          "This is the design question to have cold for a CDP. A tight ~8-minute script. Functional requirements: ingest events from many sources, resolve identities into one profile, serve low-latency profile reads for personalization, and support segment queries. Non-functional: events per second, read p99 (say under 50 ms), a freshness SLA (profile reflects an event within N seconds), and the consistency model. Estimate scale out loud (events/sec, number of profiles, read QPS) so the design is grounded.",
+          "Architecture: events land on a log (Kafka or Kinesis); a stream processor does identity resolution and upserts the profile; the profile store is a key-value store (DynamoDB or Cassandra) keyed by customer id, fronted by a serving cache for hot reads; a batch path handles backfills and reprocessing. Handle late and duplicate events with event-time plus idempotent upserts and watermarks, so a replay or a straggler does not corrupt the profile. Identity resolution merges deterministic keys (email, user id) and probabilistic signals; design the merge to be idempotent and reversible. Consistency: read-your-writes for the session doing the update, eventual elsewhere. At 10x, watch for hot keys (a few huge profiles) and identity-merge fan-out, and shard or queue accordingly.",
+          "Tailor it from your real work: you have built event-driven, serverless pipelines on SQS, Lambda, and DynamoDB, and you evolved a group-wide customer-record system ingesting around 10,000 notifications a day over SQS and 200,000 to 300,000 records per batch. That is a smaller version of this exact problem, so narrate the design as something you have lived, then scale it up."
+        ]
       }
     ],
     "keyPoints": [
@@ -1765,7 +1814,8 @@ export const GENERATED_CONCEPTS = [
     "checklist": [
       "Pitch tailored to Treasure Data (realtime / data platform)",
       "Streaming / event-driven stories front and center",
-      "Reverse questions specific to Treasure Data ready"
+      "Reverse questions specific to Treasure Data ready",
+      "Can run the realtime customer-profile design end to end (~8 min)"
     ],
     "quiz": [
       {

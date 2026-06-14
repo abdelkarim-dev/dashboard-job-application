@@ -355,7 +355,7 @@ export const PERSONALIZED_CONCEPTS = [
   {
     id: "my-amazon-lp",
     group: "For You",
-    label: "Amazon LPs",
+    label: "Your LP Map",
     icon: "▲",
     title: "Your Amazon LP Map",
     tagline: "Each high-priority Leadership Principle pre-loaded with your single best story and the angle to take — for an Amazon or AWS loop, or any LP-style behavioral round.",

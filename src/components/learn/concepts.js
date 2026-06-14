@@ -528,6 +528,116 @@ const EXTRA_CONCEPTS = [
       },
     ],
   },
+  {
+    id: "behavioral-question-bank",
+    group: "Interview",
+    label: "Question Bank",
+    icon: "🗂",
+    title: "Behavioral Question Bank",
+    tagline: "The actual questions you'll hear, each pre-mapped to one of your stories so you never stall picking an example. Drill aloud.",
+    sections: [
+      {
+        heading: "How to drill with this bank",
+        body: [
+          "The other behavioral pages teach the method (STAR-L, the Leadership Principles, what's scored). This page is for reps: the concrete questions you will actually be asked. For each one, pre-decide which story from your Story Bank you would reach for, so under pressure you retrieve fast instead of stalling. The story numbers below refer to your STAR-L Story Bank under For You.",
+          "Rehearse out loud, not in your head, and time yourself to roughly two to three minutes per answer. Expect the deep follow-ups on every story: what was the data, what did others think, and what would you do differently. Say \"I\", not \"we\". A single story can answer several of these by changing what you emphasize, so practice re-aiming.",
+        ],
+      },
+      {
+        heading: "Ownership and impact",
+        body: [
+          "Tell me about a project you owned end to end. (Story 3, the solo .NET rewrite.)",
+          "Tell me about a time you took on something outside your role. (Story 11 reporting automation, or Story 10 the GDPR app.)",
+          "What's the project you're most proud of, and why? (Story 4 microservices migration, or Story 1 batch scaling.)",
+          "Tell me about a long-term or hard-to-reverse decision you made. (Story 4, picking the first service boundary.)",
+          "Tell me about a time you delivered despite serious obstacles. (Story 5 carve-out, or Story 2 WAF surge.)",
+          "Tell me about something you improved that nobody asked you to. (Story 11 reporting, or Story 6 CI/CD consolidation.)",
+        ],
+      },
+      {
+        heading: "Dive deep and technical judgment",
+        body: [
+          "What's the hardest bug or incident you've debugged? (Story 7 query-time cut, or Story 2 WAF false positives.)",
+          "Tell me about a time you went deeper than others to find the root cause. (Story 1 batch profiling, or Story 7 query-plan analysis.)",
+          "Describe a significant technical decision and the trade-offs you weighed. (Story 4 monolith split, or Story 3 stack choice.)",
+          "Tell me about a time data changed your mind or your approach. (Story 1, the profile data versus the add-hardware instinct.)",
+          "Tell me about a performance or scale problem you solved. (Story 1 batch +233%, or Story 7 the 30% cut.)",
+          "Tell me about a time you simplified something complex. (Story 6 seven templates into one, or Story 4 invent-and-simplify.)",
+        ],
+      },
+      {
+        heading: "Conflict, influence, and leadership",
+        body: [
+          "Tell me about a time you disagreed with your manager or a senior decision. (Use a real backbone-then-commit story; the batch add-hardware default in Story 1 works as a disagreement with the default.)",
+          "Tell me about a conflict with a peer and how you resolved it. (Pick a real one; keep it about substance, not personality.)",
+          "Tell me about a time you influenced people without authority. (Story 6 getting the team onto one CI/CD source, or coordinating the France team in Story 9.)",
+          "Tell me about a time you convinced others of a technical direction. (Story 4 microservices POC.)",
+          "Tell me about a time you mentored or grew someone. (Story 9 Orange Teaming, onboarding 2 devs + the lead tester.)",
+          "Tell me about a time you led through ambiguity. (Story 5 carve-out, or Story 13 dual TL/PO.)",
+        ],
+      },
+      {
+        heading: "Failure, ambiguity, and pressure",
+        body: [
+          "Tell me about a time you failed or made a real mistake. (Your written failure story, archetype 4 in the Story Bank, with a process-level Learning.)",
+          "Tell me about a time you missed a deadline or a target. (Be honest; pair it with what you changed.)",
+          "Tell me about a decision you had to make without enough data. (Story 4 migration, or Story 5 carve-out under time pressure.)",
+          "Tell me about the most pressure you've worked under. (Story 2 attack surge, or Story 5 carve-out deadline.)",
+          "Tell me about a time requirements were unclear or kept shifting. (Story 13 dual TL/PO discovery, or Story 12 scoping the RAG pipeline.)",
+          "Tell me about a high-pressure production incident. (Story 2; narrate stop-the-bleed then root cause.)",
+        ],
+      },
+      {
+        heading: "Customer, quality, and culture",
+        body: [
+          "Tell me about a time you went above and beyond for a customer or user. (Story 2 protecting 40+ partners, or Story 10 the legal team as an internal customer.)",
+          "Tell me about a time you balanced speed against quality. (Story 5 carve-out, or the WAF tuning in Story 2.)",
+          "Tell me about a time you raised the bar or insisted on a higher standard. (Story 8 passwordless security, or Story 9 setting review standards.)",
+          "Tell me about a time you disagreed and committed. (Show both halves: the principled push-back and the full commitment after the decision.)",
+          "Tell me about a tough trade-off you had to make. (Story 1 frugality versus speed, or Story 5 cost versus lift-and-shift.)",
+        ],
+      },
+    ],
+    keyPoints: [
+      "Pre-map every question to a story so you retrieve fast instead of stalling.",
+      "Rehearse aloud, ~2-3 minutes, with the numbers automatic.",
+      "Expect follow-ups: what was the data, what did others think, what would you do differently.",
+      "Say 'I', not 'we'; weight the answer toward Action and Result.",
+      "Re-aim one story across questions by changing emphasis, not by inventing new ones.",
+      "Have your written failure story ready — it is the most-probed and most-revealing question.",
+    ],
+    checklist: [
+      "Every question above has a story assigned",
+      "3-4 core stories rehearsed aloud, cold, under 3 minutes",
+      "Failure story written and rehearsed (not improvised)",
+      "A 'what I'd do differently' ready for each core story",
+      "Practiced re-aiming one story at two different questions",
+    ],
+    quiz: [
+      {
+        q: "The interviewer asks a behavioral question and you blank on which example to use. The bank's whole purpose is to prevent this by…",
+        options: [
+          "Memorizing a word-for-word script per question",
+          "Pre-mapping each question type to a specific story you can retrieve fast",
+          "Having one universal story for everything",
+          "Improvising a new example each time",
+        ],
+        answer: 1,
+        explain: "Index your experiences to question types ahead of time; you retrieve a story, then tell it with structure, not a memorized script.",
+      },
+      {
+        q: "On the failure question, the strongest answer…",
+        options: [
+          "Reframes a strength as a weakness ('I care too much')",
+          "Names a real, owned failure and focuses on the durable change you made",
+          "Blames external circumstances",
+          "Picks the smallest possible mistake",
+        ],
+        answer: 1,
+        explain: "Interviewers score self-awareness and recovery; a real owned failure with a process-level learning beats a humblebrag.",
+      },
+    ],
+  },
 ];
 
 export const CONCEPTS = [...PRINCIPLES, ...GENERATED_CONCEPTS, ...EXTRA_CONCEPTS];
