@@ -21,9 +21,9 @@ const LAB_ITEMS = [
 
 const LAB_IDS = new Set(LAB_ITEMS.map((l) => l.id));
 
-// "For You" (personalized) first so it's the most prominent; then planning/code,
-// then the conceptual reading tracks.
-const GROUP_ORDER = ["For You", "Code labs", "Principles", "Interview", "Knowledge"];
+// "For You" (personalized) first so it's the most prominent; then the companies
+// you're actively looping with, then planning/code, then the reading tracks.
+const GROUP_ORDER = ["For You", "Companies", "Code labs", "Principles", "Interview", "Knowledge"];
 
 const DEFAULT_SUB = "study-plans";
 

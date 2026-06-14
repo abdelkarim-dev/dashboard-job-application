@@ -9892,9 +9892,105 @@ body.pane-resizing {
   color: #86efac;
 }
 
+/* Body splits into a reading column + a sticky self-check rail on the right.
+   The rail only exists when the concept has a checklist or quiz (.has-aside). */
+.learn-concept-body {
+  display: block;
+}
+
+.learn-concept.has-aside .learn-concept-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(296px, 350px);
+  gap: 34px;
+  align-items: start;
+}
+
+.learn-concept-main {
+  min-width: 0;
+}
+
+.learn-concept-aside {
+  position: sticky;
+  top: 2px;
+  align-self: start;
+  display: grid;
+  gap: 16px;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+}
+
+.learn-aside-card {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 14px;
+  background: var(--md-surface-1);
+  padding: 15px 16px 8px;
+}
+
+.learn-aside-card h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--md-primary);
+}
+
+.learn-checklist-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--md-on-surface-variant);
+  letter-spacing: 0;
+}
+
+.learn-checklist {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.learn-checklist label {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 7px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--md-on-surface);
+  transition: background 150ms;
+}
+
+.learn-checklist label:hover {
+  background: var(--md-surface-2);
+}
+
+.learn-checklist input {
+  margin: 3px 0 0;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--md-primary);
+  cursor: pointer;
+}
+
+.learn-checklist label.done span {
+  color: var(--md-on-surface-variant);
+  text-decoration: line-through;
+}
+
 .learn-section {
   margin-top: 26px;
   max-width: 78ch;
+}
+
+.learn-concept-main > .learn-section:first-child {
+  margin-top: 6px;
 }
 
 .learn-section h3 {
@@ -9994,6 +10090,18 @@ body.pane-resizing {
 
 .learn-quiz-explain.ok { color: #86efac !important; }
 .learn-quiz-explain.no { color: var(--md-on-surface-variant) !important; }
+
+@media (max-width: 1100px) {
+  .learn-concept.has-aside .learn-concept-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .learn-concept-aside {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
 
 @media (max-width: 860px) {
   .learn-shell {

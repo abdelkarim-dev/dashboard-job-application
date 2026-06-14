@@ -14,7 +14,11 @@
 //     quiz?: [{ q, options: [string, ...], answer: index, explain }],
 //   }
 
-export const CONCEPTS = [
+import { GENERATED_CONCEPTS } from "./concepts.generated.js";
+
+// Hand-authored principle pages live here; the AI/ML, interview, and company
+// pages are research-generated (concepts.generated.js). See scripts/gen-concepts.mjs.
+const PRINCIPLES = [
   // ── Principles ────────────────────────────────────────────────
   {
     id: "dry",
@@ -234,188 +238,8 @@ export const CONCEPTS = [
       },
     ],
   },
-
-  // ── Interview ─────────────────────────────────────────────────
-  {
-    id: "behavioral",
-    group: "Interview",
-    label: "Behavioral",
-    icon: "🗣",
-    title: "Behavioral Interviews",
-    tagline: "They're testing how you actually operate — structured stories beat adjectives.",
-    sections: [
-      {
-        heading: "Use STAR, every time",
-        body: [
-          "Situation: brief context. Task: what you specifically owned. Action: what YOU did (say 'I', not 'we'). Result: the outcome, quantified if possible, plus what you learned.",
-          "Keep Situation/Task short (~20%) and spend most of the answer on Action and Result. Interviewers reward specificity and ownership.",
-        ],
-      },
-      {
-        heading: "Build a story bank",
-        body: [
-          "Prepare 6–8 real stories you can reshape on the fly: a shipped project, a conflict, a failure, a tight deadline, leading without authority, a data-driven decision, a tough trade-off, going above scope.",
-          "Most behavioral questions map onto one of these. You're not memorizing answers — you're indexing experiences so you can retrieve one fast.",
-        ],
-      },
-      {
-        heading: "Amazon Leadership Principles",
-        body: [
-          "If you're targeting Amazon (or AWS), the bar-raiser loop is explicitly LP-driven. Tag each of your stories with the principles it demonstrates: Customer Obsession, Ownership, Invent and Simplify, Dive Deep, Bias for Action, Deliver Results, Disagree and Commit, Earn Trust.",
-          "Expect deep follow-ups: 'What was the data?', 'What would you do differently?', 'What did others think?'. They probe past the rehearsed surface — know your stories cold.",
-        ],
-      },
-      {
-        heading: "Common prompts to rehearse",
-        body: [
-          "Tell me about a time you disagreed with your manager. A time you failed. A time you had to make a decision without enough data. The hardest bug you debugged. A time you took on something outside your role. A conflict with a teammate and how you resolved it.",
-        ],
-      },
-    ],
-    keyPoints: [
-      "STAR structure; weight toward Action + Result.",
-      "Say 'I' — they're scoring your contribution, not the team's.",
-      "Prepare 6–8 reusable real stories, tagged to themes/LPs.",
-      "Quantify results and always include what you learned.",
-      "Expect 'dive deep' follow-ups — know the details, not a script.",
-    ],
-    quiz: [
-      {
-        q: "In a STAR answer, where should most of your time go?",
-        options: [
-          "Situation and Task (the setup)",
-          "Action and Result (what you did and the outcome)",
-          "An even split across all four",
-          "The Result only",
-        ],
-        answer: 1,
-        explain: "Setup should be brief; interviewers score your actions and the measurable outcome.",
-      },
-    ],
-  },
-  {
-    id: "interview-questions",
-    group: "Interview",
-    label: "General Questions",
-    icon: "❓",
-    title: "General Interview Questions",
-    tagline: "The recurring non-technical questions — have a crisp, honest answer ready for each.",
-    sections: [
-      {
-        heading: "\"Tell me about yourself\"",
-        body: [
-          "Not your life story. A 60–90s arc: present (what you do now + a signature strength), past (one or two relevant proof points), future (why this role is the logical next step). End by handing the conversation back.",
-        ],
-      },
-      {
-        heading: "\"Why this company / role?\"",
-        body: [
-          "Show you did homework: name something specific — a product, a value, a problem they're solving — and connect it to what you want to do. Generic answers ('great culture') read as no answer.",
-        ],
-      },
-      {
-        heading: "Strengths, weaknesses, failure",
-        body: [
-          "Strength: pick one relevant to the role and back it with evidence. Weakness: a real one plus the concrete system you've built to manage it — no humblebrags ('I work too hard'). Failure: own it plainly, then focus on what changed afterward.",
-        ],
-      },
-      {
-        heading: "\"Where do you see yourself / why leaving?\"",
-        body: [
-          "Future: show ambition aligned with growth they can offer, not a rigid title demand. Leaving: stay positive — pull toward opportunity, never trash the current employer. Negativity is the fastest way to lose a room.",
-        ],
-      },
-      {
-        heading: "\"Do you have questions for us?\"",
-        body: [
-          "Always yes. Ask about how success is measured in the role, what the team is struggling with, or how decisions get made. Thoughtful questions are part of the evaluation, not an afterthought.",
-        ],
-      },
-    ],
-    keyPoints: [
-      "'Tell me about yourself': present → past → future, ~90 seconds.",
-      "'Why us?': cite something specific and tie it to your goals.",
-      "Weakness = a real one + how you manage it.",
-      "Never badmouth a current/past employer.",
-      "Always have 2–3 sharp questions ready to ask them.",
-    ],
-  },
-
-  // ── Knowledge ─────────────────────────────────────────────────
-  {
-    id: "ai-knowledge-base",
-    group: "Knowledge",
-    label: "AI Knowledge Base",
-    icon: "🧠",
-    title: "AI / ML Knowledge Base",
-    tagline: "Fundamentals to prep for AI-focused roles — ML basics through LLMs, RAG, and AWS AI services.",
-    sections: [
-      {
-        heading: "ML fundamentals",
-        body: [
-          "Supervised vs unsupervised vs reinforcement learning. The bias–variance trade-off and how it drives over/underfitting. Train/validation/test splits and why leakage invalidates results. Core metrics: accuracy vs precision/recall/F1, and when accuracy lies (imbalanced data); regression metrics (MAE, RMSE).",
-          "Regularization (L1/L2, dropout), cross-validation, and feature engineering as the levers you reach for in practice.",
-        ],
-      },
-      {
-        heading: "Deep learning & transformers",
-        body: [
-          "Neural net basics: layers, activations, backprop, gradient descent and learning rate. Why transformers replaced RNNs: self-attention captures long-range dependencies in parallel. Tokens, embeddings, positional encoding, the attention mechanism (Q/K/V), and the encoder/decoder split.",
-        ],
-      },
-      {
-        heading: "LLMs in practice",
-        body: [
-          "Pretraining vs fine-tuning vs in-context learning. Prompt engineering, temperature/top-p sampling, context windows, and tokens as the unit of cost and limit. Hallucination and why grounding matters. Parameter-efficient tuning (LoRA) at a high level.",
-        ],
-      },
-      {
-        heading: "RAG & evaluation",
-        body: [
-          "Retrieval-Augmented Generation: embed documents into a vector store, retrieve the most relevant chunks at query time, and feed them as context so the model answers from your data instead of guessing. Key levers: chunking, embedding model, similarity search, re-ranking.",
-          "Evaluating LLM systems: offline eval sets, LLM-as-judge, groundedness/faithfulness, and human review. 'It looked good in the demo' is not evaluation.",
-        ],
-      },
-      {
-        heading: "AWS AI services (Amazon-focused roles)",
-        body: [
-          "Amazon Bedrock: managed access to foundation models with a unified API; Knowledge Bases for managed RAG; Guardrails for safety. Amazon SageMaker: train, tune, host, and monitor custom models end to end. Higher-level services: Comprehend (NLP), Rekognition (vision), Textract (documents), Transcribe/Polly (speech).",
-          "Know the split: Bedrock = use/customize foundation models; SageMaker = build/train your own.",
-        ],
-      },
-    ],
-    keyPoints: [
-      "Know the bias–variance trade-off and which metric to trust on imbalanced data.",
-      "Self-attention is why transformers scale; tokens are the unit of cost & limits.",
-      "RAG grounds an LLM in your data via retrieval over a vector store.",
-      "Evaluate LLM systems deliberately (eval sets, judges, groundedness).",
-      "Bedrock = use foundation models; SageMaker = build/train your own.",
-    ],
-    quiz: [
-      {
-        q: "Your model scores 99% accuracy on a dataset that's 99% one class. What's the problem?",
-        options: [
-          "Nothing — 99% is excellent",
-          "Accuracy is misleading on imbalanced data; check precision/recall/F1",
-          "The model is overfitting by definition",
-          "You need a bigger model",
-        ],
-        answer: 1,
-        explain: "A trivial 'always majority' classifier hits 99% here. Precision/recall/F1 reveal the truth.",
-      },
-      {
-        q: "Which best describes RAG?",
-        options: [
-          "Fine-tuning a model on your private data",
-          "Retrieving relevant documents and adding them to the prompt as context",
-          "Running multiple models and voting",
-          "Compressing the model to run on-device",
-        ],
-        answer: 1,
-        explain: "RAG retrieves relevant chunks at query time and grounds the model's answer in them — no retraining.",
-      },
-    ],
-  },
 ];
+
+export const CONCEPTS = [...PRINCIPLES, ...GENERATED_CONCEPTS];
 
 export const CONCEPTS_BY_ID = Object.fromEntries(CONCEPTS.map((c) => [c.id, c]));
