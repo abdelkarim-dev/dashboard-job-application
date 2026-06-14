@@ -54,6 +54,15 @@ export default function Learn({ sub, onNavigate, practiceProps = {}, onTrainPlan
     return GROUP_ORDER.filter((g) => byGroup[g]?.length).map((g) => ({ name: g, items: byGroup[g] }));
   }, [allConcepts]);
 
+  // Ordered concept list (rail order) for the in-page module switcher.
+  const navItems = useMemo(() => {
+    const rank = {};
+    GROUP_ORDER.forEach((g, i) => { rank[g] = i; });
+    return allConcepts
+      .map((c) => ({ id: c.id, label: c.label, group: c.group }))
+      .sort((a, b) => (rank[a.group] ?? 99) - (rank[b.group] ?? 99));
+  }, [allConcepts]);
+
   const knownIds = useMemo(() => new Set([...LAB_IDS, ...allConcepts.map((c) => c.id)]), [allConcepts]);
   const activeSub = knownIds.has(sub) ? sub : DEFAULT_SUB;
 
@@ -91,7 +100,9 @@ export default function Learn({ sub, onNavigate, practiceProps = {}, onTrainPlan
         return <SystemDesign />;
       default: {
         const concept = conceptById[activeSub];
-        return concept ? <ConceptPage concept={concept} /> : null;
+        return concept ? (
+          <ConceptPage concept={concept} navItems={navItems} onNavigate={onNavigate} />
+        ) : null;
       }
     }
   };

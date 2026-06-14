@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Diagram, DIAGRAMS_BY_CONCEPT } from "./diagrams.jsx";
 
 const PROGRESS_KEY = "learnConceptProgress";
 const CHECKLIST_KEY = "learnChecklistProgress";
@@ -50,6 +51,8 @@ function saveChecklistItem(conceptId, index, checked) {
   try {
     localStorage.setItem(CHECKLIST_KEY, JSON.stringify(next));
   } catch {}
+  // Reuse the same signal the review toggle uses so the rail / prep hub refresh.
+  document.dispatchEvent(new CustomEvent("learn:progress"));
   return next;
 }
 
@@ -64,9 +67,71 @@ function buildAskContext(concept) {
   return parts.join("\n").slice(0, 3500);
 }
 
-// "Ask Gemma" box, present on every concept page. Posts the question plus a
-// summary of the current page to the local Gemma proxy (/api/learn-ask) and
-// shows the coach's answer, or a clear message when Gemma is busy / not running.
+// Floating header to jump between concept pages without the left rail: prev/next
+// through the ordered list plus a grouped dropdown to jump anywhere.
+function ModuleBar({ navItems, currentId, onNavigate }) {
+  if (!navItems?.length || !onNavigate) return null;
+  const idx = navItems.findIndex((n) => n.id === currentId);
+  const prev = idx > 0 ? navItems[idx - 1] : null;
+  const next = idx >= 0 && idx < navItems.length - 1 ? navItems[idx + 1] : null;
+
+  const groups = [];
+  for (const n of navItems) {
+    let g = groups.find((x) => x.name === n.group);
+    if (!g) {
+      g = { name: n.group, items: [] };
+      groups.push(g);
+    }
+    g.items.push(n);
+  }
+
+  return (
+    <nav className="learn-modulebar" aria-label="Module switcher">
+      <button
+        type="button"
+        className="learn-mod-btn"
+        disabled={!prev}
+        onClick={() => prev && onNavigate(prev.id)}
+        title={prev ? `Previous: ${prev.label}` : ""}
+        aria-label="Previous module"
+      >
+        ‹
+      </button>
+      <div className="learn-mod-switch">
+        <select
+          value={currentId}
+          onChange={(e) => onNavigate(e.target.value)}
+          aria-label="Switch module"
+        >
+          {groups.map((g) => (
+            <optgroup key={g.name} label={g.name}>
+              {g.items.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {idx >= 0 && <span className="learn-mod-pos">{idx + 1} / {navItems.length}</span>}
+      </div>
+      <button
+        type="button"
+        className="learn-mod-btn"
+        disabled={!next}
+        onClick={() => next && onNavigate(next.id)}
+        title={next ? `Next: ${next.label}` : ""}
+        aria-label="Next module"
+      >
+        ›
+      </button>
+    </nav>
+  );
+}
+
+// "Ask Gemma" box, present on every concept page. Streams the coach's answer
+// token-by-token from /api/learn-ask-stream, falling back to the buffered
+// /api/learn-ask if the streaming endpoint is missing (older server build).
 function AskGemma({ concept }) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -75,7 +140,6 @@ function AskGemma({ concept }) {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
 
-  // Buffered fallback for servers without the streaming endpoint (older build).
   const askBuffered = async (body) => {
     setStatus("Thinking");
     const res = await fetch("/api/learn-ask", {
@@ -205,18 +269,79 @@ function AskGemma({ concept }) {
   );
 }
 
-// Renders one reading "concept" subpage (principles, interview prep, AI KB,
-// company intel, or CV-personalized content) from the data shape in concepts.js.
-// The reading flows in the main column; the study rail docks to the right (Ask
-// Gemma, an interactive checklist, and a quick-check quiz) so it uses the
-// horizontal space and stays in view while you read. Sections marked `card`
-// render as discrete cards (e.g. pitch variants, STAR stories). Code labs are
-// NOT rendered here — Learn.jsx maps those to their existing components.
-export default function ConceptPage({ concept }) {
+// One reading section: heading + paragraphs, plus optional richer blocks
+// (callout, numbered steps, comparison table, code) to break up the text.
+function Section({ section, index }) {
+  return (
+    <section className={`learn-section ${section.card ? "learn-section-card" : ""}`}>
+      {section.heading &&
+        (section.card ? (
+          <div className="learn-card-head">
+            {section.tag && <span className="learn-card-tag">{section.tag}</span>}
+            <h3>{section.heading}</h3>
+          </div>
+        ) : (
+          <h3 className="learn-section-h">
+            <span className="learn-section-num" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+            {section.heading}
+          </h3>
+        ))}
+      {(section.body || []).map((para, j) => (
+        <p key={j}>{para}</p>
+      ))}
+      {section.callout && (
+        <div className={`learn-callout kind-${section.callout.kind || "key"}`}>
+          {section.callout.title && <strong>{section.callout.title}</strong>}
+          <span>{section.callout.text}</span>
+        </div>
+      )}
+      {Array.isArray(section.steps) && section.steps.length > 0 && (
+        <ol className="learn-steps">
+          {section.steps.map((s, k) => (
+            <li key={k}>{s}</li>
+          ))}
+        </ol>
+      )}
+      {section.table && Array.isArray(section.table.rows) && (
+        <div className="learn-table-wrap">
+          <table className="learn-table">
+            {Array.isArray(section.table.headers) && (
+              <thead>
+                <tr>
+                  {section.table.headers.map((h, k) => (
+                    <th key={k}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {section.table.rows.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td key={c}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {section.code && (
+        <pre className="learn-code" data-lang={section.code.lang || ""}>
+          <code>{section.code.source}</code>
+        </pre>
+      )}
+    </section>
+  );
+}
+
+// Renders one reading "concept" subpage from the data shape in concepts.js. A
+// floating module bar lets you switch pages; the reading flows in the main column
+// (with an SVG schematic where one helps); the study rail (Ask Gemma, checklist,
+// quiz) docks to the right. Code labs are NOT rendered here.
+export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const [reviewed, setReviewedState] = useState(() => !!loadConceptProgress()[concept.id]);
-  // Quiz answers are per-mount (not persisted) — they're a self-check, not a score.
   const [answers, setAnswers] = useState({});
-  // Checklist ticks ARE persisted so prep progress survives navigation/reload.
   const [checked, setChecked] = useState(() => loadChecklist()[concept.id] || {});
 
   if (!concept) return null;
@@ -241,10 +366,14 @@ export default function ConceptPage({ concept }) {
   const checklist = Array.isArray(concept.checklist) ? concept.checklist : [];
   const quiz = Array.isArray(concept.quiz) ? concept.quiz : [];
   const keyPoints = Array.isArray(concept.keyPoints) ? concept.keyPoints : [];
+  const sections = Array.isArray(concept.sections) ? concept.sections : [];
+  const diagrams = DIAGRAMS_BY_CONCEPT[concept.id] || [];
   const doneCount = checklist.reduce((n, _, i) => n + (checked[i] ? 1 : 0), 0);
 
   return (
     <article className="learn-concept has-aside" key={concept.id}>
+      <ModuleBar navItems={navItems} currentId={concept.id} onNavigate={onNavigate} />
+
       <header className="learn-concept-head">
         <div>
           <div className="learn-concept-kicker">{concept.group}</div>
@@ -263,29 +392,17 @@ export default function ConceptPage({ concept }) {
 
       <div className="learn-concept-body">
         <div className="learn-concept-main">
-          {(concept.sections || []).map((section, i) => (
-            <section
-              className={`learn-section ${section.card ? "learn-section-card" : ""}`}
-              key={section.heading || i}
-            >
-              {section.heading &&
-                (section.card ? (
-                  <div className="learn-card-head">
-                    {section.tag && <span className="learn-card-tag">{section.tag}</span>}
-                    <h3>{section.heading}</h3>
-                  </div>
-                ) : (
-                  <h3>{section.heading}</h3>
+          {sections.map((section, i) => (
+            <React.Fragment key={section.heading || i}>
+              <Section section={section} index={i} />
+              {i === 0 &&
+                diagrams.map((d) => (
+                  <figure className="learn-diagram" key={d.id}>
+                    <Diagram id={d.id} />
+                    {d.caption && <figcaption>{d.caption}</figcaption>}
+                  </figure>
                 ))}
-              {(section.body || []).map((para, j) => (
-                <p key={j}>{para}</p>
-              ))}
-              {section.code && (
-                <pre className="learn-code" data-lang={section.code.lang || ""}>
-                  <code>{section.code.source}</code>
-                </pre>
-              )}
-            </section>
+            </React.Fragment>
           ))}
 
           {keyPoints.length > 0 && (

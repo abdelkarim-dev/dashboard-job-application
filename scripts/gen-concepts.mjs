@@ -123,6 +123,27 @@ const META = {
       "Can explain tool-calling and agents at a high level",
       "Know what LoRA/QLoRA buy you",
     ],
+    extraSections: [
+      {
+        heading: "Fine-tune vs RAG vs prompt at a glance",
+        body: [
+          "The one-line rule: prompt for everything you can get away with, RAG for knowledge, fine-tune for behavior. The table makes the trade-offs explicit so you can defend the choice.",
+        ],
+        table: {
+          headers: ["Approach", "Best for", "Update cost", "Main risk"],
+          rows: [
+            ["Prompt / in-context", "Quick wins, few-shot patterns, formatting", "Instant (edit the prompt)", "Hits a capability ceiling; token cost per call"],
+            ["RAG", "Fresh or proprietary knowledge that changes", "Low (re-index)", "Retrieval quality; latency + token cost of context"],
+            ["Fine-tune (LoRA/QLoRA)", "Consistent behavior, style, or domain format", "High (a training run + data)", "Goes stale on facts; needs labeled data"],
+          ],
+        },
+        callout: {
+          kind: "key",
+          title: "Say this in the room",
+          text: "These compose: fine-tune the style, RAG the facts, prompt the rest. Naming the failure each one prevents reads more senior than picking a favorite.",
+        },
+      },
+    ],
   },
   "rag-vector-search": {
     id: "rag-vector-search", group: "Knowledge", label: "RAG & Vector Search", icon: "🔎", order: 24,

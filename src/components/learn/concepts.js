@@ -256,6 +256,11 @@ const EXTRA_CONCEPTS = [
           "Interview problems are recombinations of about fifteen patterns. The skill that transfers is recognizing which pattern a prompt maps to, then applying the technique you already know. Grinding hundreds of random problems without naming the pattern is the slow path; drilling one or two problems per pattern until the recognition is automatic is the fast one.",
           "For Staff and Senior loops the bar is not competitive-programming speed. It is clean, correct, well-communicated code with the right complexity. Talk through the approach before you type, state the brute force first, then optimize, and state time and space complexity unprompted. A correct medium solved calmly while narrating beats a rushed hard.",
         ],
+        callout: {
+          kind: "tip",
+          title: "The move",
+          text: "Read the prompt for the cue word (sorted, longest substring, top-K, all combinations) and name the pattern out loud before you write a line. Naming it is half the solve.",
+        },
       },
       {
         heading: "Arrays, strings, stacks",
@@ -291,7 +296,14 @@ const EXTRA_CONCEPTS = [
         heading: "The drill spine and the per-problem process",
         body: [
           "A tight spine, one to two problems per pattern: Two Sum and Group Anagrams; Valid Palindrome and 3Sum; Longest Substring Without Repeating and Min Window Substring; Valid Parentheses and Daily Temperatures; Search Rotated Array and Koko Eating Bananas; Level Order and Validate BST; Top K Frequent and Merge K Sorted Lists; Number of Islands and Course Schedule; Subsets and Combination Sum; Climbing Stairs, House Robber, Coin Change, and Longest Common Subsequence.",
-          "Process every problem the same way: restate it and confirm constraints and edge cases out loud; state the brute force and its complexity; name the pattern and the optimized approach; code it cleanly with good names; then walk one example and state final time and space complexity. Use the LeetCode lab to run these against tests.",
+          "Run every problem through the same five-step loop, out loud, and use the LeetCode lab to run your solution against tests:",
+        ],
+        steps: [
+          "Restate the problem and confirm constraints and edge cases out loud.",
+          "State the brute force and its time/space complexity.",
+          "Name the pattern and describe the optimized approach.",
+          "Code it cleanly, with intention-revealing names.",
+          "Walk one example, then state the final time and space complexity.",
         ],
       },
     ],

@@ -1032,6 +1032,45 @@ export const GENERATED_CONCEPTS = [
           "For adapting behavior, follow an escalation order. Start with prompting (including few-shot), because it is free, instant to iterate, and solves a surprising amount. Reach for RAG when the problem is knowledge access: facts that are large, change frequently, are private, or need citations. Reach for fine-tuning (usually LoRA/QLoRA) when the problem is form or skill: a consistent style, output format, or narrow capability that prompting cannot reliably enforce, and where you have quality training data. The crisp heuristic to quote: RAG changes what the model knows, fine-tuning changes how it behaves, and prompting steers within existing capability. They are layers, not rivals; mature systems combine all three.",
           "Interviewers love the 'when would you fine-tune versus RAG' question because reaching for fine-tuning first is the classic over-engineering tell. The winning answer starts cheap, justifies each escalation with a concrete failure of the previous tier, and ties the choice to operational realities: fine-tunes go stale and need retraining, RAG adds retrieval infrastructure and latency but stays current and auditable, and prompting is the fastest feedback loop. Always close on measurement: define an eval set and metrics (accuracy, hallucination rate, latency, cost per request) so the trade-off is decided by data, not opinion."
         ]
+      },
+      {
+        "heading": "Fine-tune vs RAG vs prompt at a glance",
+        "body": [
+          "The one-line rule: prompt for everything you can get away with, RAG for knowledge, fine-tune for behavior. The table makes the trade-offs explicit so you can defend the choice."
+        ],
+        "table": {
+          "headers": [
+            "Approach",
+            "Best for",
+            "Update cost",
+            "Main risk"
+          ],
+          "rows": [
+            [
+              "Prompt / in-context",
+              "Quick wins, few-shot patterns, formatting",
+              "Instant (edit the prompt)",
+              "Hits a capability ceiling; token cost per call"
+            ],
+            [
+              "RAG",
+              "Fresh or proprietary knowledge that changes",
+              "Low (re-index)",
+              "Retrieval quality; latency + token cost of context"
+            ],
+            [
+              "Fine-tune (LoRA/QLoRA)",
+              "Consistent behavior, style, or domain format",
+              "High (a training run + data)",
+              "Goes stale on facts; needs labeled data"
+            ]
+          ]
+        },
+        "callout": {
+          "kind": "key",
+          "title": "Say this in the room",
+          "text": "These compose: fine-tune the style, RAG the facts, prompt the rest. Naming the failure each one prevents reads more senior than picking a favorite."
+        }
       }
     ],
     "keyPoints": [
