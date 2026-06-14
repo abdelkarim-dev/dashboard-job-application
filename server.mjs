@@ -78,6 +78,13 @@ import { cleanStageDate, getLocalDateString } from "./lib/core/dates.mjs";
 import { clean } from "./lib/core/util.mjs";
 import { createApiSecurityMiddleware, isLocalCodeRunnerEnabled } from "./lib/core/security.mjs";
 
+// Load a local .env (Node 20.12+) so flags like CLAIRE_ENABLE_CODE_RUNNER can live
+// in a file at the repo root. Shell-provided env vars still work without one; a
+// missing .env is ignored.
+try {
+  process.loadEnvFile();
+} catch {}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const aceDir = path.join(__dirname, "node_modules", "ace-builds", "src-min-noconflict");
 const port = Number(process.env.PORT || process.argv[2] || 8787);

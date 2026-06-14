@@ -3,6 +3,10 @@ node_modules/
 coverage/
 .DS_Store
 
+# Local environment / secrets (loaded by server.mjs via process.loadEnvFile)
+.env
+.env.local
+
 # Local logs
 *.log
 server.log
