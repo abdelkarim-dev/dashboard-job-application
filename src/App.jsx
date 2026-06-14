@@ -1,16 +1,43 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
 import Analytics from "./components/Analytics.jsx";
-import Practice from "./components/Practice.jsx";
 import Profile from "./components/Profile.jsx";
-import SystemDesign from "./components/SystemDesign.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import InterviewBoard from "./components/InterviewBoard.jsx";
 
-const SolidPractice = lazy(() => import("./components/SolidPractice.jsx"));
-const CleanArchitecture = lazy(() => import("./components/CleanArchitecture.jsx"));
-const StudyPlans = lazy(() => import("./components/StudyPlans.jsx"));
+// The Learn hub owns every study surface (LeetCode, Study Plans, SOLID Lab,
+// Clean Architecture, System Design) plus the concept reading pages, so it pulls
+// in all the learning code — lazy-load it so the dashboard landing stays light.
+const Learn = lazy(() => import("./components/Learn.jsx"));
 
 const REMINDERS_KEY = "jobHuntReminders";
+
+// Default subpage when entering the Learn hub without one (the prep planner).
+const DEFAULT_LEARN_SUB = "study-plans";
+
+// Legacy top-level hashes now live inside the Learn hub as subpages. Keep these
+// redirects so old bookmarks / extension links / cross-nav still resolve.
+const LEGACY_LEARN_HASH = {
+  "#/leetcode": "leetcode",
+  "#/practice": "leetcode",
+  "#/plans": "study-plans",
+  "#/study-plans": "study-plans",
+  "#/solid": "solid",
+  "#/solid-java": "solid",
+  "#/clean-architecture": "clean-architecture",
+  "#/system-design": "system-design",
+};
+
+// Map a URL hash to { tab, sub? }. `sub` is only set for the Learn hub.
+function parseHash(hash) {
+  if (hash === "#/analytics") return { tab: "analytics" };
+  if (hash === "#/profile") return { tab: "profile" };
+  if (hash === "#/board" || hash === "#/interview-board") return { tab: "interviewboard" };
+  if (hash === "#/dashboard") return { tab: "newdashboard" };
+  if (hash === "#/learn") return { tab: "learn", sub: DEFAULT_LEARN_SUB };
+  if (hash.startsWith("#/learn/")) return { tab: "learn", sub: hash.slice("#/learn/".length) || DEFAULT_LEARN_SUB };
+  if (LEGACY_LEARN_HASH[hash]) return { tab: "learn", sub: LEGACY_LEARN_HASH[hash] };
+  return { tab: "newdashboard" };
+}
 
 function loadReminders() {
   try {
@@ -30,19 +57,9 @@ function persistReminders(list) {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState(() => {
-    const hash = window.location.hash;
-    if (hash === "#/analytics") return "analytics";
-    if (hash === "#/leetcode" || hash === "#/practice") return "leetcode";
-    if (hash === "#/plans" || hash === "#/study-plans") return "studyplans";
-    if (hash === "#/solid-java" || hash === "#/solid") return "solidjava";
-    if (hash === "#/clean-architecture") return "cleanarchitecture";
-    if (hash === "#/system-design") return "systemdesign";
-    if (hash === "#/profile") return "profile";
-    if (hash === "#/board" || hash === "#/interview-board") return "interviewboard";
-    if (hash === "#/dashboard") return "newdashboard";
-    return "newdashboard";
-  });
+  const [activeTab, setActiveTab] = useState(() => parseHash(window.location.hash).tab);
+  // Active subpage within the Learn hub (e.g. "leetcode", "behavioral", "dry").
+  const [learnSub, setLearnSub] = useState(() => parseHash(window.location.hash).sub || DEFAULT_LEARN_SUB);
   const [applications, setApplications] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
   const [dashboardStatusFilter, setDashboardStatusFilter] = useState("");
@@ -195,17 +212,9 @@ export default function App() {
     const interval = setInterval(fetchApplicationsQuietly, 10000);
 
     const handleHashChange = () => {
-      const hash = window.location.hash;
-      if (hash === "#/analytics") setActiveTab("analytics");
-      else if (hash === "#/leetcode" || hash === "#/practice") setActiveTab("leetcode");
-      else if (hash === "#/plans" || hash === "#/study-plans") setActiveTab("studyplans");
-      else if (hash === "#/solid-java" || hash === "#/solid") setActiveTab("solidjava");
-      else if (hash === "#/clean-architecture") setActiveTab("cleanarchitecture");
-      else if (hash === "#/system-design") setActiveTab("systemdesign");
-      else if (hash === "#/profile") setActiveTab("profile");
-      else if (hash === "#/board" || hash === "#/interview-board") setActiveTab("interviewboard");
-      else if (hash === "#/dashboard") setActiveTab("newdashboard");
-      else setActiveTab("newdashboard");
+      const { tab, sub } = parseHash(window.location.hash);
+      setActiveTab(tab);
+      if (tab === "learn") setLearnSub(sub || DEFAULT_LEARN_SUB);
     };
 
     window.addEventListener("hashchange", handleHashChange);
@@ -223,31 +232,34 @@ export default function App() {
 
   const TAB_HASHES = {
     analytics: "analytics",
-    leetcode: "leetcode",
-    studyplans: "plans",
-    solidjava: "solid-java",
-    cleanarchitecture: "clean-architecture",
-    systemdesign: "system-design",
     profile: "profile",
     interviewboard: "board",
     newdashboard: "dashboard",
+    learn: "learn",
+  };
+
+  // Navigate to a subpage inside the Learn hub (drives the #/learn/<sub> hash).
+  const navigateLearn = (sub) => {
+    const target = sub || DEFAULT_LEARN_SUB;
+    setActiveTab("learn");
+    setLearnSub(target);
+    const hash = `#/learn/${target}`;
+    if (window.location.hash !== hash) window.location.hash = hash;
   };
 
   const handleTabChange = (tabName) => {
+    if (tabName === "learn") {
+      navigateLearn(learnSub);
+      return;
+    }
     window.location.hash = `#/${TAB_HASHES[tabName] || tabName}`;
     setActiveTab(tabName);
   };
 
-  // Open the LeetCode view on the full bank (clears any active plan).
-  const goToLeetCode = () => {
-    setActivePlan(null);
-    handleTabChange("leetcode");
-  };
-
-  // Enter a plan: scope the LeetCode view to just this plan's problems.
+  // Enter a plan: scope the LeetCode subpage to just this plan's problems.
   const handleTrainPlan = (plan) => {
     setActivePlan(plan);
-    handleTabChange("leetcode");
+    navigateLearn("leetcode");
   };
 
   const fetchApplications = async () => {
@@ -327,44 +339,12 @@ export default function App() {
             <span>Analytics</span>
           </button>
           <button
-            className={`sidebar-nav-btn ${activeTab === "leetcode" ? "active" : ""}`}
-            onClick={goToLeetCode}
+            className={`sidebar-nav-btn ${activeTab === "learn" ? "active" : ""}`}
+            onClick={() => handleTabChange("learn")}
             type="button"
           >
-            <span className="sidebar-nav-icon">⌨</span>
-            <span>LeetCode</span>
-          </button>
-          <button
-            className={`sidebar-nav-btn ${activeTab === "studyplans" ? "active" : ""}`}
-            onClick={() => handleTabChange("studyplans")}
-            type="button"
-          >
-            <span className="sidebar-nav-icon">◷</span>
-            <span>Study Plans</span>
-          </button>
-          <button
-            className={`sidebar-nav-btn ${activeTab === "solidjava" ? "active" : ""}`}
-            onClick={() => handleTabChange("solidjava")}
-            type="button"
-          >
-            <span className="sidebar-nav-icon">◆</span>
-            <span>SOLID Lab</span>
-          </button>
-          <button
-            className={`sidebar-nav-btn ${activeTab === "cleanarchitecture" ? "active" : ""}`}
-            onClick={() => handleTabChange("cleanarchitecture")}
-            type="button"
-          >
-            <span className="sidebar-nav-icon">🧱</span>
-            <span>Clean Arch</span>
-          </button>
-          <button
-            className={`sidebar-nav-btn ${activeTab === "systemdesign" ? "active" : ""}`}
-            onClick={() => handleTabChange("systemdesign")}
-            type="button"
-          >
-            <span className="sidebar-nav-icon">🏗</span>
-            <span>System Design</span>
+            <span className="sidebar-nav-icon">🎓</span>
+            <span>Learn</span>
           </button>
           <button
             className={`sidebar-nav-btn ${activeTab === "profile" ? "active" : ""}`}
@@ -412,39 +392,11 @@ export default function App() {
               📊 Analytics
             </button>
             <button
-              className={`tab-btn ${activeTab === "leetcode" ? "active" : ""}`}
-              onClick={goToLeetCode}
+              className={`tab-btn ${activeTab === "learn" ? "active" : ""}`}
+              onClick={() => handleTabChange("learn")}
               type="button"
             >
-              ⌨ LeetCode
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "studyplans" ? "active" : ""}`}
-              onClick={() => handleTabChange("studyplans")}
-              type="button"
-            >
-              ◷ Study Plans
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "solidjava" ? "active" : ""}`}
-              onClick={() => handleTabChange("solidjava")}
-              type="button"
-            >
-              ◆ SOLID Lab
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "cleanarchitecture" ? "active" : ""}`}
-              onClick={() => handleTabChange("cleanarchitecture")}
-              type="button"
-            >
-              🧱 Clean Arch
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "systemdesign" ? "active" : ""}`}
-              onClick={() => handleTabChange("systemdesign")}
-              type="button"
-            >
-              🏗 System Design
+              🎓 Learn
             </button>
             <button
               className={`tab-btn ${activeTab === "profile" ? "active" : ""}`}
@@ -467,34 +419,21 @@ export default function App() {
           />
         )}
 
-        {activeTab === "leetcode" && (
-          <Practice
-            timerState={timerState}
-            setTimerState={setTimerState}
-            activePlan={activePlan}
-            onExitPlan={() => setActivePlan(null)}
-          />
-        )}
-
-        {activeTab === "studyplans" && (
-          <Suspense fallback={<div className="learning-empty"><strong>Loading study plans…</strong></div>}>
-            <StudyPlans onTrainPlan={handleTrainPlan} />
+        {activeTab === "learn" && (
+          <Suspense fallback={<div className="learning-empty"><strong>Loading…</strong></div>}>
+            <Learn
+              sub={learnSub}
+              onNavigate={navigateLearn}
+              onTrainPlan={handleTrainPlan}
+              practiceProps={{
+                timerState,
+                setTimerState,
+                activePlan,
+                onExitPlan: () => setActivePlan(null),
+              }}
+            />
           </Suspense>
         )}
-
-        {activeTab === "solidjava" && (
-          <Suspense fallback={<div className="learning-empty"><strong>Loading Java lab...</strong></div>}>
-            <SolidPractice />
-          </Suspense>
-        )}
-
-        {activeTab === "cleanarchitecture" && (
-          <Suspense fallback={<div className="learning-empty"><strong>Loading Clean Architecture lab...</strong></div>}>
-            <CleanArchitecture />
-          </Suspense>
-        )}
-
-        {activeTab === "systemdesign" && <SystemDesign />}
 
         {activeTab === "profile" && <Profile />}
 
