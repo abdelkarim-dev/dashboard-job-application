@@ -238,7 +238,141 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-export default function Practice({ timerState, setTimerState }) {
+// ---- HackerRank-style basic autofill completer (single-token only) ----
+// Every completion's `value` is a bare identifier/keyword/method name — a single
+// token with no whitespace or newline — so Ace's $insertString only ever inserts
+// one token. No item carries a `snippet` field, so nothing template-expands. This
+// replaces the old completer whose `value` was a whole multi-line code block,
+// which dumped an entire template into the editor on a single keystroke.
+const PRACTICE_WORDS = {
+  java: {
+    keyword: [
+      "class", "interface", "enum", "public", "private", "protected", "static",
+      "final", "void", "return", "new", "this", "super", "extends", "implements",
+      "import", "package", "if", "else", "for", "while", "do", "switch", "case",
+      "default", "break", "continue", "try", "catch", "finally", "throw", "throws",
+      "instanceof", "true", "false", "null", "abstract", "synchronized",
+    ],
+    type: [
+      "int", "long", "double", "float", "boolean", "char", "byte", "short",
+      "String", "Object", "List", "Map", "Set", "HashMap", "HashSet", "TreeMap",
+      "TreeSet", "LinkedHashMap", "ArrayList", "LinkedList", "ArrayDeque", "Deque",
+      "PriorityQueue", "Queue", "Stack", "StringBuilder", "Arrays", "Collections",
+      "Integer", "Long", "Double", "Float", "Boolean", "Character", "Byte",
+      "Math", "Optional", "Comparator", "Iterator", "Comparable",
+    ],
+    method: [
+      "put", "get", "getOrDefault", "putIfAbsent", "containsKey", "containsValue",
+      "add", "addAll", "addFirst", "addLast", "remove", "removeFirst", "removeLast",
+      "poll", "pollFirst", "pollLast", "offer", "push", "pop", "peek", "peekFirst",
+      "peekLast", "size", "length", "isEmpty", "clear", "contains", "indexOf",
+      "charAt", "substring", "toCharArray", "split", "trim", "replace", "append",
+      "insert", "reverse", "toString", "valueOf", "parseInt", "sort", "fill",
+      "copyOf", "asList", "max", "min", "abs", "pow", "sqrt", "floor", "ceil",
+      "round", "compareTo", "equals", "hashCode", "keySet", "values", "entrySet",
+      "getKey", "getValue", "stream", "collect", "mapToInt", "forEach", "of",
+    ],
+  },
+  python: {
+    keyword: [
+      "def", "class", "return", "yield", "lambda", "if", "elif", "else", "for",
+      "while", "break", "continue", "pass", "import", "from", "as", "with",
+      "try", "except", "finally", "raise", "and", "or", "not", "in", "is",
+      "None", "True", "False", "global", "nonlocal", "del", "assert", "self",
+    ],
+    type: [
+      "int", "float", "bool", "str", "list", "dict", "set", "frozenset", "tuple",
+      "bytes", "complex", "deque", "Counter", "defaultdict", "OrderedDict",
+      "List", "Dict", "Set", "Tuple", "Optional", "heapq", "bisect", "math",
+    ],
+    method: [
+      "append", "extend", "insert", "pop", "popleft", "appendleft", "remove",
+      "clear", "index", "count", "sort", "sorted", "reverse", "reversed", "copy",
+      "get", "keys", "values", "items", "setdefault", "update", "add", "discard",
+      "union", "intersection", "difference", "len", "range", "enumerate", "zip",
+      "map", "filter", "sum", "max", "min", "abs", "round", "split", "join",
+      "strip", "lstrip", "rstrip", "replace", "lower", "upper", "find", "startswith",
+      "endswith", "format", "ord", "chr", "bin", "isdigit", "isalpha", "heappush",
+      "heappop", "heapify", "bisect_left", "bisect_right", "gcd", "sqrt", "ceil",
+      "floor", "most_common", "groupby",
+    ],
+  },
+};
+
+// A single identifier-shaped prefix (no whitespace/newline). Gates the popup so
+// it never fires on punctuation or empty input.
+const PRACTICE_PREFIX_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+// Pull identifiers already typed in the buffer so locals (variable/method names)
+// autocomplete like HackerRank. A fresh /g regex per call avoids shared lastIndex.
+function harvestBufferIdentifiers(session, prefix) {
+  const seen = new Set();
+  const out = [];
+  const text = typeof session?.getValue === "function" ? session.getValue() : "";
+  const re = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const word = m[0];
+    if (word.length < 2 || word === prefix || seen.has(word)) continue;
+    seen.add(word);
+    out.push(word);
+    if (out.length >= 400) break;
+  }
+  return out;
+}
+
+// Returns an Ace completer. getLanguage() must return "java" or "python".
+// Wire as the ONLY completer on the editor (editor.completers = [...]) — NOT via
+// languageTools.addCompleter, which appends to Ace's default list (incl. the
+// snippet completer that template-expands on accept).
+function buildPracticeCompleter(getLanguage) {
+  return {
+    id: "practiceBasicAutofill",
+    identifierRegexps: [/[A-Za-z_$][A-Za-z0-9_$]*/],
+    getCompletions(editor, session, pos, prefix, callback) {
+      if (!prefix || !PRACTICE_PREFIX_RE.test(prefix)) {
+        callback(null, []);
+        return;
+      }
+      const language = (typeof getLanguage === "function" && getLanguage() === "python")
+        ? "python"
+        : "java";
+      const words = PRACTICE_WORDS[language];
+      const lowerPrefix = prefix.toLowerCase();
+      const startsWith = (w) => w.toLowerCase().startsWith(lowerPrefix);
+
+      const candidates = [];
+      const pushAll = (list, meta, score) => {
+        for (const word of list) {
+          if (startsWith(word)) candidates.push({ word, meta, score });
+        }
+      };
+
+      pushAll(harvestBufferIdentifiers(session, prefix), "local", 1000);
+      pushAll(words.method, "method", 900);
+      pushAll(words.type, "type", 850);
+      pushAll(words.keyword, "keyword", 800);
+
+      const byToken = new Map();
+      for (const c of candidates) {
+        if (!byToken.has(c.word)) byToken.set(c.word, c);
+      }
+
+      const completions = Array.from(byToken.values())
+        .slice(0, 50)
+        .map((c) => ({
+          caption: c.word,
+          value: c.word, // single token only — never spans multiple lines
+          meta: c.meta,
+          score: c.score,
+        }));
+
+      callback(null, completions);
+    },
+  };
+}
+
+export default function Practice({ timerState, setTimerState, activePlan = null, onExitPlan }) {
   const [store, setStore] = useState(null);
   const [problems, setProblems] = useState([]);
   const [selectedProblem, setSelectedProblem] = useState(null);
@@ -351,6 +485,19 @@ export default function Practice({ timerState, setTimerState }) {
     }
   };
 
+  // When a study plan is active, keep the selection inside the plan. Entering a
+  // plan (or its problems finishing loading) jumps to the first plan problem.
+  useEffect(() => {
+    if (!activePlan || problems.length === 0) return;
+    const planProblems = activePlan.problemIds
+      .map((id) => problems.find((p) => p.id === id))
+      .filter(Boolean);
+    if (planProblems.length === 0) return;
+    if (!selectedProblem || !planProblems.some((p) => p.id === selectedProblem.id)) {
+      handleSelectProblem(planProblems[0]);
+    }
+  }, [activePlan, problems]);
+
   // Ace Editor Setup
   useEffect(() => {
     if (window.ace && aceEditorRef.current && !editorInstanceRef.current) {
@@ -359,61 +506,10 @@ export default function Practice({ timerState, setTimerState }) {
       window.ace.config.set("themePath", "/vendor/ace");
       window.ace.config.set("workerPath", "/vendor/ace");
 
-      const languageTools = window.ace.require("ace/ext/language_tools");
-      if (languageTools) {
-        languageTools.addCompleter({
-          getCompletions(editor, session, pos, prefix, callback) {
-            const language = selectedLanguageRef.current;
-            const snippets = language === "java"
-              ? [
-                { label: "class Solution", trigger: "class", code: "class Solution {\n    public int solve() {\n        return 0;\n    }\n}" },
-                { label: "HashMap", trigger: "map", code: "Map<Integer, Integer> seen = new HashMap<>();" },
-                { label: "ArrayDeque", trigger: "deque", code: "Deque<Integer> queue = new ArrayDeque<>();" },
-                { label: "PriorityQueue", trigger: "heap", code: "PriorityQueue<Integer> heap = new PriorityQueue<>();" },
-                { label: "binary search", trigger: "binary", code: "int left = 0, right = nums.length - 1;\nwhile (left <= right) {\n    int mid = left + (right - left) / 2;\n    if (nums[mid] == target) return mid;\n    if (nums[mid] < target) left = mid + 1;\n    else right = mid - 1;\n}" },
-                { label: "two pointers", trigger: "two", code: "int left = 0, right = nums.length - 1;\nwhile (left < right) {\n    left++;\n}" },
-                { label: "sliding window", trigger: "sliding", code: "int left = 0;\nfor (int right = 0; right < nums.length; right++) {\n    while (false) {\n        left++;\n    }\n}" },
-                { label: "dfs", trigger: "dfs", code: "private void dfs(int node, Map<Integer, List<Integer>> graph, Set<Integer> seen) {\n    if (seen.contains(node)) return;\n    seen.add(node);\n    for (int next : graph.getOrDefault(node, List.of())) dfs(next, graph, seen);\n}" },
-                { label: "bfs", trigger: "bfs", code: "Deque<Integer> queue = new ArrayDeque<>();\nSet<Integer> seen = new HashSet<>();\nqueue.add(start);\nseen.add(start);\nwhile (!queue.isEmpty()) {\n    int node = queue.removeFirst();\n}" },
-              ]
-              : [
-                { label: "class Solution", trigger: "class", code: "class Solution:\n    def solve(self):\n        pass" },
-                { label: "defaultdict", trigger: "defaultdict", code: "from collections import defaultdict\ncounts = defaultdict(int)" },
-                { label: "Counter", trigger: "counter", code: "from collections import Counter\ncounts = Counter(nums)" },
-                { label: "deque", trigger: "deque", code: "from collections import deque\nqueue = deque()" },
-                { label: "heap", trigger: "heap", code: "import heapq\nheap = []\nheapq.heappush(heap, value)" },
-                { label: "binary search", trigger: "binary", code: "left, right = 0, len(nums) - 1\nwhile left <= right:\n    mid = (left + right) // 2\n    if nums[mid] == target:\n        return mid\n    if nums[mid] < target:\n        left = mid + 1\n    else:\n        right = mid - 1" },
-                { label: "two pointers", trigger: "two", code: "left, right = 0, len(nums) - 1\nwhile left < right:\n    left += 1" },
-                { label: "sliding window", trigger: "sliding", code: "left = 0\nfor right, value in enumerate(nums):\n    while False:\n        left += 1" },
-                { label: "dfs", trigger: "dfs", code: "def dfs(node):\n    if node in seen:\n        return\n    seen.add(node)\n    for nei in graph[node]:\n        dfs(nei)" },
-                { label: "bfs", trigger: "bfs", code: "from collections import deque\nqueue = deque([start])\nseen = {start}\nwhile queue:\n    node = queue.popleft()\n    for nei in graph[node]:\n        if nei not in seen:\n            seen.add(nei)\n            queue.append(nei)" },
-                { label: "dp array", trigger: "dp", code: "dp = [0] * (n + 1)\nfor i in range(1, n + 1):\n    dp[i] = dp[i - 1]" },
-              ];
-
-            const matching = snippets
-              .filter((s) => s.label.toLowerCase().includes(prefix.toLowerCase()) || s.trigger.startsWith(prefix))
-              .map((s) => ({
-                caption: s.label,
-                value: s.code,
-                meta: "snippet",
-                score: 1000,
-              }));
-
-            const keywords = (language === "java"
-              ? [
-                "class", "public", "private", "return", "for", "while", "if", "else", "new",
-                "int", "boolean", "double", "String", "List", "Map", "Set", "HashMap", "HashSet",
-                "ArrayList", "ArrayDeque", "PriorityQueue", "Arrays", "Collections",
-              ]
-              : [
-                "def", "class", "return", "for", "while", "if", "elif", "else", "from", "import",
-                "len", "range", "enumerate", "zip", "sorted", "set", "dict", "list", "tuple",
-              ]).map((word) => ({ caption: word, value: word, meta: language, score: 800 }));
-
-            callback(null, [...matching, ...keywords]);
-          },
-        });
-      }
+      // Load the autocomplete UI/commands, but do NOT use addCompleter — that
+      // appends to Ace's shared default completers (incl. the snippet completer,
+      // which template-expands on accept). We install our own completer below.
+      window.ace.require("ace/ext/language_tools");
 
       const editor = window.ace.edit(aceEditorRef.current);
       editor.setTheme("ace/theme/one_dark");
@@ -423,12 +519,15 @@ export default function Practice({ timerState, setTimerState }) {
       editor.setOptions({
         enableBasicAutocompletion: true,
         enableLiveAutocompletion: true,
-        enableSnippets: true,
+        enableSnippets: false,
         fontSize: 14,
         highlightActiveLine: true,
         showPrintMargin: false,
         wrap: true,
       });
+      // Our single-token completer is the ONLY completer on this editor, so the
+      // popup can never insert a multi-line template — HackerRank-style autofill.
+      editor.completers = [buildPracticeCompleter(() => selectedLanguageRef.current)];
 
       editor.commands.addCommand({
         name: "runLockedTests",
@@ -802,16 +901,45 @@ export default function Practice({ timerState, setTimerState }) {
       }
     };
 
-    const parseInline = (text) => {
-      return text
+    const escapeInlineHtml = (value) => String(value ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+    const safeMarkdownHref = (value) => {
+      try {
+        const parsed = new URL(String(value || "").trim(), window.location.origin);
+        return ["http:", "https:"].includes(parsed.protocol) ? parsed.href : "";
+      } catch {
+        return "";
+      }
+    };
+
+    const parseInline = (text) => {
+      const linkHtml = [];
+      const tokenized = String(text || "").replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, href) => {
+        const safeHref = safeMarkdownHref(href);
+        const safeLabel = escapeInlineHtml(label);
+        const token = `@@JH_LINK_${linkHtml.length}@@`;
+        linkHtml.push(
+          safeHref
+            ? `<a href="${escapeInlineHtml(safeHref)}" target="_blank" rel="noreferrer">${safeLabel}</a>`
+            : safeLabel
+        );
+        return token;
+      });
+
+      let output = escapeInlineHtml(tokenized)
         .replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>")
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
         .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+        .replace(/`([^`]+)`/g, "<code>$1</code>");
+      linkHtml.forEach((html, index) => {
+        output = output.replace(`@@JH_LINK_${index}@@`, html);
+      });
+      return output;
     };
 
     for (let i = 0; i < lines.length; i++) {
@@ -901,9 +1029,9 @@ export default function Practice({ timerState, setTimerState }) {
     return Array.from(set).sort();
   };
 
-  const getFilteredProblems = () => {
+  const getFilteredProblems = (list = problems) => {
     const search = searchText.toLowerCase();
-    return problems.filter((problem) => {
+    return list.filter((problem) => {
       const matchesSearch = !search
         || problem.title.toLowerCase().includes(search)
         || problem.tags.some((t) => t.toLowerCase().includes(search))
@@ -1137,7 +1265,12 @@ export default function Practice({ timerState, setTimerState }) {
     );
   };
 
-  const filteredProblems = getFilteredProblems();
+  // In plan mode the sidebar is scoped to the plan's problems, kept in plan order.
+  const planProblems = activePlan
+    ? activePlan.problemIds.map((id) => problems.find((p) => p.id === id)).filter(Boolean)
+    : null;
+  const planSolvedCount = planProblems ? planProblems.filter((p) => p.solved).length : 0;
+  const filteredProblems = getFilteredProblems(planProblems || problems);
   const groupedProblems = getGroupedProblems(filteredProblems);
   const testSummary = getConfiguredTestSummary();
   return (
@@ -1156,6 +1289,18 @@ export default function Practice({ timerState, setTimerState }) {
       >
         {/* Sidebar */}
         <aside className="practice-sidebar">
+          {activePlan && (
+            <div className="plan-mode-banner">
+              <div className="plan-mode-meta">
+                <span className="plan-mode-eyebrow">Training plan</span>
+                <strong>{activePlan.name}</strong>
+                <small>{planSolvedCount}/{planProblems.length} solved</small>
+              </div>
+              <button type="button" className="btn-ghost btn-sm" onClick={onExitPlan}>
+                Exit plan
+              </button>
+            </div>
+          )}
           <div className="learning-card compact">
             <div className="learning-filter-grid">
               <input
@@ -1198,9 +1343,13 @@ export default function Practice({ timerState, setTimerState }) {
             </div>
           </div>
  
-          <div className="problem-list pattern-list">
-            {groupedProblems.length === 0 ? (
-              <p className="mini-empty">No matching problems</p>
+          <div className={`problem-list ${activePlan ? "plan-ordered-list" : "pattern-list"}`}>
+            {filteredProblems.length === 0 ? (
+              <p className="mini-empty">
+                {activePlan ? "This plan has no trainable problems yet." : "No matching problems"}
+              </p>
+            ) : activePlan ? (
+              filteredProblems.map(renderProblemRow)
             ) : (
               groupedProblems.map(renderPatternGroup)
             )}

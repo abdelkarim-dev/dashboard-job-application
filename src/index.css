@@ -9291,3 +9291,400 @@ body.pane-resizing {
     padding: 0 2px 16px;
   }
 }
+
+/* ===================================================================== */
+/* Study Plans page + plan-scoped training                               */
+/* ===================================================================== */
+
+/* Difficulty tags — shared by the problem list and the plan board. */
+.diff-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.diff-tag.easy {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.diff-tag.medium {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.diff-tag.hard {
+  color: #be123c;
+  background: rgba(244, 63, 94, 0.14);
+  border-color: rgba(244, 63, 94, 0.35);
+}
+[data-theme="dark"] .diff-tag.easy { color: #6ee7b7; }
+[data-theme="dark"] .diff-tag.medium { color: #fcd34d; }
+[data-theme="dark"] .diff-tag.hard { color: #fda4af; }
+
+/* Accent tokens for plans (cards, stripes, progress, dots). */
+.accent-violet { --plan-accent: #8b5cf6; }
+.accent-sky { --plan-accent: #38bdf8; }
+.accent-amber { --plan-accent: #f59e0b; }
+.accent-emerald { --plan-accent: #34d399; }
+.accent-rose { --plan-accent: #fb7185; }
+.accent-cyan { --plan-accent: #22d3ee; }
+
+.plan-status-line {
+  margin: 0 0 12px;
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+}
+
+/* ---- Board ---- */
+.plan-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.plan-card {
+  --plan-accent: #8b5cf6;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 16px;
+  background: var(--md-surface);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.plan-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+}
+.plan-card-stripe {
+  height: 5px;
+  background: var(--plan-accent);
+}
+.plan-card-body {
+  padding: 16px 16px 14px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.plan-card-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--md-on-surface);
+}
+.plan-seed-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--plan-accent);
+  border: 1px solid var(--plan-accent);
+  border-radius: 999px;
+  padding: 1px 7px;
+  opacity: 0.85;
+}
+.plan-card-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--md-on-surface-variant);
+}
+.plan-card-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.plan-card-stat strong {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--md-on-surface);
+}
+.plan-card-stat span {
+  font-size: 12px;
+  color: var(--md-on-surface-variant);
+}
+.plan-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--md-outline-variant);
+  overflow: hidden;
+}
+.plan-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--plan-accent);
+  transition: width 0.3s ease;
+}
+.plan-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plan-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--md-surface-variant, rgba(125, 125, 125, 0.12));
+  border: 1px solid var(--md-outline-variant);
+  color: var(--md-on-surface-variant);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-chip.solved {
+  color: var(--plan-accent);
+  border-color: var(--plan-accent);
+}
+.plan-chip.more {
+  font-weight: 700;
+}
+.plan-card-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--md-outline-variant);
+}
+.plan-train-btn {
+  flex: 1;
+}
+.plan-train-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Editor ---- */
+.plan-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+.plan-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "meta picker"
+    "selected picker";
+  gap: 16px;
+  align-items: start;
+}
+.plan-editor-meta { grid-area: meta; }
+.plan-editor-selected { grid-area: selected; }
+.plan-editor-picker {
+  grid-area: picker;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 70vh;
+}
+.plan-editor-meta,
+.plan-editor-selected,
+.plan-editor-picker {
+  padding: 14px;
+}
+.plan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.plan-field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+}
+.plan-accent-row {
+  display: flex;
+  gap: 8px;
+}
+.plan-accent-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--plan-accent);
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.plan-accent-dot.active {
+  border-color: var(--md-on-surface);
+  box-shadow: 0 0 0 2px var(--md-surface), 0 0 0 4px var(--plan-accent);
+}
+.plan-editor-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--md-on-surface-variant);
+}
+.plan-selected-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plan-selected-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+}
+.plan-selected-row.missing {
+  opacity: 0.6;
+}
+.plan-order {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+}
+.plan-selected-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--md-on-surface);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.plan-missing-tag {
+  font-size: 10px;
+  font-style: normal;
+  color: var(--md-on-surface-variant);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.plan-solved-dot {
+  color: #34d399;
+  font-weight: 800;
+}
+.plan-row-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.icon-mini {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+}
+.icon-mini:hover { background: var(--card-hover-bg); color: var(--md-on-surface); }
+.icon-mini:disabled { opacity: 0.3; cursor: not-allowed; }
+.icon-mini.danger:hover { color: #f43f5e; }
+.plan-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+.plan-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.plan-picker-row:hover {
+  background: var(--card-hover-bg);
+  border-color: var(--md-outline-variant);
+}
+.plan-picker-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--md-on-surface);
+}
+.plan-picker-add {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--md-primary);
+}
+
+/* ---- Plan-scoped training banner in the practice sidebar ---- */
+.plan-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--md-primary);
+  background: var(--md-primary-container);
+}
+.plan-mode-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.plan-mode-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--md-on-primary-container);
+  opacity: 0.75;
+}
+.plan-mode-meta strong {
+  font-size: 14px;
+  color: var(--md-on-primary-container);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-mode-meta small {
+  font-size: 11px;
+  color: var(--md-on-primary-container);
+  opacity: 0.8;
+}
+.plan-ordered-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 880px) {
+  .plan-editor-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "meta"
+      "selected"
+      "picker";
+  }
+}

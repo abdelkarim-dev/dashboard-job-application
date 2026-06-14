@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import cors from "cors";
 import {
   initDatabase,
   sqlLoadCvMeta,
@@ -27,10 +26,12 @@ import {
   loadApplications,
   loadCoursesStore,
   loadPracticeStore,
+  loadStudyPlansStore,
   loadSystemDesignStore,
   saveApplications,
   saveCoursesStore,
   savePracticeStore,
+  saveStudyPlansStore,
   saveSystemDesignStore,
   writeJsonFile,
 } from "./lib/data/storage.mjs";
@@ -70,10 +71,12 @@ import {
   toJson,
 } from "./lib/domain/applications.mjs";
 import { makeStarterCode, normalizePracticeLanguage } from "./lib/domain/problems.mjs";
+import { normalizeStudyPlan, normalizeStudyPlansStore } from "./lib/domain/studyPlans.mjs";
 
 import { readBody, send, sendJson } from "./lib/core/http.mjs";
 import { cleanStageDate, getLocalDateString } from "./lib/core/dates.mjs";
 import { clean } from "./lib/core/util.mjs";
+import { createApiSecurityMiddleware, isLocalCodeRunnerEnabled } from "./lib/core/security.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const aceDir = path.join(__dirname, "node_modules", "ace-builds", "src-min-noconflict");
@@ -175,6 +178,9 @@ async function handleApi(req, res, url) {
 
   const solidJavaExerciseMatch = url.pathname.match(/^\/api\/solid-java\/exercises\/([^/]+)\/run$/);
   if (solidJavaExerciseMatch && req.method === "POST") {
+    if (!isLocalCodeRunnerEnabled()) {
+      return sendJson(res, 403, { error: "Local code runner is disabled. Set CLAIRE_ENABLE_CODE_RUNNER=1 to enable it for trusted local use." });
+    }
     const exerciseId = decodeURIComponent(solidJavaExerciseMatch[1]);
     const input = await readBody(req);
     const result = await runSolidJavaExercise(exerciseId, input.code);
@@ -229,6 +235,41 @@ async function handleApi(req, res, url) {
     });
   }
 
+  // Study plans — curated, ordered lists of bank problems to train on as a flow.
+  if (url.pathname === "/api/practice/plans" && req.method === "GET") {
+    const store = await loadStudyPlansStore();
+    return sendJson(res, 200, store);
+  }
+
+  if (url.pathname === "/api/practice/plans" && req.method === "POST") {
+    const input = await readBody(req);
+    const store = await loadStudyPlansStore();
+    const plan = normalizeStudyPlan(input);
+    store.plans = [plan, ...store.plans.filter((existing) => existing.id !== plan.id)];
+    const saved = await saveStudyPlansStore(store);
+    return sendJson(res, 201, saved.plans.find((existing) => existing.id === plan.id) || plan);
+  }
+
+  const studyPlanMatch = url.pathname.match(/^\/api\/practice\/plans\/([^/]+)$/);
+  if (studyPlanMatch) {
+    const id = decodeURIComponent(studyPlanMatch[1]);
+    const store = await loadStudyPlansStore();
+    const index = store.plans.findIndex((plan) => plan.id === id);
+    if (index < 0) return sendJson(res, 404, { error: "Study plan not found" });
+    if (req.method === "PUT") {
+      const input = await readBody(req);
+      const updated = normalizeStudyPlan({ ...input, id }, store.plans[index]);
+      store.plans[index] = updated;
+      await saveStudyPlansStore(store);
+      return sendJson(res, 200, updated);
+    }
+    if (req.method === "DELETE") {
+      store.plans.splice(index, 1);
+      await saveStudyPlansStore(store);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
   const practiceProblemMatch = url.pathname.match(/^\/api\/practice\/problems\/([^/]+)(?:\/(run|attempts|mark-solved|mark-failed))?$/);
   if (practiceProblemMatch) {
     const id = decodeURIComponent(practiceProblemMatch[1]);
@@ -257,6 +298,9 @@ async function handleApi(req, res, url) {
     }
 
     if (action === "run" && req.method === "POST") {
+      if (!isLocalCodeRunnerEnabled()) {
+        return sendJson(res, 403, { error: "Local code runner is disabled. Set CLAIRE_ENABLE_CODE_RUNNER=1 to enable it for trusted local use." });
+      }
       const input = await readBody(req);
       const language = normalizePracticeLanguage(input.language);
       const existingDraft = existing.languageDrafts?.[language]
@@ -579,7 +623,7 @@ async function handleApi(req, res, url) {
 
 const app = express();
 
-app.use(cors());
+app.use("/api", createApiSecurityMiddleware({ port }));
 app.use(express.json({ limit: "10mb" }));
 
 // Express static serving
@@ -635,6 +679,8 @@ export {
   normalizePracticeStore,
   normalizeRoleCategory,
   normalizeStagePassedAt,
+  normalizeStudyPlan,
+  normalizeStudyPlansStore,
   normalizeSystemDesignStore,
   nextReviewDate,
   recordProblemAttempt,

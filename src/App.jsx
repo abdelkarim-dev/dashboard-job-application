@@ -8,6 +8,7 @@ import InterviewBoard from "./components/InterviewBoard.jsx";
 
 const SolidPractice = lazy(() => import("./components/SolidPractice.jsx"));
 const CleanArchitecture = lazy(() => import("./components/CleanArchitecture.jsx"));
+const StudyPlans = lazy(() => import("./components/StudyPlans.jsx"));
 
 const REMINDERS_KEY = "jobHuntReminders";
 
@@ -33,6 +34,7 @@ export default function App() {
     const hash = window.location.hash;
     if (hash === "#/analytics") return "analytics";
     if (hash === "#/leetcode" || hash === "#/practice") return "leetcode";
+    if (hash === "#/plans" || hash === "#/study-plans") return "studyplans";
     if (hash === "#/solid-java" || hash === "#/solid") return "solidjava";
     if (hash === "#/clean-architecture") return "cleanarchitecture";
     if (hash === "#/system-design") return "systemdesign";
@@ -46,6 +48,8 @@ export default function App() {
   const [dashboardStatusFilter, setDashboardStatusFilter] = useState("");
   // App ID to auto-open in the dashboard panel — set from ?openApp= URL param or postMessage
   const [pendingOpenAppId, setPendingOpenAppId] = useState(null);
+  // Active study plan: when set, the LeetCode view trains only this plan's problems.
+  const [activePlan, setActivePlan] = useState(null);
 
   // LeetCode focus timer — lifted here so it survives tab switches.
   const [timerState, setTimerState] = useState(() => {
@@ -194,6 +198,7 @@ export default function App() {
       const hash = window.location.hash;
       if (hash === "#/analytics") setActiveTab("analytics");
       else if (hash === "#/leetcode" || hash === "#/practice") setActiveTab("leetcode");
+      else if (hash === "#/plans" || hash === "#/study-plans") setActiveTab("studyplans");
       else if (hash === "#/solid-java" || hash === "#/solid") setActiveTab("solidjava");
       else if (hash === "#/clean-architecture") setActiveTab("cleanarchitecture");
       else if (hash === "#/system-design") setActiveTab("systemdesign");
@@ -219,6 +224,7 @@ export default function App() {
   const TAB_HASHES = {
     analytics: "analytics",
     leetcode: "leetcode",
+    studyplans: "plans",
     solidjava: "solid-java",
     cleanarchitecture: "clean-architecture",
     systemdesign: "system-design",
@@ -230,6 +236,18 @@ export default function App() {
   const handleTabChange = (tabName) => {
     window.location.hash = `#/${TAB_HASHES[tabName] || tabName}`;
     setActiveTab(tabName);
+  };
+
+  // Open the LeetCode view on the full bank (clears any active plan).
+  const goToLeetCode = () => {
+    setActivePlan(null);
+    handleTabChange("leetcode");
+  };
+
+  // Enter a plan: scope the LeetCode view to just this plan's problems.
+  const handleTrainPlan = (plan) => {
+    setActivePlan(plan);
+    handleTabChange("leetcode");
   };
 
   const fetchApplications = async () => {
@@ -310,11 +328,19 @@ export default function App() {
           </button>
           <button
             className={`sidebar-nav-btn ${activeTab === "leetcode" ? "active" : ""}`}
-            onClick={() => handleTabChange("leetcode")}
+            onClick={goToLeetCode}
             type="button"
           >
             <span className="sidebar-nav-icon">⌨</span>
             <span>LeetCode</span>
+          </button>
+          <button
+            className={`sidebar-nav-btn ${activeTab === "studyplans" ? "active" : ""}`}
+            onClick={() => handleTabChange("studyplans")}
+            type="button"
+          >
+            <span className="sidebar-nav-icon">◷</span>
+            <span>Study Plans</span>
           </button>
           <button
             className={`sidebar-nav-btn ${activeTab === "solidjava" ? "active" : ""}`}
@@ -387,10 +413,17 @@ export default function App() {
             </button>
             <button
               className={`tab-btn ${activeTab === "leetcode" ? "active" : ""}`}
-              onClick={() => handleTabChange("leetcode")}
+              onClick={goToLeetCode}
               type="button"
             >
               ⌨ LeetCode
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "studyplans" ? "active" : ""}`}
+              onClick={() => handleTabChange("studyplans")}
+              type="button"
+            >
+              ◷ Study Plans
             </button>
             <button
               className={`tab-btn ${activeTab === "solidjava" ? "active" : ""}`}
@@ -438,7 +471,15 @@ export default function App() {
           <Practice
             timerState={timerState}
             setTimerState={setTimerState}
+            activePlan={activePlan}
+            onExitPlan={() => setActivePlan(null)}
           />
+        )}
+
+        {activeTab === "studyplans" && (
+          <Suspense fallback={<div className="learning-empty"><strong>Loading study plans…</strong></div>}>
+            <StudyPlans onTrainPlan={handleTrainPlan} />
+          </Suspense>
         )}
 
         {activeTab === "solidjava" && (
