@@ -354,12 +354,19 @@ function attachFormSubmitTracker(reason = "manual", { silent = false } = {}) {
 }
 
 async function handleApplicationSubmit(e) {
+  // Only genuine user submits should track. Autofill dispatches synthetic
+  // events (requestSubmit/form.submit() are never called by us, but widgets may),
+  // and those are untrusted — ignore them so opening Claire never saves the job.
+  if (!e.isTrusted) return;
   if (isInCopilotUi(e.target)) return;
   // Don't prevent the actual submit — just piggyback and track
   scheduleTrackJobApplication("native form submit", 0);
 }
 
 function handlePossibleSubmitKeydown(e) {
+  // Ignore the synthetic Enter our combobox autofill dispatches to commit a
+  // selection — only a real user keystroke should count as a submit.
+  if (!e.isTrusted) return;
   if (e.key !== "Enter") return;
   const target = e.target;
   if (isInCopilotUi(target)) return;
@@ -371,6 +378,10 @@ function handlePossibleSubmitKeydown(e) {
 }
 
 function handlePossibleSubmitClick(e) {
+  // Autofill clicks options, radios and dropdown triggers via dispatchEvent /
+  // element.click(); those are untrusted. Only react to real user clicks so the
+  // auto-fill triggered when Claire opens can never be read as a submit.
+  if (!e.isTrusted) return;
   const target = e.target;
   if (isInCopilotUi(target)) return;
   const control = target?.closest?.(
@@ -1362,6 +1373,15 @@ function locationHref() {
 
 function clean(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function escapeRegExp(value) {
@@ -6872,7 +6892,12 @@ function injectStyles() {
 }
 
 function renderInlineEvaluation(evaluation, parentDiv) {
-  const score = Number(evaluation.matchScore) || 0;
+  const rawScore = Number(evaluation.matchScore) || 0;
+  const score = clamp(Math.round(rawScore), 0, 100);
+  const decision = escapeHtml(evaluation.applyOrSkip || "Maybe");
+  const finalDecision = escapeHtml(evaluation.finalDecision || "");
+  const strongMatches = Array.isArray(evaluation.strongMatches) ? evaluation.strongMatches : [];
+  const gapsRisks = Array.isArray(evaluation.gapsRisks) ? evaluation.gapsRisks : [];
   
   let dialColor = "#FF3D00"; // Low (Coral)
   if (score >= 80) dialColor = "#00C853"; // High (Green)
@@ -6883,7 +6908,7 @@ function renderInlineEvaluation(evaluation, parentDiv) {
     <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.25); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px;">
       <div>
         <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight:600;">LLM Verdict</div>
-        <div style="font-size: 18px; font-weight: 800; color: ${dialColor}; text-transform: uppercase;">${evaluation.applyOrSkip || "Maybe"}</div>
+        <div style="font-size: 18px; font-weight: 800; color: ${dialColor}; text-transform: uppercase;">${decision}</div>
       </div>
       
       <!-- Animated SVG Single Dial -->
@@ -6905,28 +6930,28 @@ function renderInlineEvaluation(evaluation, parentDiv) {
     </div>
   `;
 
-  if (evaluation.finalDecision) {
+  if (finalDecision) {
     html += `
       <div style="padding: 10px 12px; background: rgba(0,0,0,0.25); border-left: 3px solid ${dialColor}; font-size: 12.5px; line-height: 1.45; color: #E2E2E6; border-radius: 4px; margin-bottom: 12px;">
-        ${evaluation.finalDecision}
+        ${finalDecision}
       </div>
     `;
   }
 
-  if (evaluation.strongMatches && evaluation.strongMatches.length > 0) {
+  if (strongMatches.length > 0) {
     html += `
       <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px; margin-bottom: 4px; font-weight: 600;">Strong Matches</div>
       <ul style="margin: 0 0 12px; padding-left: 20px; font-size: 12px; color: #E2E2E6; line-height: 1.45;">
-        ${evaluation.strongMatches.map(m => `<li style="margin-bottom: 4px;">${m}</li>`).join('')}
+        ${strongMatches.map((m) => `<li style="margin-bottom: 4px;">${escapeHtml(m)}</li>`).join("")}
       </ul>
     `;
   }
 
-  if (evaluation.gapsRisks && evaluation.gapsRisks.length > 0) {
+  if (gapsRisks.length > 0) {
     html += `
       <div style="font-size: 11px; color: #A5A5AB; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px; margin-bottom: 4px; font-weight: 600;">Gaps / Risks</div>
       <ul style="margin: 0 0 12px; padding-left: 20px; font-size: 12px; color: #E2E2E6; line-height: 1.45;">
-        ${evaluation.gapsRisks.map(m => `<li style="margin-bottom: 4px;">${m}</li>`).join('')}
+        ${gapsRisks.map((m) => `<li style="margin-bottom: 4px;">${escapeHtml(m)}</li>`).join("")}
       </ul>
     `;
   }

@@ -1,5 +1,6 @@
 const API = "http://127.0.0.1:8787/api/applications";
 const EVALUATE_API = "http://127.0.0.1:8787/api/evaluate-job";
+const LOCAL_API_PORT = "8787";
 const TRACK_SAVE_TIMEOUT_MS = 30000;
 const TRACK_EVALUATION_TIMEOUT_MS = 45000;
 
@@ -11,6 +12,16 @@ let lastFetch = 0;
 // Tabs where content.js flagged a likely job posting. Cleared on tab close.
 const jobPageTabs = new Set();
 let lastTrackedPayloadRecord = null;
+
+function isAllowedApiProxyUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+    return url.protocol === "http:" && isLoopback && url.port === LOCAL_API_PORT && url.pathname.startsWith("/api/");
+  } catch {
+    return false;
+  }
+}
 
 // "Applied" mirrors the dashboard's own definition (metrics.mjs):
 // a record counts as applied once it has an applied timestamp. A tracked record
@@ -328,6 +339,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // which has full host_permissions and is not subject to mixed-content rules.
   if (msg?.type === "API_PROXY") {
     const { url, method, body } = msg;
+    if (!isAllowedApiProxyUrl(url)) {
+      sendResponse({ ok: false, status: 403, error: "API proxy is restricted to the local Claire API." });
+      return true;
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout
 
