@@ -10046,6 +10046,95 @@ body.pane-resizing {
   white-space: pre-wrap;
 }
 
+/* Streaming: live badge, progress dots, thinking block, typing cursor */
+.learn-ask-live {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.16);
+  color: #86efac;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.learn-ask-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  color: var(--md-on-surface-variant);
+  font-size: 12.5px;
+}
+
+.learn-ask-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.learn-ask-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--md-primary);
+  animation: learn-ask-bounce 1s infinite ease-in-out;
+}
+
+.learn-ask-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.learn-ask-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes learn-ask-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.learn-ask-thinking {
+  margin-top: 10px;
+  border: 1px dashed var(--md-outline-variant);
+  border-radius: 10px;
+  background: var(--md-surface-1);
+  padding: 8px 11px;
+}
+
+.learn-ask-thinking summary {
+  cursor: pointer;
+  color: var(--md-on-surface-variant);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.learn-ask-thinking-body {
+  margin-top: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.learn-ask-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--md-primary);
+  animation: learn-ask-blink 1s steps(1) infinite;
+}
+
+@keyframes learn-ask-blink {
+  50% { opacity: 0; }
+}
+
 .learn-section {
   margin-top: 26px;
   max-width: 78ch;

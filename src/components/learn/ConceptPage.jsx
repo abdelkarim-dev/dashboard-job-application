@@ -64,8 +64,28 @@ function buildAskContext(concept) {
 function AskGemma({ concept }) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [thinking, setThinking] = useState("");
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
+
+  // Buffered fallback for servers without the streaming endpoint (older build).
+  const askBuffered = async (body) => {
+    setStatus("Thinking");
+    const res = await fetch("/api/learn-ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 429 || data.busy) {
+      setError("Gemma is busy with another task. Give it a moment and ask again.");
+    } else if (data.ok && data.answer) {
+      setAnswer(data.answer);
+    } else {
+      setError(data.error || "Gemma is not reachable. Is your local model (Ollama or a local server) running?");
+    }
+  };
 
   const ask = async (e) => {
     if (e) e.preventDefault();
@@ -74,30 +94,69 @@ function AskGemma({ concept }) {
     setLoading(true);
     setError("");
     setAnswer("");
+    setThinking("");
+    setStatus("Connecting to Gemma");
+    const body = JSON.stringify({ question: q, title: concept.title, context: buildAskContext(concept) });
     try {
-      const res = await fetch("/api/learn-ask", {
+      const res = await fetch("/api/learn-ask-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, title: concept.title, context: buildAskContext(concept) }),
+        body,
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 429 || data.busy) {
-        setError("Gemma is busy with another task. Give it a moment and ask again.");
-      } else if (data.ok && data.answer) {
-        setAnswer(data.answer);
-      } else {
-        setError(data.error || "Gemma is not reachable. Is your local model (Ollama or a local server) running?");
+      if (res.status === 404) {
+        await askBuffered(body);
+        return;
+      }
+      if (!res.ok || !res.body) {
+        setError("Gemma is not reachable. Is your local model (Ollama or a local server) running?");
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let acc = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let ev;
+          try {
+            ev = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (ev.type === "status") setStatus(ev.text || "");
+          else if (ev.type === "thinking") setThinking((t) => t + ev.text);
+          else if (ev.type === "token") {
+            acc += ev.text;
+            setAnswer(acc);
+            setStatus("");
+          } else if (ev.type === "busy") {
+            setError(ev.text || "Gemma is busy. Try again shortly.");
+          } else if (ev.type === "error") {
+            setError(ev.text || "Gemma error.");
+          }
+        }
       }
     } catch {
-      setError("Could not reach the server.");
+      setError("Connection interrupted.");
     } finally {
       setLoading(false);
+      setStatus("");
     }
   };
 
   return (
     <section className="learn-aside-card learn-ask-card">
-      <h3>Ask Gemma</h3>
+      <h3>
+        Ask Gemma
+        {loading && <span className="learn-ask-live">live</span>}
+      </h3>
       <form className="learn-ask-form" onSubmit={ask}>
         <textarea
           className="learn-ask-input"
@@ -110,11 +169,32 @@ function AskGemma({ concept }) {
           }}
         />
         <button type="submit" className="learn-ask-btn" disabled={loading || !question.trim()}>
-          {loading ? "Thinking…" : "Ask Gemma"}
+          {loading ? "Streaming…" : "Ask Gemma"}
         </button>
       </form>
+      {loading && status && (
+        <p className="learn-ask-status">
+          <span className="learn-ask-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          {status}
+        </p>
+      )}
+      {thinking && (
+        <details className="learn-ask-thinking" open>
+          <summary>Thinking</summary>
+          <div className="learn-ask-thinking-body">{thinking}</div>
+        </details>
+      )}
       {error && <p className="learn-ask-msg error">{error}</p>}
-      {answer && <div className="learn-ask-answer">{answer}</div>}
+      {answer && (
+        <div className="learn-ask-answer">
+          {answer}
+          {loading && <span className="learn-ask-cursor" aria-hidden="true" />}
+        </div>
+      )}
     </section>
   );
 }

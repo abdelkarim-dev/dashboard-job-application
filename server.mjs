@@ -14,6 +14,7 @@ import {
 import {
   analyzeSkillsWithLocalGemma,
   askLearnTutorWithLocalGemma,
+  streamLearnTutorWithLocalGemma,
   autofillWithLocalGemma,
   categorizeWithLocalGemma,
   evaluateWithLocalGemma,
@@ -582,6 +583,28 @@ async function handleApi(req, res, url) {
     const input = await readBody(req);
     const result = await askLearnTutorWithLocalGemma(input);
     return sendJson(res, gemmaStatus(result), result);
+  }
+
+  if (url.pathname === "/api/learn-ask-stream" && req.method === "POST") {
+    const input = await readBody(req);
+    res.writeHead(200, {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    });
+    const emit = (event) => {
+      try {
+        res.write(`${JSON.stringify(event)}\n`);
+      } catch {
+        // client gone
+      }
+    };
+    try {
+      await streamLearnTutorWithLocalGemma(input, emit);
+    } catch (error) {
+      emit({ type: "error", text: String(error?.message || error) });
+    }
+    return res.end();
   }
 
   if (url.pathname === "/api/autofill-ai" && req.method === "POST") {
