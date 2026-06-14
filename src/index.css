@@ -9984,6 +9984,68 @@ body.pane-resizing {
   text-decoration: line-through;
 }
 
+/* Ask Gemma box (right rail, every concept page) */
+.learn-ask-form {
+  display: grid;
+  gap: 8px;
+}
+
+.learn-ask-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 58px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 10px;
+  background: var(--md-surface-2);
+  color: var(--md-on-surface);
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.learn-ask-input:focus {
+  outline: none;
+  border-color: var(--md-primary);
+}
+
+.learn-ask-btn {
+  justify-self: start;
+  border: 1px solid var(--md-primary);
+  border-radius: 999px;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: opacity 150ms;
+}
+
+.learn-ask-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.learn-ask-msg.error {
+  margin: 10px 0 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #fca5a5;
+}
+
+.learn-ask-answer {
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 10px;
+  background: var(--md-surface-2);
+  color: var(--md-on-surface);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 .learn-section {
   margin-top: 26px;
   max-width: 78ch;
@@ -9991,6 +10053,46 @@ body.pane-resizing {
 
 .learn-concept-main > .learn-section:first-child {
   margin-top: 6px;
+}
+
+/* Card sections: for discrete, recitable blocks (pitch variants, etc.) so they
+   read as separate cards instead of one wall of prose. Opt in with section.card. */
+.learn-section-card {
+  margin-top: 14px;
+  padding: 16px 20px;
+  border: 1px solid var(--md-outline-variant);
+  border-left: 3px solid var(--md-primary);
+  border-radius: 12px;
+  background: var(--md-surface-1);
+}
+
+.learn-section-card h3 {
+  margin: 0;
+}
+
+.learn-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.learn-card-tag {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 999px;
+  background: var(--md-surface-2);
+  color: var(--md-primary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.learn-section-card p:last-child {
+  margin-bottom: 0;
 }
 
 .learn-section h3 {

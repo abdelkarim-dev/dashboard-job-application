@@ -13,6 +13,7 @@ import {
 } from "./database.mjs";
 import {
   analyzeSkillsWithLocalGemma,
+  askLearnTutorWithLocalGemma,
   autofillWithLocalGemma,
   categorizeWithLocalGemma,
   evaluateWithLocalGemma,
@@ -574,6 +575,12 @@ async function handleApi(req, res, url) {
   if (url.pathname === "/api/generate-answer" && req.method === "POST") {
     const input = await readBody(req);
     const result = await generateAnswerWithLocalGemma(input);
+    return sendJson(res, gemmaStatus(result), result);
+  }
+
+  if (url.pathname === "/api/learn-ask" && req.method === "POST") {
+    const input = await readBody(req);
+    const result = await askLearnTutorWithLocalGemma(input);
     return sendJson(res, gemmaStatus(result), result);
   }
 

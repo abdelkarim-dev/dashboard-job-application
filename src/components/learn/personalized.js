@@ -43,6 +43,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Recruiter / non-technical variant (~60-75 seconds, plain language)",
+        card: true,
+        tag: "Recruiter",
         body: [
           "Present: I am a senior software engineer and team lead with about seven years of experience. Right now I own a business-critical system for one of France's largest real-estate groups: it is how all of their incoming customer leads come in.",
           "Past: That system connects more than 40 outside partners, including names like Google, Meta, and the big property websites, and my job is to keep it reliable and secure even when it is under attack. I have also led projects end to end: I rebuilt a slow internal app so it starts instantly instead of taking about a minute and a half, I made a nightly data process handle more than three times the volume without buying any new hardware, and I have been promoted into team-lead roles twice, where I brought on new engineers and set how the team works.",
@@ -52,6 +54,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Default variant (technical interviewer, any senior backend / platform role)",
+        card: true,
+        tag: "Default · technical",
         body: [
           "Present: I am a senior backend engineer and tech lead with about seven years building production backend, cloud, and platform systems. Day to day I am hands-on from architecture to shipped code, and I currently own a business-critical public API on AWS serverless.",
           "Past: I co-designed and own Nexity's lead-capture API, a WAF-hardened public endpoint serving 40+ partner integrations including SeLoger, LeBonCoin, Google, Meta, and TikTok. I scaled a batch job from 15,000 to 50,000 items per run, a 233 percent increase, and cut wall-clock time 35 percent purely through PostgreSQL tuning, indexing, and Spring Batch chunk sizing, with no new hardware. I have been promoted into a tech-lead role twice, at Capgemini and again at Orange, so I have led teams as well as systems.",
@@ -60,6 +64,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Toast variant (Staff SWE, payments / restaurant scale)",
+        card: true,
+        tag: "Toast",
         body: [
           "Toast runs a payments-and-operations platform where reliability and throughput are the whole game, so lead with the public-API reliability story and the throughput win.",
           "Present: I am a senior backend engineer and tech lead. For the last few years I have owned a business-critical public API on AWS serverless and the event-driven systems behind it.",
@@ -68,6 +74,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Autodesk variant (Senior SWE, product depth + full-stack)",
+        card: true,
+        tag: "Autodesk",
         body: [
           "Autodesk builds long-lived product software, so lead with end-to-end product ownership and your full-stack range.",
           "Present: I am a senior backend engineer and tech lead, hands-on from architecture to shipped code, and comfortable full-stack with React and TypeScript on top of a Java and Python backend.",
@@ -76,6 +84,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Treasure Data variant (Staff Fullstack, realtime / data platform)",
+        card: true,
+        tag: "Treasure Data",
         body: [
           "Treasure Data is a customer-data platform built on large-scale, realtime data movement, so lead with event-driven ingestion and data processing at scale.",
           "Present: I am a senior backend engineer and tech lead who builds event-driven, serverless data systems on AWS, end to end.",
@@ -142,6 +152,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 1 — Scaling the batch job 233% with no new hardware (Nexity)",
+        card: true,
+        tag: "Nexity",
         body: [
           "Situation: A core Nexity batch process was straining as data volume grew, and the default fix everyone reaches for is a bigger machine.",
           "Task: Increase throughput substantially without a vertical scale-up, because added hardware is recurring cost and hides the real bottleneck.",
@@ -153,6 +165,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 2 — Keeping the public API up through attack surges (Nexity)",
+        card: true,
+        tag: "Nexity",
         body: [
           "Situation: Our lead-capture API is a public, WAF-hardened endpoint 40+ partners depend on. On spike days it absorbs 1,000 to 10,000 attack attempts while baseline traffic of about 2,000 requests a day still has to flow.",
           "Task: Keep the endpoint available and clean under bot surges without the WAF blocking legitimate partners, which would break real integrations.",
@@ -164,6 +178,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 3 — Solo rewrite of the marketing app from .NET (Nexity)",
+        card: true,
+        tag: "Nexity",
         body: [
           "Situation: Nexity's marketing app was on .NET, slow to start at roughly 1.5 minutes, and serving about 80 active users across departments.",
           "Task: I was the sole engineer on the rewrite, so I owned architecture, stack choice, and delivery end to end.",
@@ -175,6 +191,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 4 — Leading Nexity's first microservices migration (Capgemini)",
+        card: true,
+        tag: "Capgemini",
         body: [
           "Situation: At Capgemini on the Nexity account, the core platform was a monolith and the group had no proven path to break it apart.",
           "Task: I was asked to lead Nexity's first microservices migration and prove the approach could work.",
@@ -186,6 +204,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 5 — The Nexity carve-out under deadline (Nexity)",
+        card: true,
+        tag: "Nexity",
         body: [
           "Situation: Nexity sold off part of the business, and the impacted applications had to be cloned and stood up independently for the acquiring company.",
           "Task: Lead the carve-out: get working environments running for a separate organization, on a hard deadline, while keeping cost sane.",
@@ -197,6 +217,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 6 — Consolidating CI/CD across 7 codebases (Nexity)",
+        card: true,
+        tag: "Nexity",
         body: [
           "Situation: My team owned 7 application codebases across multiple repositories, each carrying its own Azure DevOps pipeline templates that drifted apart over time.",
           "Task: Make any pipeline improvement or fix propagate once instead of being copy-pasted into seven places.",
@@ -208,6 +230,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 7 — Cutting customer-record query time 30% (Capgemini)",
+        card: true,
+        tag: "Capgemini",
         body: [
           "Situation: The group-wide customer record system, used across most Nexity applications and ingesting around 10,000 notifications a day via SQS plus 200,000 to 300,000 records per batch, had a user-facing latency bottleneck.",
           "Task: Fix the latency users felt while also adding new business logic for internal consumers.",
@@ -219,6 +243,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 8 — Passwordless federated identity for partners (Capgemini)",
+        card: true,
+        tag: "Capgemini",
         body: [
           "Situation: Partner authentication into our platform was still password-based, which is weaker security and more support overhead.",
           "Task: Move partners onto a stronger, modern authentication model without breaking their access.",
@@ -230,6 +256,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 9 — Leading the Orange Teaming rebuild (Orange Business Services)",
+        card: true,
+        tag: "Orange",
         body: [
           "Situation: At Orange Business Services I was promoted to tech lead on the rebuild of Orange Teaming, Orange's phone-services sales interface, with a brand-new team and a France-based team that owned the prior generations.",
           "Task: Stand up a new team and ship the next generation while coordinating with the existing France-based owners on specs and releases.",
@@ -241,6 +269,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 10 — Building the GDPR compliance application (Capgemini)",
+        card: true,
+        tag: "Capgemini",
         body: [
           "Situation: The legal team needed to act on GDPR requests against the group-wide customer record system, but there was no tooling, so it was manual and risky.",
           "Task: Give the legal team a safe, self-serve way to find and remove a third party's data across the system.",
@@ -252,6 +282,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 11 — Automating batch-integration reporting (Capgemini)",
+        card: true,
+        tag: "Capgemini",
         body: [
           "Situation: Third-party batch integrations (imports and exports) on the customer record system were monitored by manually reading logs, which was slow and easy to get wrong.",
           "Task: Replace manual log review with something that surfaced integration status reliably.",
@@ -263,6 +295,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 12 — Building the Bedrock RAG pipeline (Nexity)",
+        card: true,
+        tag: "Nexity",
         body: [
           "Situation: There was a need to answer questions from internal/partner content that a plain model could not, because the knowledge was proprietary and changed over time. (Fill in the exact use case and corpus you built it for.)",
           "Task: Ground an LLM in our own data so answers were accurate and current, without retraining a model.",
@@ -274,6 +308,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Story 13 — Covering dual Tech Lead and Product Owner (Nexity)",
+        card: true,
+        tag: "Nexity",
         body: [
           "Situation: During a maternity-leave gap, the Product / Application Owner role on top of my Tech Lead duties needed coverage for about a year.",
           "Task: Hold both seats: keep delivery moving as tech lead while owning feature discovery, sizing, scoping, and roadmap with business stakeholders.",
@@ -285,6 +321,8 @@ export const PERSONALIZED_CONCEPTS = [
       },
       {
         heading: "Archetype 4 — Your failure story (write this one yourself)",
+        card: true,
+        tag: "Write this",
         body: [
           "You need one real, owned failure with a concrete Learning, and you should write the truthful version rather than borrow one, because interviewers drill into it. Refusing to name a real failure, or offering a humblebrag like \"I work too hard\", reads as low self-awareness and is a common rejection reason. The structure is the same STAR-L, but the Action is what you did to contain and fix it, and the Learning is the durable change you made.",
           "Candidate angles from your real work, pick the one that is genuinely true: a WAF rule you tuned that blocked a real partner before you caught it (what was the detection gap, what did you change so it would not recur); a migration or carve-out estimate that slipped (what did you misjudge, how did you re-plan and communicate); a design or stack decision you would now reverse (what did you learn that changed your judgment); or an incident on the customer-record or lead-capture system where your fix was incomplete the first time.",
