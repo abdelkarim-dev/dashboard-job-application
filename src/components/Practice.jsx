@@ -712,7 +712,14 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
           }
         }
       } else {
-      setCompilerStatus("Network run failed.");
+        let detail = `HTTP ${res.status}`;
+        try {
+          const body = await res.json();
+          if (body?.error) detail = body.error;
+        } catch {}
+        setCompilerStatus(res.status === 403
+          ? `Run blocked: ${detail}`
+          : `Run failed: ${detail}`);
       }
     } catch (err) {
       console.error(err);
