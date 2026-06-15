@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Diagram, DIAGRAMS_BY_CONCEPT } from "./diagrams.jsx";
 import { LearnPrintPortal } from "./PrintView.jsx";
 import { buildToc } from "./toc"; // first TypeScript module (compiled by Vite)
+import { GlossarySegments, JargonCard } from "./GlossaryText.jsx";
+import { splitWithGlossary } from "./glossary.js";
 
 const PROGRESS_KEY = "learnConceptProgress";
 const CHECKLIST_KEY = "learnChecklistProgress";
@@ -273,7 +275,12 @@ function AskGemma({ concept }) {
 
 // One reading section: heading + paragraphs, plus optional richer blocks
 // (callout, numbered steps, comparison table, code) to break up the text.
-function Section({ section, index, id }) {
+// `bodySegments` is the section's paragraphs pre-split into glossary segments
+// (so jargon gets inline definitions); falls back to plain text if absent.
+function Section({ section, index, id, bodySegments }) {
+  const paras = Array.isArray(bodySegments)
+    ? bodySegments
+    : (section.body || []).map((p) => [{ text: p }]);
   return (
     <section id={id} className={`learn-section learn-reveal ${section.card ? "learn-section-card" : ""}`}>
       {section.heading &&
@@ -288,8 +295,10 @@ function Section({ section, index, id }) {
             {section.heading}
           </h3>
         ))}
-      {(section.body || []).map((para, j) => (
-        <p key={j}>{para}</p>
+      {paras.map((segs, j) => (
+        <p key={j}>
+          <GlossarySegments segments={segs} />
+        </p>
       ))}
       {section.callout && (
         <div className={`learn-callout kind-${section.callout.kind || "key"}`}>
@@ -352,6 +361,22 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   // The "On this page" navigator entries (one per titled section + takeaways),
   // built by the typed helper in toc.ts.
   const toc = useMemo(() => buildToc(concept), [concept]);
+
+  // Pre-split every body paragraph (and key takeaway) into glossary segments,
+  // sharing ONE `seen` set across the whole page so each jargon term is defined
+  // inline only at its first mention — in reading order (sections, then
+  // takeaways). Recomputed only when the page changes.
+  const glossed = useMemo(() => {
+    const secs = Array.isArray(concept?.sections) ? concept.sections : [];
+    const kps = Array.isArray(concept?.keyPoints) ? concept.keyPoints : [];
+    const seen = new Set();
+    return {
+      sectionSegs: secs.map((s) =>
+        (Array.isArray(s.body) ? s.body : []).map((p) => splitWithGlossary(p, seen))
+      ),
+      keyPointSegs: kps.map((p) => splitWithGlossary(p, seen)),
+    };
+  }, [concept?.id]);
 
   // Two IntersectionObservers: one reveals each block as it scrolls into view
   // (progressive disclosure instead of a wall of text), one drives the
@@ -471,7 +496,7 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
         <div className="learn-concept-main">
           {sections.map((section, i) => (
             <React.Fragment key={section.heading || i}>
-              <Section section={section} index={i} id={`sec-${i}`} />
+              <Section section={section} index={i} id={`sec-${i}`} bodySegments={glossed.sectionSegs[i]} />
               {i === 0 &&
                 diagrams.map((d) => (
                   <figure className="learn-diagram learn-reveal" key={d.id}>
@@ -486,8 +511,10 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
             <section id="sec-keypoints" className="learn-section learn-keypoints learn-reveal">
               <h3>Key takeaways</h3>
               <ul className="learn-points">
-                {keyPoints.map((point) => (
-                  <li key={point}>{point}</li>
+                {keyPoints.map((point, ki) => (
+                  <li key={point}>
+                    <GlossarySegments segments={glossed.keyPointSegs[ki] || [{ text: point }]} />
+                  </li>
                 ))}
               </ul>
             </section>
@@ -516,6 +543,7 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
               </ol>
             </nav>
           )}
+          <JargonCard concept={concept} />
           <AskGemma concept={concept} />
 
           {checklist.length > 0 && (

@@ -10568,6 +10568,97 @@ body.pane-resizing {
 .learn-callout.kind-tip { border-left-color: #34d399; }
 .learn-callout.kind-tip strong { color: #86efac; }
 
+/* ── Inline jargon glossary ───────────────────────────────────────────────
+   A known term-of-art gets a dotted underline; hover, keyboard focus, or tap
+   reveals a one-sentence plain-language definition. So a reader who doesn't
+   already know "p99" or "ACID" can find out without leaving the sentence. */
+.learn-gloss {
+  position: relative;
+  color: var(--md-primary);
+  border-bottom: 1px dashed color-mix(in srgb, var(--md-primary) 55%, transparent);
+  cursor: help;
+  outline: none;
+}
+.learn-gloss:hover,
+.learn-gloss:focus-visible {
+  background: color-mix(in srgb, var(--md-primary) 12%, transparent);
+  border-radius: 3px;
+}
+.learn-gloss-pop {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 50;
+  width: max-content;
+  max-width: min(320px, 78vw);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-1);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  color: var(--md-on-surface);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.learn-gloss-pop strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--md-primary);
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.learn-gloss:hover .learn-gloss-pop,
+.learn-gloss:focus .learn-gloss-pop,
+.learn-gloss:focus-within .learn-gloss-pop {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .learn-gloss-pop { transition: none; transform: none; }
+}
+
+/* "Jargon decoder" aside card — the scannable glossary of every term on the page. */
+.learn-jargon-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--md-on-surface-variant);
+  letter-spacing: 0;
+}
+.learn-jargon-hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--md-on-surface-variant);
+}
+.learn-jargon-list {
+  margin: 0 0 6px;
+  display: grid;
+  gap: 11px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.learn-jargon-item dt {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--md-on-surface);
+}
+.learn-jargon-item dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--md-on-surface-variant);
+}
+
 /* Comparison tables */
 .learn-table-wrap {
   overflow-x: auto;
