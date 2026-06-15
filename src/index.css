@@ -10344,6 +10344,92 @@ body.pane-resizing {
 .dg-curve-accent { stroke: var(--md-primary); }
 .dg-dash { stroke: var(--md-outline-variant); stroke-width: 1.2; stroke-dasharray: 4 4; }
 
+/* Container primitive: groups related nodes (subnets, regions, tiers). The
+   label sits in the container's top padding; tones tint the fill subtly. */
+.dg-grouprect {
+  fill: var(--md-surface-2);
+  stroke: var(--md-outline-variant);
+  stroke-width: 1.2;
+  opacity: 0.55;
+}
+.dg-group-public { fill: color-mix(in srgb, var(--md-primary) 8%, var(--md-surface-2)); stroke: color-mix(in srgb, var(--md-primary) 35%, var(--md-outline-variant)); }
+.dg-group-private { fill: var(--md-surface-2); stroke: var(--md-outline-variant); stroke-dasharray: 5 4; }
+.dg-group-region { fill: color-mix(in srgb, var(--md-primary) 6%, var(--md-surface-2)); stroke: color-mix(in srgb, var(--md-primary) 28%, var(--md-outline-variant)); }
+.dg-grouplabel {
+  fill: var(--md-on-surface-variant);
+  font: 800 10px system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Connector "flow": a dashed pulse travels along each arrow/pipe line. */
+.dg-flow {
+  stroke: var(--md-primary);
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dg-arrow-muted .dg-flow { stroke: var(--md-on-surface-variant); }
+.dg-arrow-muted polygon { fill: var(--md-on-surface-variant); }
+
+/* ── Diagram entrance + motion (all gated by prefers-reduced-motion) ──────── */
+@media (prefers-reduced-motion: no-preference) {
+  /* Staggered fade/scale-in for nodes and groups. */
+  .learn-dg .dg-node,
+  .learn-dg .dg-group {
+    opacity: 0;
+    transform: scale(0.94);
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: dg-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: calc(var(--i, 0) * 70ms);
+  }
+  /* Connectors fade in after the boxes, then their dash flows continuously. */
+  .learn-dg .dg-arrow {
+    opacity: 0;
+    animation: dg-fade 0.4s ease forwards;
+    animation-delay: calc(var(--i, 0) * 70ms + 120ms);
+  }
+  .learn-dg .dg-flow {
+    stroke-dasharray: 7 6;
+    animation: dg-flow 0.9s linear infinite;
+  }
+  /* Bars grow from the left. */
+  .learn-dg .dg-bar-grow {
+    transform: scaleX(0);
+    transform-box: fill-box;
+    transform-origin: left center;
+    animation: dg-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: calc(var(--i, 0) * 80ms + 100ms);
+  }
+  /* Gentle, slow glow on accent boxes to draw the eye. */
+  .learn-dg .dg-box-accent {
+    animation: dg-glow 3.2s ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * 70ms + 600ms);
+  }
+  /* The whole figure rises in on mount. */
+  .learn-diagram {
+    animation: dg-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes dg-pop {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes dg-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dg-flow { to { stroke-dashoffset: -26; } }
+@keyframes dg-grow { to { transform: scaleX(1); } }
+@keyframes dg-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes dg-glow {
+  0%, 100% { filter: none; }
+  50% { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--md-primary) 55%, transparent)); }
+}
+
 /* Callout boxes (key / tip / warn) */
 .learn-callout {
   display: grid;
@@ -10575,6 +10661,54 @@ body.pane-resizing {
 
 .learn-quiz-explain.ok { color: #86efac !important; }
 .learn-quiz-explain.no { color: var(--md-on-surface-variant) !important; }
+
+/* ── Learn-hub micro-interactions (all gated by prefers-reduced-motion) ───── */
+@media (prefers-reduced-motion: no-preference) {
+  /* Concept sections and the keypoints/aside cards rise in on mount. */
+  .learn-concept-main > .learn-section,
+  .learn-diagram,
+  .learn-callout {
+    animation: learn-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .learn-concept-main > .learn-section:nth-child(2) { animation-delay: 60ms; }
+  .learn-concept-main > .learn-section:nth-child(3) { animation-delay: 120ms; }
+  .learn-concept-main > .learn-section:nth-child(4) { animation-delay: 180ms; }
+  .learn-concept-main > .learn-section:nth-child(n + 5) { animation-delay: 220ms; }
+
+  /* Quiz options: lift on hover, pop when graded. */
+  .learn-quiz-option {
+    transition: background 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
+  }
+  .learn-quiz-option:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  }
+  .learn-quiz-option.correct { animation: learn-pop 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+  .learn-quiz-option.wrong { animation: learn-shake 0.35s ease; }
+  .learn-quiz-explain { animation: learn-rise 0.32s ease both; }
+
+  /* Checklist rows nudge on hover; checking one gives a soft confirm. */
+  .learn-checklist label { transition: background 140ms, transform 140ms; }
+  .learn-checklist label:hover { transform: translateX(2px); }
+
+  /* Reviewed toggle gets a gentle confirm pop. */
+  .learn-review-btn.done { animation: learn-pop 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+}
+
+@keyframes learn-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes learn-pop {
+  0% { transform: scale(0.96); }
+  55% { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+@keyframes learn-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
 
 @media (max-width: 1100px) {
   .learn-concept.has-aside .learn-concept-body {

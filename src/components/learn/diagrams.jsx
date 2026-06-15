@@ -5,27 +5,90 @@ import React from "react";
 // to break up wall-of-text pages with a visual anchor. Add one by writing a
 // component here and mapping a concept id to it in DIAGRAMS_BY_CONCEPT.
 
-// A straight arrow with a small triangular head at (x2,y2).
-function Arrow({ x1, y1, x2, y2 }) {
+// --- animation helpers -------------------------------------------------------
+// Each animatable element carries a `--i` custom property; the CSS stagger reads
+// it to offset its entrance. Connectors additionally get an animated flowing
+// dash. All of it is disabled under prefers-reduced-motion (see index.css).
+const iv = (i) => (i == null ? undefined : { "--i": i });
+
+// A straight arrow with a small triangular head at (x2,y2). `i` drives the
+// staggered reveal; the line also carries an animated "flow" dash.
+function Arrow({ x1, y1, x2, y2, i, muted }) {
   const angle = Math.atan2(y2 - y1, x2 - x1);
   const h = 6.5;
   const a1 = angle + Math.PI * 0.84;
   const a2 = angle - Math.PI * 0.84;
   const head = `${x2},${y2} ${x2 + h * Math.cos(a1)},${y2 + h * Math.sin(a1)} ${x2 + h * Math.cos(a2)},${y2 + h * Math.sin(a2)}`;
   return (
-    <g className="dg-arrow">
-      <line x1={x1} y1={y1} x2={x2} y2={y2} />
+    <g className={muted ? "dg-arrow dg-arrow-muted" : "dg-arrow"} style={iv(i)}>
+      <line className="dg-flow" x1={x1} y1={y1} x2={x2} y2={y2} />
       <polygon points={head} />
     </g>
   );
 }
 
-function Box({ x, y, w, h, label, sub, accent }) {
+// An L-shaped (elbow) connector: goes from (x1,y1) to (x2,y2) bending at a
+// right angle, so connectors stay in clean horizontal/vertical lanes instead of
+// cutting diagonally across labels. `dir` = "hv" (horizontal then vertical) or
+// "vh" (vertical then horizontal). Arrowhead points along the final segment.
+function Elbow({ x1, y1, x2, y2, dir = "hv", i, muted }) {
+  const bx = dir === "hv" ? x2 : x1; // bend point
+  const by = dir === "hv" ? y1 : y2;
+  // The arrowhead points along the FINAL segment (bend → end).
+  const angle = Math.atan2(y2 - by, x2 - bx);
+  const h = 6.5;
+  const a1 = angle + Math.PI * 0.84;
+  const a2 = angle - Math.PI * 0.84;
+  const head = `${x2},${y2} ${x2 + h * Math.cos(a1)},${y2 + h * Math.sin(a1)} ${x2 + h * Math.cos(a2)},${y2 + h * Math.sin(a2)}`;
   return (
-    <g>
+    <g className={muted ? "dg-arrow dg-arrow-muted" : "dg-arrow"} style={iv(i)}>
+      <path className="dg-flow" d={`M${x1},${y1} L${bx},${by} L${x2},${y2}`} fill="none" />
+      <polygon points={head} />
+    </g>
+  );
+}
+
+// A multi-segment orthogonal connector through an explicit list of points
+// [[x,y],...]. Keeps connectors in reserved lanes (right-angle bends only).
+// Arrowhead points along the last segment.
+function Pipe({ points, i, muted }) {
+  const d = points.map((p, k) => `${k === 0 ? "M" : "L"}${p[0]},${p[1]}`).join(" ");
+  const [px, py] = points[points.length - 1];
+  const [qx, qy] = points[points.length - 2];
+  const angle = Math.atan2(py - qy, px - qx);
+  const h = 6.5;
+  const a1 = angle + Math.PI * 0.84;
+  const a2 = angle - Math.PI * 0.84;
+  const head = `${px},${py} ${px + h * Math.cos(a1)},${py + h * Math.sin(a1)} ${px + h * Math.cos(a2)},${py + h * Math.sin(a2)}`;
+  return (
+    <g className={muted ? "dg-arrow dg-arrow-muted" : "dg-arrow"} style={iv(i)}>
+      <path className="dg-flow" d={d} fill="none" />
+      <polygon points={head} />
+    </g>
+  );
+}
+
+function Box({ x, y, w, h, label, sub, accent, i }) {
+  return (
+    <g className="dg-node" style={iv(i)}>
       <rect x={x} y={y} width={w} height={h} rx="9" className={accent ? "dg-box dg-box-accent" : "dg-box"} />
       <text x={x + w / 2} y={sub ? y + h / 2 - 2 : y + h / 2 + 4} className="dg-label" textAnchor="middle">{label}</text>
       {sub && <text x={x + w / 2} y={y + h / 2 + 13} className="dg-sub" textAnchor="middle">{sub}</text>}
+    </g>
+  );
+}
+
+// A container that groups nodes: a rounded rect with a subtle stroke/fill and a
+// label that sits in the container's top padding (never overlapping inner
+// content — callers reserve ~26px of top padding for it). `tone` picks an
+// accent: "public", "private", "region", or default (neutral).
+function Group({ x, y, w, h, label, tone, i }) {
+  return (
+    <g className="dg-group" style={iv(i)}>
+      <rect x={x} y={y} width={w} height={h} rx="13" className={`dg-grouprect${tone ? " dg-group-" + tone : ""}`} />
+      {label && (
+        <text x={x + 14} y={y + 17} className="dg-grouplabel" textAnchor="start">{label}</text>
+      )}
     </g>
   );
 }
@@ -41,11 +104,11 @@ const svgProps = (label) => ({
 function PitchArc() {
   return (
     <svg viewBox="0 0 600 122" {...svgProps("Pitch arc: present, past, future, handoff")}>
-      <Box x={16} y={28} w={92} h={54} label="Present" sub="~15s" />
-      <Box x={116} y={28} w={276} h={54} label="Past" sub="~45s" accent />
-      <Box x={400} y={28} w={120} h={54} label="Future" sub="~20s" />
-      <Box x={528} y={28} w={56} h={54} label="Hand-off" sub="~10s" />
-      <Arrow x1={16} y1={100} x2={584} y2={100} />
+      <Box x={16} y={28} w={92} h={54} label="Present" sub="~15s" i={0} />
+      <Box x={116} y={28} w={276} h={54} label="Past" sub="~45s" accent i={1} />
+      <Box x={400} y={28} w={120} h={54} label="Future" sub="~20s" i={2} />
+      <Box x={528} y={28} w={56} h={54} label="Hand-off" sub="~10s" i={3} />
+      <Arrow x1={16} y1={100} x2={584} y2={100} i={4} />
       <text x={300} y={118} className="dg-sub" textAnchor="middle">most airtime on Past; rehearse the arc, not the script</text>
     </svg>
   );
@@ -65,10 +128,10 @@ function StarL() {
       {rows.map((r, i) => {
         const y = 16 + i * 31;
         return (
-          <g key={r.label}>
+          <g key={r.label} className="dg-node" style={{ "--i": i }}>
             <text x={84} y={y + 15} className="dg-label" textAnchor="end">{r.label}</text>
             <rect x={96} y={y} width={440} height={20} rx="6" className="dg-bar-track" />
-            <rect x={96} y={y} width={r.w} height={20} rx="6" className={r.accent ? "dg-bar dg-bar-accent" : "dg-bar"} />
+            <rect x={96} y={y} width={r.w} height={20} rx="6" className={r.accent ? "dg-bar dg-bar-accent dg-bar-grow" : "dg-bar dg-bar-grow"} />
           </g>
         );
       })}
@@ -81,15 +144,15 @@ function StarL() {
 function InterviewLoop() {
   return (
     <svg viewBox="0 0 664 120" {...svgProps("Interview loop stages")}>
-      <Box x={12} y={26} w={104} h={50} label="Recruiter" sub="screen" />
-      <Box x={140} y={26} w={104} h={50} label="Phone" sub="screen" />
-      <Box x={268} y={20} w={150} h={62} label="Onsite loop" sub="coding · design · behavioral" accent />
-      <Box x={442} y={26} w={96} h={50} label="Debrief" sub="bar raiser" />
-      <Box x={562} y={26} w={90} h={50} label="Offer" />
-      <Arrow x1={116} y1={51} x2={140} y2={51} />
-      <Arrow x1={244} y1={51} x2={268} y2={51} />
-      <Arrow x1={418} y1={51} x2={442} y2={51} />
-      <Arrow x1={538} y1={51} x2={562} y2={51} />
+      <Box x={12} y={26} w={104} h={50} label="Recruiter" sub="screen" i={0} />
+      <Box x={140} y={26} w={104} h={50} label="Phone" sub="screen" i={1} />
+      <Box x={268} y={20} w={150} h={62} label="Onsite loop" sub="coding · design · behavioral" accent i={2} />
+      <Box x={442} y={26} w={96} h={50} label="Debrief" sub="bar raiser" i={3} />
+      <Box x={562} y={26} w={90} h={50} label="Offer" i={4} />
+      <Arrow x1={116} y1={51} x2={140} y2={51} i={5} />
+      <Arrow x1={244} y1={51} x2={268} y2={51} i={6} />
+      <Arrow x1={418} y1={51} x2={442} y2={51} i={7} />
+      <Arrow x1={538} y1={51} x2={562} y2={51} i={8} />
       <text x={332} y={108} className="dg-sub" textAnchor="middle">each round is graded independently; the debrief weighs the whole signal</text>
     </svg>
   );
@@ -99,19 +162,19 @@ function InterviewLoop() {
 function SystemDesignFlow() {
   return (
     <svg viewBox="0 0 720 196" {...svgProps("System design request flow")}>
-      <Box x={16} y={78} w={92} h={46} label="Client" />
-      <Box x={150} y={78} w={104} h={46} label="LB / API GW" />
-      <Box x={296} y={78} w={114} h={46} label="Service" accent />
-      <Box x={470} y={14} w={130} h={44} label="Cache" sub="hot reads" />
-      <Box x={470} y={76} w={130} h={48} label="Database" sub="source of truth" />
-      <Box x={470} y={140} w={130} h={44} label="Queue" sub="async work" />
-      <Box x={630} y={140} w={80} h={44} label="Worker" />
-      <Arrow x1={108} y1={101} x2={150} y2={101} />
-      <Arrow x1={254} y1={101} x2={296} y2={101} />
-      <Arrow x1={410} y1={92} x2={470} y2={42} />
-      <Arrow x1={410} y1={101} x2={470} y2={100} />
-      <Arrow x1={410} y1={110} x2={470} y2={160} />
-      <Arrow x1={600} y1={162} x2={630} y2={162} />
+      <Box x={16} y={78} w={92} h={46} label="Client" i={0} />
+      <Box x={150} y={78} w={104} h={46} label="LB / API GW" i={1} />
+      <Box x={296} y={78} w={114} h={46} label="Service" accent i={2} />
+      <Box x={470} y={14} w={130} h={44} label="Cache" sub="hot reads" i={3} />
+      <Box x={470} y={76} w={130} h={48} label="Database" sub="source of truth" i={4} />
+      <Box x={470} y={140} w={130} h={44} label="Queue" sub="async work" i={5} />
+      <Box x={630} y={140} w={80} h={44} label="Worker" i={6} />
+      <Arrow x1={108} y1={101} x2={150} y2={101} i={7} />
+      <Arrow x1={254} y1={101} x2={296} y2={101} i={8} />
+      <Elbow x1={410} y1={92} x2={470} y2={36} dir="hv" i={9} />
+      <Arrow x1={410} y1={101} x2={470} y2={100} i={10} />
+      <Elbow x1={410} y1={110} x2={470} y2={162} dir="hv" i={11} />
+      <Arrow x1={600} y1={162} x2={630} y2={162} i={12} />
     </svg>
   );
 }
@@ -145,152 +208,245 @@ function RagPipeline() {
   return (
     <svg viewBox="0 0 620 248" {...svgProps("RAG pipeline: ingestion and query paths")}>
       <text x={12} y={20} className="dg-head">Ingest (offline)</text>
-      <Box x={12} y={32} w={92} h={44} label="Docs" />
-      <Box x={132} y={32} w={92} h={44} label="Chunk" />
-      <Box x={252} y={32} w={92} h={44} label="Embed" />
-      <Box x={384} y={28} w={150} h={52} label="Vector store" sub="ANN index" accent />
-      <Arrow x1={104} y1={54} x2={132} y2={54} />
-      <Arrow x1={224} y1={54} x2={252} y2={54} />
-      <Arrow x1={344} y1={54} x2={384} y2={54} />
+      <Box x={12} y={32} w={92} h={44} label="Docs" i={0} />
+      <Box x={132} y={32} w={92} h={44} label="Chunk" i={1} />
+      <Box x={252} y={32} w={92} h={44} label="Embed" i={2} />
+      <Box x={384} y={28} w={150} h={52} label="Vector store" sub="ANN index" accent i={3} />
+      <Arrow x1={104} y1={54} x2={132} y2={54} i={4} />
+      <Arrow x1={224} y1={54} x2={252} y2={54} i={5} />
+      <Arrow x1={344} y1={54} x2={384} y2={54} i={6} />
 
       <text x={12} y={150} className="dg-head">Query (online)</text>
-      <Box x={12} y={162} w={92} h={44} label="Query" />
-      <Box x={132} y={162} w={92} h={44} label="Embed" />
-      <Box x={252} y={162} w={104} h={44} label="Retrieve k" />
-      <Box x={384} y={158} w={84} h={52} label="LLM" accent />
-      <Box x={496} y={162} w={92} h={44} label="Answer" />
-      <Arrow x1={104} y1={184} x2={132} y2={184} />
-      <Arrow x1={224} y1={184} x2={252} y2={184} />
-      <Arrow x1={356} y1={184} x2={384} y2={184} />
-      <Arrow x1={468} y1={184} x2={496} y2={184} />
-      {/* vector store feeds retrieval */}
-      <Arrow x1={444} y1={80} x2={320} y2={162} />
+      <Box x={12} y={162} w={92} h={44} label="Query" i={7} />
+      <Box x={132} y={162} w={92} h={44} label="Embed" i={8} />
+      <Box x={252} y={162} w={104} h={44} label="Retrieve k" i={9} />
+      <Box x={384} y={158} w={84} h={52} label="LLM" accent i={10} />
+      <Box x={496} y={162} w={92} h={44} label="Answer" i={11} />
+      <Arrow x1={104} y1={184} x2={132} y2={184} i={12} />
+      <Arrow x1={224} y1={184} x2={252} y2={184} i={13} />
+      <Arrow x1={356} y1={184} x2={384} y2={184} i={14} />
+      <Arrow x1={468} y1={184} x2={496} y2={184} i={15} />
+      {/* vector store feeds retrieval: down then across to Retrieve k's top */}
+      <Pipe points={[[459, 80], [459, 119], [304, 119], [304, 162]]} i={16} muted />
       <text x={12} y={236} className="dg-sub">levers: chunking · hybrid search · re-rank · groundedness eval</text>
     </svg>
   );
 }
 
 // Terraform core loop: code reconciled against state and the real cloud.
+// Top row is the linear write→init→plan→apply→cloud pipeline. State sits below
+// in its own band; the two connectors live in the clear gap between the rows
+// (plan reads state, apply writes state) and never cross a box or label.
 function TerraformWorkflow() {
+  // Pipeline row: 5 boxes on a shared grid (y=30, h=48), 18px gaps.
+  const py = 30;
+  const ph = 48;
   return (
-    <svg viewBox="0 0 668 188" {...svgProps("Terraform core workflow: write, init, plan, apply against state")}>
-      <Box x={12} y={24} w={96} h={46} label="Write .tf" />
-      <Box x={130} y={24} w={96} h={46} label="init" sub="providers+backend" />
-      <Box x={248} y={24} w={96} h={46} label="plan" sub="the diff" accent />
-      <Box x={366} y={24} w={96} h={46} label="apply" sub="make real" />
-      <Box x={484} y={24} w={172} h={46} label="Cloud" sub="real resources" accent />
-      <Arrow x1={108} y1={47} x2={130} y2={47} />
-      <Arrow x1={226} y1={47} x2={248} y2={47} />
-      <Arrow x1={344} y1={47} x2={366} y2={47} />
-      <Arrow x1={462} y1={47} x2={484} y2={47} />
-      <Box x={264} y={120} w={160} h={46} label="State" sub="what was built" accent />
-      <Arrow x1={344} y1={120} x2={300} y2={70} />
-      <Arrow x1={414} y1={70} x2={414} y2={120} />
-      <text x={334} y={184} className="dg-sub" textAnchor="middle">plan diffs code vs state vs reality; apply reconciles; destroy tears it down</text>
+    <svg viewBox="0 0 668 200" {...svgProps("Terraform core workflow: write, init, plan, apply against state")}>
+      <Box x={12} y={py} w={96} h={ph} label="Write .tf" i={0} />
+      <Box x={130} y={py} w={96} h={ph} label="init" sub="providers+backend" i={1} />
+      <Box x={248} y={py} w={96} h={ph} label="plan" sub="the diff" accent i={2} />
+      <Box x={366} y={py} w={96} h={ph} label="apply" sub="make real" i={3} />
+      <Box x={484} y={py} w={172} h={ph} label="Cloud" sub="real resources" accent i={4} />
+      <Arrow x1={108} y1={py + ph / 2} x2={130} y2={py + ph / 2} i={5} />
+      <Arrow x1={226} y1={py + ph / 2} x2={248} y2={py + ph / 2} i={6} />
+      <Arrow x1={344} y1={py + ph / 2} x2={366} y2={py + ph / 2} i={7} />
+      <Arrow x1={462} y1={py + ph / 2} x2={484} y2={py + ph / 2} i={8} />
+
+      {/* State band, centred under plan↔apply. Both connectors are pure
+          verticals in the clear gap (y 78→132) — they cross nothing. */}
+      <Box x={256} y={132} w={160} h={46} label="State" sub="what was built" accent i={9} />
+      {/* plan reads state: vertical up into plan's bottom edge (x=300) */}
+      <Arrow x1={300} y1={132} x2={300} y2={py + ph} i={10} muted />
+      {/* apply writes state: vertical down into state's top edge (x=390) */}
+      <Arrow x1={390} y1={py + ph} x2={390} y2={132} i={11} />
+      <text x={334} y={196} className="dg-sub" textAnchor="middle">plan diffs code vs state vs reality; apply reconciles; destroy tears it down</text>
     </svg>
   );
 }
 
-// Remote state backend with locking: two engineers, one shared source of truth.
+// Remote state backend with locking: two engineers funnel through one CLI into a
+// shared, locked backend. Devs share a vertical lane on the left, the CLI sits
+// on the centre line, and the backend (S3 + DynamoDB) is grouped on the right.
+// All connectors are elbows in clear lanes — nothing crosses a label.
 function TerraformBackend() {
+  const cy = 96; // shared centre line for the terraform CLI box
   return (
-    <svg viewBox="0 0 560 172" {...svgProps("Remote state backend with locking")}>
-      <Box x={12} y={16} w={96} h={44} label="Dev A" />
-      <Box x={12} y={104} w={96} h={44} label="Dev B" />
-      <Box x={150} y={58} w={120} h={48} label="terraform" accent />
-      <Box x={320} y={16} w={184} h={48} label="S3 — tfstate" sub="versioned · encrypted" />
-      <Box x={320} y={100} w={184} h={44} label="DynamoDB lock" sub="one apply at a time" />
-      <Arrow x1={108} y1={38} x2={150} y2={72} />
-      <Arrow x1={108} y1={126} x2={150} y2={92} />
-      <Arrow x1={270} y1={72} x2={320} y2={42} />
-      <Arrow x1={270} y1={88} x2={320} y2={120} />
+    <svg viewBox="0 0 560 196" {...svgProps("Remote state backend with locking")}>
+      <Box x={16} y={40} w={104} h={44} label="Dev A" i={0} />
+      <Box x={16} y={108} w={104} h={44} label="Dev B" i={1} />
+      <Box x={196} y={cy - 26} w={128} h={52} label="terraform" sub="plan / apply" accent i={2} />
+
+      {/* Backend group on the right */}
+      <Group x={372} y={28} w={172} h={140} label="Remote backend" tone="region" i={3} />
+      <Box x={384} y={54} w={148} h={46} label="S3 — tfstate" sub="versioned · encrypted" i={4} />
+      <Box x={384} y={110} w={148} h={46} label="DynamoDB lock" sub="one apply at a time" i={5} />
+
+      {/* Devs → CLI: vertical out of each dev, then horizontal into CLI's
+          left edge (arrowheads point right into the box). */}
+      <Elbow x1={120} y1={62} x2={196} y2={cy - 8} dir="vh" i={6} />
+      <Elbow x1={120} y1={130} x2={196} y2={cy + 8} dir="vh" i={7} />
+      {/* CLI → backend: out of CLI's right edge, then up/down into each box. */}
+      <Elbow x1={324} y1={cy - 8} x2={384} y2={77} dir="hv" i={8} />
+      <Elbow x1={324} y1={cy + 8} x2={384} y2={133} dir="hv" i={9} />
     </svg>
   );
 }
 
-// Environment strategy: thin per-env roots over shared, pinned modules.
+// Environment strategy: thin per-env roots over shared, pinned modules. The
+// three env roots sit on one row inside a "per-env roots" container; the shared
+// modules box is centred below. Each root connects to the shared modules with a
+// clean elbow that drops into a shared horizontal bus, so the fan-in reads
+// instantly and no connector crosses a box or label.
 function TerraformEnvironments() {
+  const roots = [
+    { x: 30, label: "dev/", sub: "tfvars · own state" },
+    { x: 250, label: "staging/", sub: "tfvars · own state" },
+    { x: 470, label: "prod/", sub: "own state · own acct", accent: true },
+  ];
+  const rw = 160;
+  const bus = 116; // shared horizontal bus y between roots and modules
   return (
-    <svg viewBox="0 0 660 214" {...svgProps("Environment strategy: thin per-env roots over shared modules")}>
-      <Box x={30} y={24} w={160} h={50} label="dev/" sub="tfvars · own state" />
-      <Box x={250} y={24} w={160} h={50} label="staging/" sub="tfvars · own state" />
-      <Box x={470} y={24} w={160} h={50} label="prod/" sub="own state · own acct" accent />
-      <Box x={210} y={136} w={240} h={52} label="shared modules" sub="pinned versions" accent />
-      <Arrow x1={300} y1={136} x2={120} y2={74} />
-      <Arrow x1={330} y1={136} x2={330} y2={74} />
-      <Arrow x1={360} y1={136} x2={550} y2={74} />
-      <text x={330} y={208} className="dg-sub" textAnchor="middle">one thin root per env over the same pinned modules; promote versions dev → staging → prod</text>
+    <svg viewBox="0 0 660 226" {...svgProps("Environment strategy: thin per-env roots over shared modules")}>
+      <Group x={16} y={18} w={628} h={70} label="PER-ENV ROOTS" i={0} />
+      {roots.map((r, k) => (
+        <Box key={r.label} x={r.x} y={36} w={rw} h={48} label={r.label} sub={r.sub} accent={r.accent} i={k + 1} />
+      ))}
+
+      <Box x={210} y={150} w={240} h={54} label="shared modules" sub="pinned versions" accent i={4} />
+
+      {/* Each root drops to a shared bus (y=116) then into the modules box top */}
+      {roots.map((r, k) => {
+        const cx = r.x + rw / 2;
+        return <Pipe key={r.label} points={[[cx, 84], [cx, bus], [330, bus], [330, 150]]} i={k + 5} />;
+      })}
+      <text x={330} y={222} className="dg-sub" textAnchor="middle">one thin root per env over the same pinned modules; promote versions dev → staging → prod</text>
     </svg>
   );
 }
 
-// Default secure VPC: public subnet (ALB + NAT) over private subnet (app + db).
+// Default secure VPC. Internet + Internet Gateway sit above the VPC. Inside the
+// VPC container: a Public subnet (ALB + NAT) over a Private subnet (App + RDS).
+// Routing lives in clear vertical lanes: the inbound path runs down the LEFT
+// column (Internet→IGW→ALB→App) and the egress path runs up the RIGHT column
+// (App→NAT→IGW). Group labels sit top-left, well clear of both lanes, so no
+// connector ever crosses a label or an unrelated box.
 function AwsVpc() {
+  // Boxes live in the lower half of each subnet, leaving the top ~28px for the
+  // group label (kept short so it never reaches a connector lane).
+  const colL = 70; // left box x   → spans 70..238
+  const colR = 318; // right box x → spans 318..486
+  const colW = 168;
+  const lCx = colL + colW / 2; // 154 — inbound lane (left column centre)
+  const rCx = colR + colW / 2; // 402 — right column centre
+  const gap = 278; // central lane between the two columns (238..318)
   return (
-    <svg viewBox="0 0 600 288" {...svgProps("VPC with public and private subnets")}>
-      <Box x={228} y={8} w={130} h={36} label="Internet" />
-      <Box x={238} y={56} w={110} h={36} label="Internet GW" accent />
-      <text x={20} y={114} className="dg-head">Public subnet — route → IGW</text>
-      <Box x={20} y={124} w={150} h={46} label="ALB" sub="internet-facing" accent />
-      <Box x={196} y={124} w={150} h={46} label="NAT Gateway" sub="egress only" />
-      <text x={20} y={198} className="dg-head">Private subnet — no inbound from internet</text>
-      <Box x={20} y={208} w={150} h={46} label="App tier (ASG)" accent />
-      <Box x={196} y={208} w={150} h={46} label="RDS (Multi-AZ)" />
-      <Arrow x1={293} y1={44} x2={293} y2={56} />
-      <Arrow x1={271} y1={92} x2={100} y2={124} />
-      <Arrow x1={120} y1={208} x2={250} y2={170} />
-      <Arrow x1={271} y1={124} x2={285} y2={92} />
+    <svg viewBox="0 0 540 408" {...svgProps("VPC with public and private subnets")}>
+      {/* Above the VPC (inbound entry, aligned to the left lane) */}
+      <Box x={lCx - 70} y={10} w={140} h={38} label="Internet" i={0} />
+      <Box x={lCx - 70} y={64} w={140} h={38} label="Internet Gateway" accent i={1} />
+      <Arrow x1={lCx} y1={48} x2={lCx} y2={64} i={2} />
+
+      {/* VPC container */}
+      <Group x={20} y={120} w={500} h={272} label="VPC · 10.0.0.0/16" i={3} />
+
+      {/* Public subnet — short label top-left, well left of the x=154 lane */}
+      <Group x={34} y={136} w={472} h={96} label="PUBLIC SUBNET" tone="public" i={4} />
+      <Box x={colL} y={168} w={colW} h={50} label="ALB" sub="internet-facing" accent i={5} />
+      <Box x={colR} y={168} w={colW} h={50} label="NAT Gateway" sub="egress only" i={6} />
+
+      {/* Private subnet */}
+      <Group x={34} y={246} w={472} h={96} label="PRIVATE SUBNET" tone="private" i={7} />
+      <Box x={colL} y={278} w={colW} h={50} label="App tier (ASG)" accent i={8} />
+      <Box x={colR} y={278} w={colW} h={50} label="RDS (Multi-AZ)" i={9} />
+
+      {/* Inbound lane (x=154): IGW → ALB → App */}
+      <Arrow x1={lCx} y1={102} x2={lCx} y2={168} i={10} />
+      <Arrow x1={lCx} y1={218} x2={lCx} y2={278} i={11} />
+      {/* Egress: App → NAT via the central gap lane (x=278) */}
+      <Pipe points={[[238, 303], [gap, 303], [gap, 193], [318, 193]]} i={12} muted />
+      {/* NAT → IGW: up the right lane then across to the IGW's right edge */}
+      <Pipe points={[[rCx, 168], [rCx, 83], [224, 83]]} i={13} muted />
+      <text x={270} y={406} className="dg-sub" textAnchor="middle">inbound down the left lane · private egress returns via NAT → IGW</text>
     </svg>
   );
 }
 
-// The highly-available web-app reference architecture.
+// The highly-available web-app reference architecture. Edge→ALB→compute run on a
+// shared centre line (y=84); the data tier is grouped on the right and fed from
+// the ASG through clean elbows in the gap between compute and data.
 function AwsHaReference() {
+  const mid = 84; // shared centre line for the request path
   return (
-    <svg viewBox="0 0 716 168" {...svgProps("Highly available web app reference architecture")}>
-      <Box x={12} y={58} w={96} h={46} label="Route 53" sub="DNS" />
-      <Box x={126} y={58} w={106} h={46} label="CloudFront" sub="CDN / edge" />
-      <Box x={250} y={58} w={88} h={46} label="ALB" accent />
-      <Box x={356} y={34} w={156} h={96} label="Auto Scaling Grp" sub="stateless · ≥2 AZs" accent />
-      <Box x={544} y={26} w={160} h={44} label="RDS Multi-AZ" sub="sync standby" />
-      <Box x={544} y={90} w={160} h={44} label="ElastiCache" sub="hot reads" />
-      <Arrow x1={108} y1={81} x2={126} y2={81} />
-      <Arrow x1={232} y1={81} x2={250} y2={81} />
-      <Arrow x1={338} y1={81} x2={356} y2={81} />
-      <Arrow x1={512} y1={64} x2={544} y2={48} />
-      <Arrow x1={512} y1={98} x2={544} y2={112} />
-      <text x={358} y={158} className="dg-sub" textAnchor="middle">stateless compute across AZs + managed multi-AZ data = default HA</text>
+    <svg viewBox="0 0 716 188" {...svgProps("Highly available web app reference architecture")}>
+      <Box x={12} y={mid - 24} w={100} h={48} label="Route 53" sub="DNS" i={0} />
+      <Box x={130} y={mid - 24} w={112} h={48} label="CloudFront" sub="CDN / edge" i={1} />
+      <Box x={260} y={mid - 24} w={92} h={48} label="ALB" sub="load balancer" accent i={2} />
+      <Box x={370} y={mid - 42} w={156} h={84} label="Auto Scaling Grp" sub="stateless · ≥2 AZs" accent i={3} />
+
+      {/* Data tier grouped on the right */}
+      <Group x={560} y={30} w={148} h={108} label="DATA TIER" tone="region" i={4} />
+      <Box x={572} y={48} w={124} h={42} label="RDS Multi-AZ" sub="sync standby" i={5} />
+      <Box x={572} y={96} w={124} h={42} label="ElastiCache" sub="hot reads" i={6} />
+
+      {/* Request path on the centre line */}
+      <Arrow x1={112} y1={mid} x2={130} y2={mid} i={7} />
+      <Arrow x1={242} y1={mid} x2={260} y2={mid} i={8} />
+      <Arrow x1={352} y1={mid} x2={370} y2={mid} i={9} />
+      {/* ASG → data tier: elbows that split in the gap lane (x=543) */}
+      <Elbow x1={526} y1={mid} x2={572} y2={69} dir="hv" i={10} />
+      <Elbow x1={526} y1={mid} x2={572} y2={117} dir="hv" i={11} />
+      <text x={358} y={180} className="dg-sub" textAnchor="middle">stateless compute across AZs + managed multi-AZ data = default HA</text>
     </svg>
   );
 }
 
-// Disaster-recovery strategies on the cost vs recovery-time spectrum.
+// Disaster-recovery strategies on the cost vs recovery-time spectrum. Four
+// equal-height cards on one row; a labelled spectrum rail runs beneath them.
 function AwsDrStrategies() {
+  const cards = [
+    { label: "Backup & Restore", sub: "hours · $" },
+    { label: "Pilot Light", sub: "10s of min · $$" },
+    { label: "Warm Standby", sub: "minutes · $$$" },
+    { label: "Active-Active", sub: "~zero · $$$$", accent: true },
+  ];
+  const x0 = 16;
+  const cw = 138;
+  const cgap = 8;
   return (
     <svg viewBox="0 0 600 184" {...svgProps("Disaster recovery strategies by cost and recovery time")}>
-      <Box x={12} y={44} w={132} h={56} label="Backup & Restore" sub="hours · $" />
-      <Box x={156} y={44} w={132} h={56} label="Pilot Light" sub="10s of min · $$" />
-      <Box x={300} y={44} w={132} h={56} label="Warm Standby" sub="minutes · $$$" />
-      <Box x={444} y={44} w={144} h={56} label="Active-Active" sub="~zero · $$$$" accent />
-      <Arrow x1={12} y1={128} x2={588} y2={128} />
-      <text x={300} y={156} className="dg-sub" textAnchor="middle">cost ↑   recovery time ↓ — pick the cheapest that meets your RTO/RPO</text>
+      {cards.map((c, k) => (
+        <Box key={c.label} x={x0 + k * (cw + cgap)} y={26} w={cw} h={62} label={c.label} sub={c.sub} accent={c.accent} i={k} />
+      ))}
+      {/* spectrum rail */}
+      <Arrow x1={x0} y1={120} x2={584} y2={120} i={4} />
+      <text x={x0} y={140} className="dg-sub" textAnchor="start">cheaper · slower recovery</text>
+      <text x={584} y={140} className="dg-sub" textAnchor="end">costlier · faster recovery</text>
+      <text x={300} y={162} className="dg-sub" textAnchor="middle">pick the cheapest strategy that still meets your RTO / RPO</text>
     </svg>
   );
 }
 
-// Regions, Availability Zones, and cross-region DR replication.
+// Regions, Availability Zones, and cross-region DR replication. Each region is a
+// real container holding its AZs; a single async-replication connector crosses
+// the clear gap between the two region containers (well below their labels).
 function AwsRegions() {
   return (
-    <svg viewBox="0 0 640 168" {...svgProps("Regions, Availability Zones, and DR replication")}>
-      <text x={16} y={20} className="dg-head">Region · eu-west-1</text>
-      <Box x={16} y={30} w={128} h={54} label="AZ a" sub="independent DC" />
-      <Box x={156} y={30} w={128} h={54} label="AZ b" sub="independent DC" accent />
-      <Box x={296} y={30} w={128} h={54} label="AZ c" sub="independent DC" />
-      <text x={470} y={20} className="dg-head">Region · us-east-1 (DR)</text>
-      <Box x={470} y={30} w={154} h={54} label="AZs a/b/c" sub="standby" />
-      <Arrow x1={424} y1={57} x2={470} y2={57} />
-      <text x={447} y={50} className="dg-sub" textAnchor="middle">async</text>
-      <text x={20} y={130} className="dg-sub">Multi-AZ = high availability within a region · Multi-Region = disaster recovery / global reach</text>
+    <svg viewBox="0 0 660 184" {...svgProps("Regions, Availability Zones, and DR replication")}>
+      {/* Primary region container with three AZs */}
+      <Group x={14} y={20} w={418} h={108} label="REGION · eu-west-1 (primary)" tone="region" i={0} />
+      <Box x={28} y={56} w={124} h={58} label="AZ a" sub="independent DC" i={1} />
+      <Box x={154} y={56} w={124} h={58} label="AZ b" sub="independent DC" accent i={2} />
+      <Box x={280} y={56} w={124} h={58} label="AZ c" sub="independent DC" i={3} />
+
+      {/* DR region container */}
+      <Group x={476} y={20} w={170} h={108} label="REGION · us-east-1 (DR)" tone="region" i={4} />
+      <Box x={490} y={56} w={142} h={58} label="AZs a / b / c" sub="standby" i={5} />
+
+      {/* async replication across the gap (centre line, clear of both labels) */}
+      <Arrow x1={432} y1={85} x2={490} y2={85} i={6} />
+      <text x={461} y={78} className="dg-sub" textAnchor="middle">async</text>
+      <text x={330} y={156} className="dg-sub" textAnchor="middle">Multi-AZ = high availability within a region · Multi-Region = disaster recovery / global reach</text>
     </svg>
   );
 }
