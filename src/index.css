@@ -10063,6 +10063,56 @@ body.pane-resizing {
   overflow-y: auto;
 }
 
+/* "On this page" section navigator (scroll-spy) at the top of the study rail. */
+.learn-toc-card {
+  padding-bottom: 10px;
+}
+.learn-toc {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+  max-height: 42vh;
+  overflow-y: auto;
+}
+.learn-toc-link {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 8px 8px 0;
+  padding: 6px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--md-on-surface-variant);
+  transition: background 140ms, color 140ms, border-color 140ms;
+}
+.learn-toc-link:hover {
+  color: var(--md-on-surface);
+  background: var(--md-surface-2, var(--md-surface));
+}
+.learn-toc-link.active {
+  color: var(--md-primary);
+  border-left-color: var(--md-primary);
+  background: var(--md-surface-2, var(--md-surface));
+  font-weight: 600;
+}
+.learn-toc-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  opacity: 0.65;
+}
+.learn-toc-label {
+  min-width: 0;
+}
+
 .learn-aside-card {
   border: 1px solid var(--md-outline-variant);
   border-radius: 14px;
@@ -10282,6 +10332,7 @@ body.pane-resizing {
 .learn-section {
   margin-top: 26px;
   max-width: 78ch;
+  scroll-margin-top: 80px; /* clear the sticky module bar when jumped to via the navigator */
 }
 
 .learn-concept-main > .learn-section:first-child {
@@ -10665,15 +10716,23 @@ body.pane-resizing {
 /* ── Learn-hub micro-interactions (all gated by prefers-reduced-motion) ───── */
 @media (prefers-reduced-motion: no-preference) {
   /* Concept sections and the keypoints/aside cards rise in on mount. */
-  .learn-concept-main > .learn-section,
-  .learn-diagram,
   .learn-callout {
     animation: learn-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
-  .learn-concept-main > .learn-section:nth-child(2) { animation-delay: 60ms; }
-  .learn-concept-main > .learn-section:nth-child(3) { animation-delay: 120ms; }
-  .learn-concept-main > .learn-section:nth-child(4) { animation-delay: 180ms; }
-  .learn-concept-main > .learn-section:nth-child(n + 5) { animation-delay: 220ms; }
+
+  /* Progressive reveal: each section, diagram, and the takeaways card rises in
+     as it scrolls into view, so a long page arrives gradually instead of as one
+     wall of text. ConceptPage's observer toggles .is-revealed. */
+  .learn-reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .learn-reveal.is-revealed {
+    opacity: 1;
+    transform: none;
+  }
 
   /* Quiz options: lift on hover, pop when graded. */
   .learn-quiz-option {

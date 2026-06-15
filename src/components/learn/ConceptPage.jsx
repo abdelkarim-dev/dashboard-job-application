@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Diagram, DIAGRAMS_BY_CONCEPT } from "./diagrams.jsx";
 
 const PROGRESS_KEY = "learnConceptProgress";
@@ -271,9 +271,9 @@ function AskGemma({ concept }) {
 
 // One reading section: heading + paragraphs, plus optional richer blocks
 // (callout, numbered steps, comparison table, code) to break up the text.
-function Section({ section, index }) {
+function Section({ section, index, id }) {
   return (
-    <section className={`learn-section ${section.card ? "learn-section-card" : ""}`}>
+    <section id={id} className={`learn-section learn-reveal ${section.card ? "learn-section-card" : ""}`}>
       {section.heading &&
         (section.card ? (
           <div className="learn-card-head">
@@ -343,6 +343,69 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const [reviewed, setReviewedState] = useState(() => !!loadConceptProgress()[concept.id]);
   const [answers, setAnswers] = useState({});
   const [checked, setChecked] = useState(() => loadChecklist()[concept.id] || {});
+  const [activeId, setActiveId] = useState(null);
+  const articleRef = useRef(null);
+
+  // The "On this page" navigator entries: one per titled section, plus takeaways.
+  const toc = useMemo(() => {
+    const secs = Array.isArray(concept?.sections) ? concept.sections : [];
+    const items = secs
+      .map((s, i) => ({ id: `sec-${i}`, label: s.heading }))
+      .filter((it) => it.label);
+    if (Array.isArray(concept?.keyPoints) && concept.keyPoints.length) {
+      items.push({ id: "sec-keypoints", label: "Key takeaways" });
+    }
+    return items;
+  }, [concept]);
+
+  // Two IntersectionObservers: one reveals each block as it scrolls into view
+  // (progressive disclosure instead of a wall of text), one drives the
+  // navigator's active-section highlight. Both rebuild when the page changes.
+  useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return undefined;
+    let revealObs;
+    let spyObs;
+    try {
+      revealObs = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              e.target.classList.add("is-revealed");
+              revealObs.unobserve(e.target);
+            }
+          }
+        },
+        { rootMargin: "0px 0px -8% 0px", threshold: 0.04 }
+      );
+      root.querySelectorAll(".learn-reveal").forEach((el) => revealObs.observe(el));
+
+      const spyEls = Array.from(root.querySelectorAll('[id^="sec-"]'));
+      const visible = new Map();
+      spyObs = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) visible.set(e.target.id, e.isIntersecting);
+          const first = spyEls.find((el) => visible.get(el.id));
+          if (first) setActiveId(first.id);
+        },
+        { rootMargin: "-76px 0px -70% 0px", threshold: 0 }
+      );
+      spyEls.forEach((el) => spyObs.observe(el));
+    } catch {
+      // No IntersectionObserver: just show everything.
+      root.querySelectorAll(".learn-reveal").forEach((el) => el.classList.add("is-revealed"));
+    }
+    return () => {
+      revealObs?.disconnect();
+      spyObs?.disconnect();
+    };
+  }, [concept?.id]);
+
+  const jumpTo = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveId(id);
+  };
 
   if (!concept) return null;
 
@@ -371,7 +434,7 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const doneCount = checklist.reduce((n, _, i) => n + (checked[i] ? 1 : 0), 0);
 
   return (
-    <article className="learn-concept has-aside" key={concept.id}>
+    <article className="learn-concept has-aside" key={concept.id} ref={articleRef}>
       <ModuleBar navItems={navItems} currentId={concept.id} onNavigate={onNavigate} />
 
       <header className="learn-concept-head">
@@ -394,10 +457,10 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
         <div className="learn-concept-main">
           {sections.map((section, i) => (
             <React.Fragment key={section.heading || i}>
-              <Section section={section} index={i} />
+              <Section section={section} index={i} id={`sec-${i}`} />
               {i === 0 &&
                 diagrams.map((d) => (
-                  <figure className="learn-diagram" key={d.id}>
+                  <figure className="learn-diagram learn-reveal" key={d.id}>
                     <Diagram id={d.id} />
                     {d.caption && <figcaption>{d.caption}</figcaption>}
                   </figure>
@@ -406,7 +469,7 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
           ))}
 
           {keyPoints.length > 0 && (
-            <section className="learn-section learn-keypoints">
+            <section id="sec-keypoints" className="learn-section learn-keypoints learn-reveal">
               <h3>Key takeaways</h3>
               <ul className="learn-points">
                 {keyPoints.map((point) => (
@@ -418,6 +481,27 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
         </div>
 
         <aside className="learn-concept-aside" aria-label="Study tools">
+          {toc.length > 1 && (
+            <nav className="learn-aside-card learn-toc-card" aria-label="On this page">
+              <h3>On this page</h3>
+              <ol className="learn-toc">
+                {toc.map((it, i) => (
+                  <li key={it.id}>
+                    <button
+                      type="button"
+                      className={`learn-toc-link ${activeId === it.id ? "active" : ""}`}
+                      onClick={() => jumpTo(it.id)}
+                    >
+                      <span className="learn-toc-num" aria-hidden="true">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <span className="learn-toc-label">{it.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
           <AskGemma concept={concept} />
 
           {checklist.length > 0 && (
