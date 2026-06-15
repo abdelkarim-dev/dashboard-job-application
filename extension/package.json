@@ -1,0 +1,4 @@
+{
+  "//": "Marks the extension/ directory as CommonJS for Node tooling only. Chrome ignores this file — content/background/popup scripts load as classic scripts regardless. It lets lib/extract.js use module.exports (guarded so it's a no-op in the browser) and lets the Node test runner import it.",
+  "type": "commonjs"
+}
