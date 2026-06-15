@@ -598,6 +598,208 @@ resource "aws_instance" "app" {
   },
 
   {
+    id: "terraform-environments",
+    group: "Terraform",
+    label: "Managing Environments",
+    icon: "🌎",
+    title: "Managing Environments — Workspaces, Terragrunt & Beyond",
+    tagline:
+      "The question every team hits: how do you run dev, staging, and prod from one codebase without drift or copy-paste? The full menu — native layouts, Terragrunt, Stacks, and orchestrators — and what's actually best.",
+    sections: [
+      {
+        heading: "What good environment management has to deliver",
+        body: [
+          "Before comparing tools, name the goals, because every approach is judged against them. (1) Isolation: a mistake in dev must never touch prod — that means separate state per environment and, ideally, a separate AWS account per environment (the strongest blast-radius boundary AWS offers). (2) DRY: the environments should share the same infrastructure definitions so they don't drift apart; you change the pattern once. (3) Promotion: you want to roll the exact same, tested module versions from dev → staging → prod, not hand-edit each. (4) Low blast radius and fast plans: state split by component and environment. (5) Least privilege: each environment's pipeline can only touch its own resources.",
+          "Almost every 'how do I manage environments' debate is really about hitting isolation and DRY at the same time. Workspaces lean DRY but weak isolation; copy-pasting whole configs gives isolation but zero DRY and guaranteed drift. The good options give you both.",
+        ],
+        callout: {
+          kind: "key",
+          title: "The non-negotiables",
+          text: "Separate state per environment, ideally a separate AWS account per environment, and shared version-pinned modules so environments can't silently drift. Everything below is a different way to achieve exactly that.",
+        },
+      },
+      {
+        heading: "Native option A — one config + workspaces",
+        body: [
+          "Terraform workspaces keep a single configuration and switch between multiple state files (`terraform workspace select prod`), branching behavior on `terraform.workspace`. They're built-in and DRY, but the isolation is weak: all environments share one backend and one set of credentials, and it's genuinely easy to apply to prod while you think you're in dev. There's no structural barrier — just a string you have to remember to set.",
+          "Use workspaces for ephemeral or near-identical environments: per-developer sandboxes, short-lived PR-preview stacks, or per-region copies of an identical stack. Don't use them as your prod-vs-staging boundary when those environments differ in scale, account, or risk.",
+        ],
+      },
+      {
+        heading: "Native option B — directory per environment (the solid default)",
+        body: [
+          "The layout most production teams settle on: a thin root module per environment, each with its own backend config and `.tfvars`, all calling the same shared modules. The environment is explicit (you `cd environments/prod`), state is fully isolated, and prod and staging can intentionally differ. The shared `modules/` directory keeps it DRY; the per-env roots are tiny.",
+          "The piece I didn't cover earlier and that makes this clean is partial backend configuration: leave the backend block keys empty in code and supply them per environment at `init` time with `-backend-config`. Same code, different state location per env — no duplication.",
+        ],
+        code: {
+          lang: "hcl",
+          source: `# live/
+# ├── modules/                 # shared, versioned building blocks
+# │   ├── network/
+# │   └── app/
+# └── environments/
+#     ├── dev/   { main.tf, dev.tfvars, backend.hcl }
+#     ├── staging/
+#     └── prod/
+
+# environments/prod/main.tf — a thin root that just wires modules
+terraform {
+  backend "s3" {}            # left partial on purpose
+}
+
+module "app" {
+  source       = "../../modules/app"
+  environment  = "prod"
+  instance_type = var.instance_type   # comes from prod.tfvars
+}
+
+# environments/prod/backend.hcl — the per-env state location
+#   bucket = "claire-tf-state"
+#   key    = "prod/app/terraform.tfstate"
+#   region = "eu-west-1"
+#   dynamodb_table = "claire-tf-locks"
+
+#   terraform init -backend-config=backend.hcl
+#   terraform apply -var-file=prod.tfvars`,
+        },
+        callout: {
+          kind: "tip",
+          title: "Why this beats workspaces for prod",
+          text: "Different directory + different backend config + (ideally) different AWS account = you physically cannot apply to prod by accident. That structural safety is worth the small extra verbosity.",
+        },
+      },
+      {
+        heading: "Terragrunt — keep the directory layout DRY",
+        body: [
+          "The directory-per-env layout has one weakness: as you add environments, regions, and accounts, the per-root boilerplate (backend block, provider block, the same module call) repeats. Terragrunt (by Gruntwork) is a thin wrapper around Terraform that removes exactly that repetition. You write the backend and provider config once in a root `terragrunt.hcl`; each leaf `terragrunt.hcl` `include`s it and supplies only `inputs`. Terragrunt generates the backend/provider blocks and even computes the state key from the folder path, so a new environment is a tiny file, not a copied directory.",
+          "Its other big wins: `dependency` blocks let one component consume another's outputs (the app stack reads the network stack's VPC id) with mock outputs for planning, and `terragrunt run-all apply` plans/applies across many components in dependency order. That's the answer when you have many small states that must be wired together across accounts.",
+          "The trade-off: it's a third-party layer with its own concepts and another binary in your toolchain. For a handful of environments, plain directories are simpler. Reach for Terragrunt when the boilerplate and cross-stack wiring genuinely hurt — many accounts/regions, many small states.",
+        ],
+        code: {
+          lang: "hcl",
+          source: `# root terragrunt.hcl — backend defined ONCE for every environment
+remote_state {
+  backend = "s3"
+  config = {
+    bucket         = "claire-tf-state"
+    key            = "\${path_relative_to_include()}/terraform.tfstate"  # auto per folder
+    region         = "eu-west-1"
+    dynamodb_table = "claire-tf-locks"
+    encrypt        = true
+  }
+}
+
+# environments/prod/app/terragrunt.hcl — a leaf: include root + inputs only
+include "root" {
+  path = find_in_parent_folders()
+}
+
+terraform {
+  source = "git::git@github.com:claire/modules.git//app?ref=v1.4.0"  # pinned
+}
+
+dependency "network" {
+  config_path = "../network"     # consume another stack's outputs
+}
+
+inputs = {
+  environment = "prod"
+  vpc_id      = dependency.network.outputs.vpc_id
+  instance_type = "m5.large"
+}`,
+        },
+      },
+      {
+        heading: "Native multi-instance — Terraform Stacks",
+        body: [
+          "HashiCorp's newer answer is Terraform Stacks (on HCP Terraform): a native construct for managing many instances of the same infrastructure. You define components (modules to deploy) in a `.tfcomponent.hcl` and deployments (the variations — dev, staging, prod, or per-region) in a `.tfdeploy.hcl`, and the platform plans/applies each deployment from one definition with shared orchestration. It targets the exact problem Terragrunt solves — many similar environments — but built into the workflow rather than bolted on.",
+          "It's the strategic direction if you're on HCP Terraform, though it's newer than the battle-tested directory and Terragrunt patterns, so weigh maturity for critical prod. Know it exists and what it's for; many teams will adopt it as it matures.",
+        ],
+      },
+      {
+        heading: "Orchestration platforms — the workflow layer",
+        body: [
+          "Separate from how you lay out code is how you run plan/apply. An orchestrator runs Terraform centrally with a PR-driven workflow, state, locking, approvals, policy-as-code, and drift detection — so applies don't depend on whose laptop ran them. The options: Terraform Cloud / HCP Terraform (HashiCorp's managed service, workspaces per environment, Sentinel policy), Spacelift and env0 (powerful policy + multi-IaC SaaS), and Atlantis (free, open-source, self-hosted PR automation). These complement any layout above — you can run directory-per-env or Terragrunt under Atlantis or Spacelift.",
+          "For environment management specifically, these platforms add per-environment approval gates (require a human to approve prod), per-environment credentials (least privilege via OIDC), and continuous drift detection that flags when reality diverges from code. At scale, the orchestrator is often what actually enforces your environment discipline.",
+        ],
+      },
+      {
+        heading: "Choosing — and the anti-patterns",
+        body: [
+          "There's no single 'best' — it scales with your situation. For most teams: directory-per-environment + shared pinned modules + separate state and ideally separate AWS accounts, run through an orchestrator. Add Terragrunt when that gets repetitive across many accounts/regions. Consider Terraform Stacks if you're on HCP Terraform and want the native multi-instance model. Use workspaces only for ephemeral/identical environments.",
+          "Avoid the anti-patterns: branch-per-environment (a git branch per env) drifts and makes promotion a merge nightmare — promote module versions, not branches. One giant state for everything gives a huge blast radius and slow plans. Copy-pasting whole configs per environment guarantees they diverge. And never share one state file across environments.",
+        ],
+        table: {
+          headers: ["Approach", "DRY", "Isolation", "Extra tooling", "Best for"],
+          rows: [
+            ["Workspaces", "High", "Weak", "None", "Ephemeral / identical envs"],
+            ["Directory per env + modules", "Medium", "Strong", "None", "Most teams; prod vs staging"],
+            ["Terragrunt", "High", "Strong", "Terragrunt", "Many accounts/regions, cross-stack wiring"],
+            ["Terraform Stacks", "High", "Strong", "HCP Terraform", "Native multi-instance (newer)"],
+            ["Orchestrator (TFC/Spacelift/Atlantis)", "—", "Strong", "Platform", "PR workflow, policy, drift at scale"],
+          ],
+        },
+      },
+    ],
+    keyPoints: [
+      "Goals first: isolation (separate state, ideally separate account per env) + DRY (shared pinned modules) + safe promotion + low blast radius + least privilege.",
+      "Workspaces: built-in, DRY, but weak isolation (shared backend, easy to target the wrong env) — only for ephemeral/identical envs.",
+      "Directory-per-env + shared modules + partial backend config (-backend-config) is the solid default: explicit, isolated, still DRY.",
+      "Terragrunt removes per-root boilerplate (generates backend/provider, auto state keys), adds dependency wiring + run-all — for many accounts/regions/small states.",
+      "Terraform Stacks (HCP) is the native multi-instance answer: components + deployments; newer, weigh maturity.",
+      "Orchestrators (TFC/HCP, Spacelift, Atlantis, env0) add PR-driven plan/apply, per-env approvals, OIDC creds, policy, and drift detection on top of any layout.",
+      "Anti-patterns: branch-per-env, one giant state, copy-pasted configs, sharing state across envs — promote module versions, not branches.",
+    ],
+    checklist: [
+      "Each environment has its own state file (and ideally its own AWS account)",
+      "Environments share version-pinned modules; I promote versions dev→staging→prod",
+      "Used partial backend config (-backend-config) for per-env state without duplication",
+      "Can explain when Terragrunt earns its keep over plain directories",
+      "Know that Terraform Stacks is the native multi-instance model on HCP Terraform",
+      "Have (or can describe) an orchestrator giving per-env approvals + drift detection",
+      "Avoid branch-per-env and a single shared state file",
+    ],
+    quiz: [
+      {
+        q: "A team needs prod and staging that differ in scale and live in different AWS accounts, with no risk of applying to the wrong one. Best baseline approach?",
+        options: [
+          "One config with Terraform workspaces for prod and staging",
+          "Directory-per-environment with separate state/backends and separate accounts, sharing pinned modules",
+          "A git branch per environment",
+          "One state file with a prod flag variable",
+        ],
+        answer: 1,
+        explain:
+          "Separate directories + state + accounts give structural isolation (you can't apply to the wrong env), while shared pinned modules keep it DRY. Workspaces share a backend and are easy to mis-target; branch-per-env drifts.",
+      },
+      {
+        q: "Your directory-per-env setup now spans 12 accounts and 3 regions, and the backend/provider boilerplate is duplicated everywhere with cross-stack dependencies. The strongest fix is…",
+        options: [
+          "Switch everything to workspaces",
+          "Adopt Terragrunt to generate backend/provider config, auto state keys, and wire dependencies with run-all",
+          "Put it all in one giant state file",
+          "Copy the configs and edit each by hand",
+        ],
+        answer: 1,
+        explain:
+          "Terragrunt exists for exactly this: remove repeated backend/provider boilerplate, auto-derive state keys, and wire components together with dependency blocks + run-all across many accounts/regions.",
+      },
+      {
+        q: "Which is an environment-management anti-pattern?",
+        options: [
+          "Promoting the same pinned module versions from dev to prod",
+          "A separate state file per environment",
+          "A separate git branch per environment that you merge to promote",
+          "Separate AWS accounts per environment",
+        ],
+        answer: 2,
+        explain:
+          "Branch-per-environment drifts and turns promotion into merge conflicts. Promote tested module versions, not branches; keep state (and ideally accounts) separate per env.",
+      },
+    ],
+  },
+
+  {
     id: "terraform-workflow",
     group: "Terraform",
     label: "Production Workflow",
