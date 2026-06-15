@@ -15,6 +15,7 @@
 //   }
 
 import { GENERATED_CONCEPTS } from "./concepts.generated.js";
+import { CLOUD_CONCEPTS } from "./cloud.js";
 
 // Hand-authored principle pages live here; the AI/ML, interview, and company
 // pages are research-generated (concepts.generated.js). See scripts/gen-concepts.mjs.
@@ -652,6 +653,6 @@ const EXTRA_CONCEPTS = [
   },
 ];
 
-export const CONCEPTS = [...PRINCIPLES, ...GENERATED_CONCEPTS, ...EXTRA_CONCEPTS];
+export const CONCEPTS = [...PRINCIPLES, ...GENERATED_CONCEPTS, ...EXTRA_CONCEPTS, ...CLOUD_CONCEPTS];
 
 export const CONCEPTS_BY_ID = Object.fromEntries(CONCEPTS.map((c) => [c.id, c]));
