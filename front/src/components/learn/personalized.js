@@ -651,4 +651,184 @@ export const PERSONALIZED_CONCEPTS = [
       "AWS SAA lane scheduled without crowding live loops",
     ],
   },
+
+  // ── Companies · Zapier — Staff Engineer, Backend (Revenue Zone) ─
+  {
+    id: "co-zapier",
+    group: "Companies",
+    label: "Zapier",
+    icon: "⚡",
+    title: "Zapier — Staff Engineer, Backend (Revenue Zone)",
+    tagline: "Prep pack + Ezra screen guide. Own the monetization platform — billing, subscriptions, payments, pricing, entitlements, checkout. Your highest-ceiling, lower-probability shot of the four: a real domain stretch. Run it hard, don't crown it.",
+    sections: [
+      {
+        heading: "Snapshot — the honest read",
+        body: [
+          "The role: own the technical vision and long-term architecture for Zapier's monetization platform — billing, subscriptions, payments, pricing, entitlements, checkout. Finance-grade, correctness-critical, with heavy cross-team scope across Product, Engineering, Finance, and Sales.",
+          "Where it ranks among your four: top-tier, tied with Toast on the two things you care most about — fully remote plus a high base. But it's your biggest fit stretch, because billing and payments is a genuine domain gap and it's the role's second stated requirement. That lowers your odds, especially at the technical stages, and it's a step behind your three live screens.",
+          "The play: best target stays Toast; highest-probability stays Autodesk; Zapier is your highest-ceiling, lower-probability play. Run it hard, don't crown it — let real offers decide.",
+        ],
+        table: {
+          headers: ["Dimension", "The read"],
+          rows: [
+            ["Comp (Canada)", "Base CA$210.7K–316.1K, plus private illiquid equity and a variable, non-guaranteed bonus. Policy reserves the upper half for proven-at-Zapier impact, so a realistic external new-hire base is ~210–263, not 316."],
+            ["Remote", "Fully remote, Americas. No visa sponsorship, but your Canadian PR covers you. Works from Vancouver."],
+            ["Scope", "Billing, subscriptions, payments, pricing, entitlements, checkout — correctness-critical revenue infrastructure, broad cross-team."],
+            ["Fit", "Strong on platform / API / performance; genuine gap on the billing domain. Highest ceiling, lower probability."],
+          ],
+        },
+        callout: { kind: "warn", title: "Don't crown it on base alone", text: "Tied with Toast on remote + base, but Zapier's equity is private and illiquid and the bonus isn't guaranteed — so base is effectively the whole package. Toast's RSUs are liquid public stock. Keep Toast, Autodesk, and Treasure warm; let real offers decide." },
+      },
+      {
+        heading: "The Ezra screen — logistics, locked",
+        card: true,
+        tag: "Locked logistics",
+        body: [
+          "Ezra is Zapier's AI-led recruiter screen: a ~25-minute video conversation in English, on your own schedule, due within 7 business days of the email. A human recruiter reviews the result and replies within 7 business days — the AI does not decide.",
+          "It covers your experience, how you work, and how you use AI today, with follow-ups generated from your answers. In content it's a recruiter screen, so your normal screen prep applies: pitch, why-leaving, why-Zapier, comp.",
+          "There's an opt-out for a non-AI alternative. Don't take it — Zapier is AI-first and values AI fluency, so declining their AI screen is a small negative signal, and a human reviews the result anyway.",
+        ],
+        callout: { kind: "warn", title: "One-time link — you cannot pause or restart", text: "The link works once. It can't be paused, saved, or restarted; even if you don't finish, it will not reopen. Block 30 quiet, uninterrupted minutes with a working camera and mic and good lighting before you click it." },
+      },
+      {
+        heading: "How to win the Ezra screen",
+        body: [
+          "Treat it as a real conversation, out loud — no talking over it. You can take a beat to think, or ask it to rephrase a question; you just can't stop and resume the session.",
+          "Answer with substance. It follows up on vague answers, so give it something concrete every time — a number, a name, a specific decision.",
+        ],
+        steps: [
+          "Block 30 quiet minutes; test camera, mic, and lighting before you open the one-time link.",
+          "Run your normal screen script: pitch → why leaving → why Zapier → comp.",
+          "Lead the AI question with specifics (see your AI-fluency story) — it's the highest-leverage answer here.",
+          "Take a beat before answering; ask it to rephrase if needed. Never rush or talk over it.",
+          "Do it after this week's live screens, when you can give it a clean, unrushed 25 minutes.",
+        ],
+      },
+      {
+        heading: "The AI rules — collaborator, not creator",
+        card: true,
+        tag: "Zapier's stated bar",
+        body: [
+          "Zapier's official guidance: use AI as your collaborator, not your creator, and be transparent about what it contributed. They want to see how you use AI thoughtfully, not how well you can hide it.",
+          "Preparing with AI is encouraged — use Claude to rehearse your stories, pressure-test answers, and run a mock Ezra. That's exactly the collaborator they want.",
+          "During the live call, speak as yourself. Don't run a hidden tool feeding you answers in real time — that's 'creator' plus 'hiding it,' the two things they screen against, and Ezra has cheat detection. AI fluency is tested by being ASKED about it, not by using it live.",
+        ],
+        callout: { kind: "tip", title: "The line that wins", text: "AI handles boilerplate, tests, and exploration. Anything correctness-critical — the actual business logic — gets human verification. For billing and revenue, that line is non-negotiable. Saying this is the screen." },
+      },
+      {
+        heading: "Your AI-fluency story — the #1 prep",
+        card: true,
+        tag: "Say this",
+        body: [
+          "This is the single most important answer to prepare for Ezra. Zapier's instructions say strong candidates come ready with specific workflows they've built, how their approach evolved, and the impact — and the JD's stated bar is knowing the difference between automating boilerplate and trusting AI with revenue logic.",
+          "\"I use AI as a regular part of my workflow, in two main ways. First, as a build accelerator: I use AI coding assistants for scaffolding, generating tests, and refactoring across large codebases, which speeds up the mechanical work. Second, I've shipped AI into production — I built our first internal chatbot, a retrieval pipeline on AWS Bedrock over a knowledge base, where I owned the retrieval, the model integration, and the guardrails.\"",
+          "\"Where my approach has evolved is in judgment about when not to trust it. I draw a clear line now: AI handles boilerplate, tests, and exploration, but anything correctness-critical — the actual business logic — gets human verification and review. For a domain like billing and revenue, that line is non-negotiable. I'd happily let AI scaffold a pricing service or generate test cases, but I would not trust it to author revenue logic unchecked. Automating the mechanical parts while keeping a human on the parts where a mistake costs money is exactly how I'd want a team in this space to work.\"",
+        ],
+      },
+      {
+        heading: "Your pitch for Zapier",
+        card: true,
+        tag: "Tell me about yourself",
+        body: [
+          "Lead with the multi-consumer API and performance work — it matches their 'About You' bullets — then AI fluency, then leadership. Do not claim billing experience.",
+          "\"I'm a senior backend and platform engineer with about seven years of experience, currently a tech lead working through my own consultancy, embedded long-term with Nexity, one of France's largest real-estate groups.\"",
+          "\"The thread most relevant to this role is API and platform work. I co-designed and own a public API on AWS that serves over 40 partner integrations, internal systems, and user-facing products at the same time, and a big part of the job has been evolving it as we add partners without breaking the existing integrations. I've also driven real performance work on it — scaling our batch processing from 15,000 to 50,000 items per run and cutting wall-clock time by a third through query tuning, indexing, and caching rather than more hardware.\"",
+          "\"On the AI side, I built our first internal chatbot, a retrieval pipeline on Bedrock, and I use AI coding tools daily, so AI-first development is how I already work. I've also led across teams, mentored engineers, and worked directly with stakeholders, including a full rewrite of a marketing app from .NET to Spring Boot where I owned the architecture and the stakeholder relationship.\"",
+          "\"What I'm looking for now is a permanent Staff role at a product company where I can own a platform's technical direction long-term — which is exactly what this Revenue Zone role is.\"",
+        ],
+      },
+      {
+        heading: "Why Zapier / why this role",
+        card: true,
+        tag: "Script",
+        body: [
+          "\"Zapier is a profitable, remote-first company with a strong engineering reputation, and this role is the technical anchor for the entire monetization platform — billing, pricing, entitlements, checkout — which is real ownership of correctness-critical infrastructure.\"",
+          "\"Three things draw me. It's deep API and platform work serving multiple consumers, which is what I do today. It's an AI-first company, and I've built production AI and use AI tooling daily, so that's native to how I work. And it's fully remote, which fits where I'm building my life in Vancouver.\"",
+          "\"I'll be honest that billing is a domain I'd be ramping into, but the platform, API-evolution, and performance problems underneath it are exactly the ones I've been solving.\"",
+        ],
+      },
+      {
+        heading: "Salary strategy — recalibrated",
+        card: true,
+        tag: "Numbers",
+        body: [
+          "The band is CA$210.7K–316.1K base, but their comp text reserves the upper half for proven-at-Zapier impact — so 316 is not a realistic external new-hire number. This corrects the higher anchor from the earlier general analysis.",
+          "Put all your leverage on base. Equity is private and illiquid, the bonus is variable and not guaranteed, so base is effectively your whole comp.",
+        ],
+        steps: [
+          "Confirm currency is CAD (the posting lists it).",
+          "Anchor near the top of the realistic half — around CA$255–265K base.",
+          "Expect to land roughly CA$230–250K; the billing-domain gap may pull it toward the lower end.",
+          "Floor at your true effective contractor annual — don't let it go below that.",
+        ],
+        callout: { kind: "warn", title: "Don't crown this over a Toast offer on base alone", text: "Toast's RSUs are liquid public stock, so a slightly lower Toast base plus real equity can beat a higher Zapier base. Let real offers decide." },
+      },
+      {
+        heading: "The domain gap — and how to handle it",
+        body: [
+          "The role's second requirement is deep billing, payments, and monetization domain experience: metered billing, pricing models, entitlements, revenue recognition, enterprise complexity. You don't have it. Don't fake it.",
+          "It doesn't matter at Ezra — that screen is about experience, working style, and AI fluency. It matters at the technical and system-design stages, which will be billing-flavored. If you advance, the single highest-leverage prep is a usage-metered billing system design — that's also the thing that moves you from the bottom toward the top of the band, and it doubles as Toast prep.",
+        ],
+        callout: { kind: "tip", title: "Honest framing if asked", text: "\"I haven't worked in billing specifically, but I've built and evolved correctness-critical, multi-consumer platform APIs at scale, and done the performance and data-modeling work underneath them. I ramp fast on a domain when the systems problems are familiar — and here they are.\"" },
+      },
+      {
+        heading: "Process caveat + where it sits this week",
+        card: true,
+        tag: "Logistics",
+        body: [
+          "Process caveat: Zapier has closed roles mid-process before — including telling a candidate they'd already hired while a take-home was still in progress. Pin down the timeline in writing, and keep Toast, Autodesk, and Treasure warm regardless.",
+          "Where it sits this week: you have 7 business days from the email, so Ezra doesn't collide with Toast (Tue), Autodesk (Wed), or Treasure (Thu). Do it over the weekend or early next week, after the live screens, when you can give it a clean, unrushed 25 minutes. It's a fourth shot at no cost to this week's load.",
+        ],
+      },
+    ],
+    keyPoints: [
+      "Highest ceiling of your four, lower probability — billing is a real domain gap and the role's 2nd requirement. Run it hard, don't crown it.",
+      "Ezra = ~25-min AI video screen, ONE-TIME link (no pause/restart). Block 30 quiet minutes; a human reviews the result.",
+      "Don't opt out of the AI screen — Zapier is AI-first; declining is a small negative signal and a human reviews it anyway.",
+      "AI rule: collaborator, not creator. Prep WITH AI; speak as yourself live (cheat detection). Fluency is tested by being asked.",
+      "Your #1 prep is the AI-fluency story: build-accelerator + production Bedrock RAG + the line about not trusting AI with revenue logic.",
+      "Pitch leads with the multi-consumer API + performance (15k→50k items, wall-clock cut a third). Never claim billing experience.",
+      "Comp: 316 is NOT realistic for an external hire; anchor CA$255–265K base, expect ~230–250K. Leverage on base — equity is illiquid, bonus not guaranteed.",
+      "Domain gap doesn't matter at Ezra; it bites at the technical stages. Best advancing-prep = a usage-metered billing system design (doubles as Toast prep).",
+      "Pin the timeline in writing — Zapier has closed roles mid-process. Run Ezra after this week's live screens.",
+    ],
+    checklist: [
+      "AI-fluency story rehearsed aloud: two workflows (build-accelerator + production Bedrock RAG) + the don't-trust-AI-with-revenue line",
+      "Pitch tuned for Zapier: lead with the multi-consumer API + performance numbers; no billing claim",
+      "'Why Zapier' written: anchor of the monetization platform + AI-first + remote/Vancouver, with the honest billing caveat",
+      "'Why leaving' and comp answers ready (see Recruiter Screen)",
+      "Comp number set: anchor CA$255–265K base, floor at true contractor annual, currency confirmed CAD",
+      "Domain-gap framing rehearsed — honest, not faked",
+      "30 quiet minutes blocked with working camera / mic / lighting before the one-time link",
+      "Did NOT opt out of the AI screen",
+      "Timeline pinned in writing; Toast / Autodesk / Treasure kept warm",
+      "If advancing: usage-metered billing system design drilled (doubles as Toast prep)",
+    ],
+    quiz: [
+      {
+        q: "What's true about the Ezra screen link?",
+        options: ["It can be paused and resumed within 7 days", "It works once — no pause, save, or restart", "It reopens automatically if you don't finish"],
+        answer: 1,
+        explain: "It's a one-time link. Block 30 uninterrupted minutes and treat it as a single clean take — even if you don't finish, it won't reopen.",
+      },
+      {
+        q: "Should you opt out of the AI screen for the non-AI alternative?",
+        options: ["Yes — it removes the risk", "No — Zapier is AI-first; declining is a small negative signal and a human reviews it anyway"],
+        answer: 1,
+        explain: "Zapier values AI fluency, and a human recruiter reviews the Ezra result regardless — little upside, real downside to opting out.",
+      },
+      {
+        q: "Given the CA$210.7K–316.1K band, what's a realistic external new-hire base?",
+        options: ["~316K — anchor the ceiling", "~210–263K — the upper half is reserved for proven-at-Zapier impact", "Below 210K to stay safe"],
+        answer: 1,
+        explain: "Their policy reserves the upper half for internal proven impact. Anchor ~255–265K, expect ~230–250K, and put leverage on base since equity is illiquid and the bonus isn't guaranteed.",
+      },
+      {
+        q: "How should you handle the billing-domain gap?",
+        options: ["Claim adjacent billing experience to seem credible", "Don't fake it — frame it as fast ramp on familiar systems problems, and drill a usage-metered billing system design if you advance"],
+        answer: 1,
+        explain: "Don't fake domain depth. It doesn't matter at Ezra; at the technical stages a usage-metered billing design is the highest-leverage prep — and it doubles as Toast prep.",
+      },
+    ],
+  },
 ];
