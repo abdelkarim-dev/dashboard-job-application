@@ -1,0 +1,37 @@
+{
+  // TypeScript is introduced for INCREMENTAL adoption. New modules can be
+  // written in .ts / .tsx and are compiled by Vite/esbuild as part of the
+  // normal `npm run build` — no separate emit step. This config is type-check
+  // only (`noEmit`); run it with `npm run typecheck` (tsc --noEmit).
+  //
+  // Existing .mjs / .jsx files keep working untouched: `allowJs` lets TS resolve
+  // imports into them, and `checkJs: false` means they are NOT type-checked yet.
+  // Only files matched by `include` (the .ts/.tsx files) are checked, so the
+  // codebase can migrate file-by-file without a big-bang rewrite.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+
+    "allowJs": true,
+    "checkJs": false,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

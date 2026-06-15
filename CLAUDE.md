@@ -21,6 +21,7 @@ npm run build      # vite build -> dist/
 npm run dev        # server (8787) + vite dev (5173, proxies /api & /vendor to 8787, hot reload)
 npm test           # node --test — discovers test/*.test.mjs (incl. http-smoke, which boots the app)
 npm run check      # syntax-only: node --check on server.mjs, database.mjs, lib/**, + extension/content.js
+npm run typecheck  # tsc --noEmit — type-checks the .ts/.tsx files (see TypeScript below)
 ```
 
 Run one test file or one test:
@@ -31,6 +32,16 @@ node --test --test-name-pattern="CSV export includes full timestamp columns"
 ```
 
 **Node 22+ is required.** `database.mjs` uses the built-in `node:sqlite` (`DatabaseSync`) — there is intentionally **no** `better-sqlite3`/`sql.js` dependency. Don't add one.
+
+## TypeScript (incremental adoption)
+
+TypeScript is part of the stack but adopted **file-by-file**, not all at once. The existing `.mjs`/`.jsx` files keep working untouched; new code can be written in `.ts`/`.tsx`.
+
+- **No separate build step.** Vite/esbuild transpiles `.ts`/`.tsx` natively as part of `npm run build` and `npm run dev`. You do **not** run `tsc` to produce JS.
+- **Type-checking is separate from building:** `npm run typecheck` runs `tsc --noEmit` against `tsconfig.json`. The config is `noEmit` only.
+- **`tsconfig.json`** (repo root): `strict`, `jsx: react-jsx`, `moduleResolution: bundler`, `allowJs: true` + `checkJs: false` (so `.js`/`.jsx`/`.mjs` are resolved for imports but **not** yet type-checked), and `include` is scoped to `src/**/*.ts(x)` — so only TypeScript files are checked. Migrate a file by renaming it to `.ts`/`.tsx`; it then gets type-checked. Imports can stay extensionless (`import { x } from "./toc"`); Vite resolves to the `.ts` file.
+- **First TS module:** `src/components/learn/toc.ts` (typed `Concept`/`TocItem` + `buildToc`), consumed by the still-`.jsx` `ConceptPage`. Use it as the pattern for new typed modules; the server (`server.mjs`, `lib/**`) stays `.mjs` for now.
+- **Tooling lives in `devDependencies`:** `typescript`, `@types/react`, `@types/react-dom`, `@types/node`. If `tsc` is missing, run `npm install`.
 
 ## Server architecture (`server.mjs` + `lib/`)
 

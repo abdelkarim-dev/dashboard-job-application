@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Diagram, DIAGRAMS_BY_CONCEPT } from "./diagrams.jsx";
+import { buildToc } from "./toc"; // first TypeScript module (compiled by Vite)
 
 const PROGRESS_KEY = "learnConceptProgress";
 const CHECKLIST_KEY = "learnChecklistProgress";
@@ -346,17 +347,9 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const [activeId, setActiveId] = useState(null);
   const articleRef = useRef(null);
 
-  // The "On this page" navigator entries: one per titled section, plus takeaways.
-  const toc = useMemo(() => {
-    const secs = Array.isArray(concept?.sections) ? concept.sections : [];
-    const items = secs
-      .map((s, i) => ({ id: `sec-${i}`, label: s.heading }))
-      .filter((it) => it.label);
-    if (Array.isArray(concept?.keyPoints) && concept.keyPoints.length) {
-      items.push({ id: "sec-keypoints", label: "Key takeaways" });
-    }
-    return items;
-  }, [concept]);
+  // The "On this page" navigator entries (one per titled section + takeaways),
+  // built by the typed helper in toc.ts.
+  const toc = useMemo(() => buildToc(concept), [concept]);
 
   // Two IntersectionObservers: one reveals each block as it scrolls into view
   // (progressive disclosure instead of a wall of text), one drives the
