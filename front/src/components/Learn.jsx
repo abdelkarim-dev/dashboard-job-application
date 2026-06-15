@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import Practice from "./Practice.jsx";
 import SystemDesign from "./SystemDesign.jsx";
 import ConceptPage, { loadConceptProgress } from "./learn/ConceptPage.jsx";
+import { LearnPrintPortal } from "./learn/PrintView.jsx";
 import { CONCEPTS, CONCEPTS_BY_ID } from "./learn/concepts.js";
 import { PERSONALIZED_CONCEPTS } from "./learn/personalized.js";
 
@@ -68,6 +69,8 @@ export default function Learn({ sub, onNavigate, practiceProps = {}, onTrainPlan
 
   // Reviewed checkmarks for concept items; refresh when ConceptPage signals.
   const [reviewed, setReviewed] = useState(loadConceptProgress);
+  // "Download all" → render every concept into a hidden print tree and print.
+  const [printingAll, setPrintingAll] = useState(false);
   useEffect(() => {
     const onProgress = () => setReviewed(loadConceptProgress());
     document.addEventListener("learn:progress", onProgress);
@@ -114,6 +117,15 @@ export default function Learn({ sub, onNavigate, practiceProps = {}, onTrainPlan
           <strong>Interview Prep</strong>
           <span>{LAB_ITEMS.length + allConcepts.length}</span>
         </div>
+        <button
+          type="button"
+          className="learn-rail-pdf"
+          onClick={() => setPrintingAll(true)}
+          disabled={printingAll}
+          title={`Download all ${allConcepts.length} reading pages as one PDF`}
+        >
+          {printingAll ? "Preparing PDF…" : `⤓ Download all pages (${allConcepts.length})`}
+        </button>
         {groups.map((group) => (
           <div className="learn-rail-group" key={group.name}>
             <div className="learn-rail-group-title">{group.name}</div>
@@ -137,6 +149,13 @@ export default function Learn({ sub, onNavigate, practiceProps = {}, onTrainPlan
         ))}
       </aside>
       <div className="learn-content">{renderContent()}</div>
+      {printingAll && (
+        <LearnPrintPortal
+          concepts={allConcepts}
+          title="Claire — Interview Prep Study Pack"
+          onDone={() => setPrintingAll(false)}
+        />
+      )}
     </div>
   );
 }

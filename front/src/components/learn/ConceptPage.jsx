@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Diagram, DIAGRAMS_BY_CONCEPT } from "./diagrams.jsx";
+import { LearnPrintPortal } from "./PrintView.jsx";
 import { buildToc } from "./toc"; // first TypeScript module (compiled by Vite)
 
 const PROGRESS_KEY = "learnConceptProgress";
@@ -345,6 +346,7 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const [answers, setAnswers] = useState({});
   const [checked, setChecked] = useState(() => loadChecklist()[concept.id] || {});
   const [activeId, setActiveId] = useState(null);
+  const [printing, setPrinting] = useState(false);
   const articleRef = useRef(null);
 
   // The "On this page" navigator entries (one per titled section + takeaways),
@@ -436,15 +438,34 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
           <h1 className="learn-concept-title">{concept.title}</h1>
           {concept.tagline && <p className="learn-concept-lead">{concept.tagline}</p>}
         </div>
-        <button
-          type="button"
-          className={`learn-review-btn ${reviewed ? "done" : ""}`}
-          onClick={toggleReviewed}
-          aria-pressed={reviewed}
-        >
-          {reviewed ? "✓ Reviewed" : "Mark reviewed"}
-        </button>
+        <div className="learn-concept-actions">
+          <button
+            type="button"
+            className="learn-pdf-btn"
+            onClick={() => setPrinting(true)}
+            disabled={printing}
+            title="Download this page as a PDF"
+          >
+            {printing ? "Preparing…" : "⤓ PDF"}
+          </button>
+          <button
+            type="button"
+            className={`learn-review-btn ${reviewed ? "done" : ""}`}
+            onClick={toggleReviewed}
+            aria-pressed={reviewed}
+          >
+            {reviewed ? "✓ Reviewed" : "Mark reviewed"}
+          </button>
+        </div>
       </header>
+
+      {printing && (
+        <LearnPrintPortal
+          concepts={[concept]}
+          title={concept.title || concept.label || "Concept"}
+          onDone={() => setPrinting(false)}
+        />
+      )}
 
       <div className="learn-concept-body">
         <div className="learn-concept-main">

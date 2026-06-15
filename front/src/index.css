@@ -10036,6 +10036,65 @@ body.pane-resizing {
   color: #86efac;
 }
 
+/* Header actions: "Download PDF" + "Mark reviewed" sit together, top-right. */
+.learn-concept-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.learn-pdf-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 999px;
+  background: var(--md-surface-1);
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+
+.learn-pdf-btn:hover:not(:disabled) {
+  background: var(--md-surface-2);
+  color: var(--md-primary);
+  border-color: var(--md-primary);
+}
+
+.learn-pdf-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Rail "Download all pages" button — full-width under the rail header. */
+.learn-rail-pdf {
+  width: 100%;
+  margin: 0 0 10px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 10px;
+  background: var(--md-surface-1);
+  color: var(--md-on-surface);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+
+.learn-rail-pdf:hover:not(:disabled) {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border-color: var(--md-primary);
+}
+
+.learn-rail-pdf:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Body splits into a reading column + a sticky self-check rail on the right.
    The rail only exists when the concept has a checklist or quiz (.has-aside). */
 .learn-concept-body {
@@ -10797,5 +10856,269 @@ body.pane-resizing {
   }
   .learn-concept-head {
     flex-direction: column;
+  }
+}
+
+/* ============================================================================
+   Learn → PDF export.  The per-page "⤓ PDF" button (ConceptPage) and the rail's
+   "Download all pages" button (Learn) mount <LearnPrintPortal> (PrintView.jsx),
+   which portals a paper-friendly tree (`.learn-print-root`, `lp-*` classes) to
+   <body> and calls window.print().  On screen the tree is display:none so it
+   never flashes; in @media print it replaces the dark SPA (#root) entirely.
+   ============================================================================ */
+.learn-print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 16mm 15mm;
+  }
+
+  /* While a print is in flight, swap the whole app for the print tree. */
+  body.learn-printing {
+    background: #ffffff !important;
+  }
+  body.learn-printing #root {
+    display: none !important;
+  }
+  body.learn-printing .learn-print-root {
+    display: block !important;
+    background: #ffffff;
+    color: #16181d;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+
+  /* No entrance animation / reveal transforms should survive into the PDF. */
+  .learn-print-root * {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  /* Cover page (all-pages export only). */
+  .lp-cover {
+    page-break-after: always;
+    padding-top: 26mm;
+  }
+  .lp-cover-mark {
+    font: 700 11pt "Inter", sans-serif;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #0f6f5c;
+  }
+  .lp-cover h1 {
+    font: 800 30pt "Outfit", sans-serif;
+    margin: 10px 0 6px;
+    color: #0b1110;
+  }
+  .lp-cover-sub {
+    color: #5a6066;
+    margin: 0 0 20px;
+  }
+  .lp-cover-toc {
+    columns: 2;
+    column-gap: 26px;
+    color: #16181d;
+    font-size: 10.5pt;
+    padding-left: 18px;
+  }
+  .lp-cover-toc li {
+    margin: 3px 0;
+    break-inside: avoid;
+  }
+
+  /* One concept per chapter: each starts on a fresh page in the pack export. */
+  .learn-print-root .lp-article + .lp-article {
+    page-break-before: always;
+  }
+
+  .lp-head {
+    border-bottom: 2px solid #0f6f5c;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+  .lp-kicker {
+    font: 700 9pt "Inter", sans-serif;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #0f6f5c;
+  }
+  .lp-title {
+    font: 800 22pt "Outfit", sans-serif;
+    margin: 4px 0 6px;
+    color: #0b1110;
+  }
+  .lp-lead {
+    color: #41464d;
+    font-size: 11.5pt;
+    margin: 0;
+  }
+
+  .lp-section {
+    margin: 0 0 12px;
+    break-inside: avoid;
+  }
+  .lp-h2 {
+    font: 700 14pt "Outfit", sans-serif;
+    color: #11241f;
+    margin: 14px 0 6px;
+  }
+  .lp-num {
+    color: #0f6f5c;
+    font-weight: 800;
+    margin-right: 8px;
+  }
+  .lp-p {
+    margin: 0 0 7px;
+  }
+
+  .lp-callout {
+    border-left: 3px solid #0f6f5c;
+    background: #f0f7f4;
+    padding: 8px 12px;
+    margin: 8px 0;
+    border-radius: 0 6px 6px 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .lp-callout strong {
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .lp-steps {
+    padding-left: 20px;
+    margin: 8px 0;
+  }
+  .lp-steps li {
+    margin: 3px 0;
+  }
+
+  .lp-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 10pt;
+  }
+  .lp-table th,
+  .lp-table td {
+    border: 1px solid #d4dad7;
+    padding: 5px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .lp-table th {
+    background: #eef3f1;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .lp-code {
+    background: #0f1729;
+    color: #e6edf3;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font: 500 9pt ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .lp-keypoints {
+    background: #f0f7f4;
+    border: 1px solid #cfe6dd;
+    border-radius: 8px;
+    padding: 10px 14px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .lp-points {
+    padding-left: 18px;
+    margin: 6px 0;
+  }
+  .lp-points li {
+    margin: 4px 0;
+  }
+
+  .lp-check {
+    list-style: none;
+    padding: 0;
+    margin: 6px 0;
+  }
+  .lp-check li {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 4px 0;
+  }
+  .lp-box {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    margin-top: 3px;
+    border: 1.5px solid #0f6f5c;
+    border-radius: 3px;
+  }
+
+  .lp-quiz-item {
+    margin: 0 0 10px;
+    break-inside: avoid;
+  }
+  .lp-quiz-q {
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+  .lp-quiz-options {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .lp-quiz-options li {
+    margin: 2px 0;
+    color: #41464d;
+  }
+  .lp-quiz-options li.is-answer {
+    color: #0a7a4f;
+    font-weight: 600;
+  }
+  .lp-quiz-explain {
+    font-size: 10pt;
+    color: #5a6066;
+    margin: 4px 0 0;
+  }
+
+  /* Diagrams are theme-token SVGs; render them on a dark panel with the dark
+     token values pinned, so their strokes stay visible whatever the live theme. */
+  .lp-figure {
+    margin: 12px 0;
+    padding: 14px;
+    border-radius: 10px;
+    text-align: center;
+    background: #0b1110;
+    break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    --md-primary: #34d399;
+    --md-primary-container: rgba(52, 211, 153, 0.16);
+    --md-surface: #0b1110;
+    --md-surface-2: #101716;
+    --md-on-surface: #f3f4f6;
+    --md-on-surface-variant: #a7b3ae;
+    --md-outline-variant: #2c4a43;
+  }
+  .lp-figure svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .lp-figure figcaption {
+    color: #9aa6a1;
+    font-size: 9.5pt;
+    margin-top: 8px;
   }
 }
