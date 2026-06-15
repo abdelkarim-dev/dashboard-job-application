@@ -23,110 +23,247 @@ export const PERSONALIZED_CONCEPTS = [
     label: "Your Pitch",
     icon: "★",
     title: "Your \"Tell Me About Yourself\"",
-    tagline: "A 90-second present-past-future-handoff arc built from your real track record, with a tailored variant for each active loop: Toast, Autodesk, Treasure Data.",
+    tagline: "One company-agnostic 60–90 second pitch: open with who you are, go deep on one flagship project, sweep the rest, say what you want next. Swap only the flagship and the closing hook per role.",
     sections: [
       {
-        heading: "The structure: present, past, future, handoff",
+        heading: "The shape: go deep on one thing",
         body: [
-          "Tell Me About Yourself is the single most-reused asset in your loop. Recruiters, hiring managers, and most onsite rounds open with it, and a tight answer sets the frame for everything after. It is a 60 to 90 second positioning statement, not your life story.",
-          "Present (about 15 seconds): who you are right now, in one line, framed for the role. Lead with the thing closest to the job. Past (about 45 seconds): two or three proof points, each with scope and a number, picked to match the role. A highlight reel, not a resume readthrough. Future (about 20 seconds): why you are here, why this company, why now. Handoff (about 10 seconds): end with a soft invitation so it does not dangle, for example \"happy to go deeper on any of those, what is most useful for you?\"",
-          "Tailor only the Present line and the Past proof points per company; keep the shape stable. Rehearse the arc out loud until it is under 100 seconds without notes, then stop. Over-rehearsed reads as robotic.",
+          "Tell Me About Yourself is the single most-reused asset in your loop — recruiters, hiring managers, and most onsite rounds open with it, and a tight answer frames everything after. It is a 60 to 90 second positioning statement, not your life story.",
+          "Memorize the shape, not the exact words: one line on who you are, then one flagship project in real detail, then the rest swept quickly, then what you want next. Do not list everything. Go deep on one thing and let the follow-up questions pull the rest — that is what makes it sound like a person talking instead of a resume read aloud.",
+          "Mapped to the classic arc: Present (~15s) who you are, framed for the role. Past (~45s) one flagship in depth, then a quick sweep of two or three more wins, each with a number. Future (~20s) what you want next and why this company. Handoff (~10s) a soft invitation so it does not dangle — \"happy to go deeper on any of that, what is most useful for you?\" Rehearse it aloud until it is under 100 seconds without notes, then stop; over-rehearsed reads as robotic.",
         ],
       },
       {
-        heading: "Match your audience: recruiter vs engineer",
+        heading: "Recruiter level, not engineer level",
         body: [
-          "Who is in the room changes the words, not the structure. The recruiter screen comes first and it gates everything, and the recruiter is almost always non-technical; many first hiring-manager calls are light on tech too. With them, lead with impact, scale, ownership, and outcomes in plain language, and let them pull you into detail. With a non-technical listener, naming AWS services, WAF rules, or Spring Batch chunk sizing does not land as competence; it lands as noise.",
-          "Save the technical depth for engineers and tech leads. The role-specific variants further down (Toast, Autodesk, Treasure Data) are written for a technical interviewer, so they name the stack on purpose. Use the recruiter variant below for screens and non-technical calls, then step up the jargon as soon as the person across from you starts asking how things work.",
-          "Read the cues live. If they ask follow-ups about the technology, go deeper; if they nod and move on, stay at the outcome level. A simple rule: say what changed for the business first (faster, more reliable, bigger scale, lower cost, a team I grew), and only reach for the mechanism if they ask how.",
+          "The recruiter screen comes first and it gates everything, and the recruiter is almost always non-technical — many first hiring-manager calls are too. Name the technologies so the keywords land (Java, Spring, AWS, Bedrock), but never explain their internals. The test for every sentence: would a smart non-engineer follow it and be able to repeat it to the hiring manager?",
+          "Say \"a public API on AWS that takes in leads from 40+ partners and stays up under constant bot traffic,\" not \"a WAF-hardened serverless endpoint with idempotent ingestion.\" Same fact, plain words. Naming WAF rules, chunk sizing, or EventBridge to a non-technical listener does not land as competence; it lands as noise. Go one layer deeper only when they ask a follow-up — let them pull you in.",
+          "Read the room live: if they ask how something works, go deeper; if they nod and move on, stay at the outcome level. Lead with what changed for the business — faster, more reliable, bigger scale, lower cost, a team you grew — and reach for the mechanism only if asked. The two variants below cover the same ground at two altitudes: the plain one keeps the headline wins for screens; the technical one adds the exact numbers and names the stack for engineers.",
         ],
+        callout: { kind: "tip", title: "The repeatability test", text: "If your recruiter can't repeat your flagship story to the hiring manager in one sentence, it was too technical. Rewrite it in plain words until they can." },
       },
       {
-        heading: "Recruiter / non-technical variant (~60-75 seconds, plain language)",
+        heading: "Base pitch — recruiter / non-technical (~75s, plain language)",
         card: true,
-        tag: "Recruiter",
+        tag: "Say this on screens",
         body: [
-          "Present: I am a senior software engineer and team lead with about seven years of experience. Right now I own a business-critical system for one of France's largest real-estate groups: it is how all of their incoming customer leads come in.",
-          "Past: That system connects more than 40 outside partners, including names like Google, Meta, and the big property websites, and my job is to keep it reliable and secure even when it is under attack. I have also led projects end to end: I rebuilt a slow internal app so it starts instantly instead of taking about a minute and a half, I made a nightly data process handle more than three times the volume without buying any new hardware, and I have been promoted into team-lead roles twice, where I brought on new engineers and set how the team works.",
-          "Future: I am based in Vancouver, a Canadian permanent resident, open to remote or relocation, and I am looking for a senior role where I can keep owning important systems and helping a team do its best work. What your team is building is exactly the kind of work I want to do next. Happy to go into any of that in more detail, what would be most useful?",
-          "Notice what is not here: no AWS service names, no acronyms, no chunk sizing. Same achievements as the technical variants, told as business outcomes (reliable, secure, faster, larger scale, people I grew) so a non-technical recruiter or manager hears value, not vocabulary.",
+          "Present: I'm a senior backend and platform engineer with about seven years of experience. Right now I'm a tech lead running my own small consultancy, embedded long-term with one of France's largest real-estate groups.",
+          "Flagship: Most of my work centers on a public system that takes in customer leads — it pulls them in from more than 40 outside partners, names like Google, Meta, and the big property websites, and a big part of my job is keeping it reliable and secure even when it's under constant bot traffic. I've been the tech lead on it for a few years, hands-on from the infrastructure all the way to the shipped code.",
+          "Sweep: Beyond that I've owned a few things end to end — I rebuilt a slow internal app so it starts almost instantly instead of taking about a minute and a half, I made a data process handle more than three times the volume with no new hardware, and I built our internal AI assistant over our own knowledge base. I've also been promoted into team-lead roles twice along the way, where I brought on and mentored new engineers.",
+          "Future + handoff: What I'm looking for now is a permanent senior or staff role at a product company where I can own systems long-term and keep working across both infrastructure and code — which is exactly why this role caught my eye. Happy to go deeper on any of that — what would be most useful for you?",
         ],
       },
       {
-        heading: "Default variant (technical interviewer, any senior backend / platform role)",
+        heading: "Technical variant — engineers / tech leads (names the stack)",
         card: true,
-        tag: "Default · technical",
+        tag: "When the room is technical",
         body: [
-          "Present: I am a senior backend engineer and tech lead with about seven years building production backend, cloud, and platform systems. Day to day I am hands-on from architecture to shipped code, and I currently own a business-critical public API on AWS serverless.",
-          "Past: I co-designed and own Nexity's lead-capture API, a WAF-hardened public endpoint serving 40+ partner integrations including SeLoger, LeBonCoin, Google, Meta, and TikTok. I scaled a batch job from 15,000 to 50,000 items per run, a 233 percent increase, and cut wall-clock time 35 percent purely through PostgreSQL tuning, indexing, and Spring Batch chunk sizing, with no new hardware. I have been promoted into a tech-lead role twice, at Capgemini and again at Orange, so I have led teams as well as systems.",
-          "Future: I am Vancouver-based, a Canadian PR, open to remote or relocation, and I want a senior role where I can keep owning systems end to end. The work your team is doing on [specific to company] is exactly the kind of problem I want to go deep on. Happy to go deeper on any of those, what is most useful for you?",
+          "Present: I'm a senior backend engineer and tech lead, about seven years building production backend, cloud, and platform systems, hands-on from architecture to shipped code.",
+          "Flagship: I co-designed and own a WAF-hardened public lead-capture API on AWS serverless, serving 40+ partner integrations — SeLoger, LeBonCoin, Google, Meta, TikTok — under constant bot traffic, where the job is staying available without false-positive blocks on real partners.",
+          "Sweep: I scaled a batch job from 15,000 to 50,000 items per run (+233%) and cut wall-clock time 35% through PostgreSQL tuning and Spring Batch chunk sizing with no new hardware; rewrote a .NET marketing app to Spring Boot and React solo; built a Retrieval-Augmented Generation pipeline on AWS Bedrock; and consolidated CI/CD across 7 codebases. I've been promoted to tech lead twice, at Capgemini and again at Orange.",
+          "Future + handoff: I want a permanent senior or staff backend role where I own systems end to end. The work your team is doing on [one researched detail] is exactly what I want to go deep on. Happy to go deeper on any of those — what's most useful for you?",
         ],
       },
       {
-        heading: "Toast variant (Staff SWE, payments / restaurant scale)",
-        card: true,
-        tag: "Toast",
+        heading: "Choosing your flagship: swap one, keep the shape",
         body: [
-          "Toast runs a payments-and-operations platform where reliability and throughput are the whole game, so lead with the public-API reliability story and the throughput win.",
-          "Present: I am a senior backend engineer and tech lead. For the last few years I have owned a business-critical public API on AWS serverless and the event-driven systems behind it.",
-          "Past: My lead-capture API is a public, WAF-hardened endpoint that 40+ partners depend on; on spike days the cloud team's WAF absorbs 1,000 to 10,000 attack attempts while baseline partner traffic keeps flowing, and a big part of my job is keeping that surface available without false-positive blocks. I scaled a batch system from 15,000 to 50,000 items per run, plus 233 percent, and cut runtime 35 percent with no new hardware. I have also delivered under hard deadlines, including a business carve-out where I stood up the impacted applications for the acquiring company. Future: I want to go deeper on platform and reliability at a product company operating at real scale, which is why Toast stood out.",
+          "This is the only real tailoring you do, and it is why one pitch covers every company: the opening line, the sweep, and the close stay fixed; you swap which project becomes the flagship to match what the role emphasizes. Pick one — leading with three is the same as leading with none.",
+          "The public lead-capture API is your default flagship because reliability, scale, and ownership read as senior everywhere. Reach for a different lead only when the role clearly centers on something else.",
+        ],
+        table: {
+          headers: ["If the role emphasizes…", "Lead with this flagship", "The one-line (recruiter level)"],
+          rows: [
+            ["Reliability · throughput · scale", "The public lead-capture API", "A public system 40+ partners depend on that stays up under constant attack — and I scaled our batch processing roughly 3× with no new hardware."],
+            ["Platform · developer enablement · tooling", "CI/CD consolidation + the carve-out", "I got seven codebases shipping from one shared pipeline so fixes land everywhere at once, and I stood up a whole set of applications for the company that acquired part of our business."],
+            ["AI · data · realtime", "The Bedrock RAG pipeline", "I built an internal AI assistant — a retrieval system grounded in our own knowledge base — on Amazon Bedrock."],
+            ["Full-stack · product depth", "The .NET → Spring Boot + React rewrite", "I rebuilt a slow internal product end to end, owning both the backend and the front end, and took startup from about 90 seconds to near-instant."],
+          ],
+        },
+      },
+      {
+        heading: "Framing the consulting-to-full-time move",
+        body: [
+          "You operate through your own consulting vehicle, NOVACODE LABS, and ran a long embedded engagement as tech lead; that engagement is concluding around the end of June. Frame it as a deliberate choice, not a gap: you ran a multi-year embedded engagement and are now intentionally moving into a permanent senior or staff role where you can own outcomes long-term.",
+          "Keep it confident and forward-looking, never defensive and never critical of the client. The honest one-liner: the engagement is wrapping up and I'm choosing to move from consulting into a permanent senior role where I can go deeper on platform and architecture. The fuller \"why are you leaving\" answer — relocation and Vancouver — lives on the Recruiter Screen page.",
         ],
       },
       {
-        heading: "Autodesk variant (Senior SWE, product depth + full-stack)",
-        card: true,
-        tag: "Autodesk",
+        heading: "The forward hook: one researched detail",
         body: [
-          "Autodesk builds long-lived product software, so lead with end-to-end product ownership and your full-stack range.",
-          "Present: I am a senior backend engineer and tech lead, hands-on from architecture to shipped code, and comfortable full-stack with React and TypeScript on top of a Java and Python backend.",
-          "Past: I rewrote a marketing application from .NET to Spring Boot and React as the sole engineer; I owned the architecture and stack choice, migrated the front end to TypeScript for type safety, and shipped real features on top including URL tracking, ad-action tracking, and a lead-priority API, taking startup from about 1.5 minutes to near-instant. I also own the Data department's Azure DevOps CI/CD platform across 7 codebases, which is developer-productivity work at platform scale. Future: I want product depth at a company whose software engineers and designers rely on every day, and the way Autodesk is embedding AI across its products is exactly the kind of product-layer problem I want to work on, which is why this role stood out.",
-        ],
-      },
-      {
-        heading: "Treasure Data variant (Staff Fullstack, realtime / data platform)",
-        card: true,
-        tag: "Treasure Data",
-        body: [
-          "Treasure Data is a customer-data platform built on large-scale, realtime data movement and is moving AI-native (the Treasure AI direction), so lead with event-driven data work and your LLM/RAG experience.",
-          "Present: I am a senior backend engineer and tech lead who builds event-driven, serverless data systems on AWS, and I have shipped an LLM-grounded feature on top of one.",
-          "Past: I co-designed an ingestion platform for our lead-capture API: a unified schema with per-partner rules, deduplication, and fan-out routing to the database, internal systems, and the call center across 40+ integrations. I evolved a group-wide customer-record system that ingests around 10,000 notifications a day over SQS and 200,000 to 300,000 records per batch, and cut its SQL query time 30 percent. On top of that data I built a Retrieval-Augmented Generation pipeline on AWS Bedrock, so I have designed both the data movement and the AI layer that sits on it, with deliberate choices on chunking, retrieval, cost, and groundedness. Future: I want to work on a realtime, increasingly AI-native data platform at scale, which is exactly where Treasure Data is going.",
-        ],
-      },
-      {
-        heading: "Framing your situation (consulting to full-time)",
-        body: [
-          "You operate through your own consulting vehicle, NOVACODE LABS, and ran a long embedded engagement as tech lead at Nexity; that engagement is concluding around the end of June. Frame this as a deliberate choice, not a gap: you ran a multi-year embedded engagement and are now intentionally moving into a full-time IC or architecture role where you can own outcomes long-term.",
-          "Keep it confident and forward-looking, never defensive and never critical of the client. The honest one-liner is: the engagement is wrapping up and I am choosing to move from consulting into a permanent senior role where I can go deeper on platform and architecture.",
-        ],
-      },
-      {
-        heading: "Tailoring the forward hook",
-        body: [
-          "The Future sentence is the only part you fully rewrite per company. Drop in one concrete, researched detail: a product they ship, a scale challenge they have discussed publicly, or a technology in their stack you have real experience with. Generic enthusiasm reads as filler; one specific hook reads as intent. See the Companies pages for Toast, Autodesk, and Treasure Data specifics.",
+          "The Future sentence is the only part you fully rewrite per company. Drop in one concrete, researched detail: a product they ship, a scale challenge they have discussed publicly, or a technology in their stack you have real experience with. Generic enthusiasm reads as filler; one specific hook reads as intent.",
+          "Do the 20 minutes of homework before each screen and write that single hook sentence down. It is what makes a company-agnostic pitch feel tailored without rewriting any of the rest.",
         ],
       },
     ],
     keyPoints: [
-      "Match the audience: recruiters and many first calls are non-technical — lead with outcomes in plain language, save the stack for engineers.",
-      "Arc: present (15s) → past (45s) → future (20s) → handoff (10s). Under 100 seconds.",
-      "Tailor only the Present line and Past proof points; keep the shape stable.",
-      "Numbers beat adjectives: 40+ integrations, 15k→50k (+233%), 35% and 30% cuts, 7 codebases.",
-      "Toast = reliability + throughput; Autodesk = product depth + full-stack; Treasure Data = realtime data at scale.",
-      "Name both tech-lead promotions (Capgemini, Orange) to signal trajectory, not just Nexity.",
-      "End with a handoff question, and frame the consulting-to-FTE move as a deliberate choice.",
+      "Go deep on ONE flagship; sweep the rest. Don't list everything — let follow-ups pull the detail.",
+      "Recruiter level, not engineer level: name the tech, never explain internals. The 'can they repeat it?' test.",
+      "Arc: present (15s) → flagship + sweep (45s) → future (20s) → handoff (10s). Under 100 seconds.",
+      "One pitch, every company: swap only the flagship and the closing hook; keep the shape fixed.",
+      "Default flagship = the public lead-capture API (reliability + scale read everywhere).",
+      "Numbers beat adjectives: 40+ integrations, 15k→50k (+233%), 35% faster, 7 codebases, ~90s→instant.",
+      "Name both tech-lead promotions (Capgemini, Orange) to signal trajectory, not just one client.",
+      "End with a handoff question; frame the consulting-to-FTE move as a deliberate choice.",
     ],
     checklist: [
-      "Recruiter / non-technical variant rehearsed (outcomes, zero jargon)",
-      "Default technical variant rehearsed out loud, under 100 seconds",
-      "Toast variant ready (reliability + throughput lead)",
-      "Autodesk variant ready (product depth + full-stack lead)",
-      "Treasure Data variant ready (realtime / data-platform lead)",
-      "Forward hook rewritten per company with one researched detail",
+      "Plain-language recruiter pitch rehearsed aloud, under 100 seconds, zero jargon",
+      "Technical variant rehearsed for engineer rooms",
+      "Default flagship (the API) automatic; the other three flagships ready to swap in",
+      "Can pick the right flagship from a job description in under a minute",
+      "One researched forward-hook sentence written for the next screen",
       "Consulting-to-FTE framing crisp and non-defensive",
+      "Numbers automatic: +233%, 35%, 40+, 7 codebases",
     ],
   },
 
-  // ── 2. STAR-L Story Bank ──────────────────────────────────────
+  // ── 2. Recruiter Screen Playbook ──────────────────────────────
+  {
+    id: "my-recruiter-screen",
+    group: "For You",
+    label: "Recruiter Screen",
+    icon: "📞",
+    title: "Your Recruiter-Screen Playbook",
+    tagline: "Every recruiter-screen question with a ready answer — why this company, why you're leaving, comp, work auth, logistics, the three questions to ask, and the curveballs — written once, generic for any company.",
+    sections: [
+      {
+        heading: "What a recruiter screen actually is",
+        body: [
+          "The recruiter screen is the first gate, and it is not technical. There is no LeetCode, no system design, no live coding — those come later. The recruiter is checking that you can talk about your work clearly, that your story is coherent, that comp and logistics line up, and that you actually know who they are. Keep this page open in front of you on the call; it is allowed and it is exactly what it is for.",
+          "One base pitch covers every company. Only two things change per call: which flagship project you lead with (see Your Pitch) and the \"why this company\" answer. Everything else here — why you're leaving, comp, work authorization, availability, your questions — is the same script every time, so make it automatic once and stop re-deciding it on the call.",
+        ],
+        callout: { kind: "tip", title: "You're prepping the right round", text: "No LeetCode, no system design, no live coding happens on a recruiter screen. If you're grinding algorithms the night before, you're prepping the wrong round — rehearse this page out loud instead." },
+      },
+      {
+        heading: "1 · Tell me about yourself",
+        body: [
+          "This opens almost every screen. The full treatment — the 60–90 second arc, the recruiter-level plain-language version, the technical version, and how to pick your flagship — is on the Your Pitch page. The one rule to carry into the room: go deep on one flagship, sweep the rest, stay at the outcome level, and let the recruiter pull you into detail.",
+        ],
+      },
+      {
+        heading: "2 · Why this company / why this role",
+        card: true,
+        tag: "Method, not a script",
+        body: [
+          "Recruiters screen hard for whether you actually know them, so this is the one answer you research fresh each time. The shape is two beats: one sentence on what the company does and the kind of engineering that implies, then one or two specific hooks that tie their world to your real experience.",
+          "Hook to whatever they emphasize, using what you genuinely have: if the role wants AI in the product or the dev lifecycle, lead with your production RAG system on Bedrock — real, not a buzzword. If it's full-stack, point to the .NET-to-Spring rewrite where you owned both the backend and the front end. If it's high-throughput, platform, or scale, point to the public API serving 40+ partners under constant load, or the CI/CD consolidation across seven codebases.",
+          "Template: \"You're [what they do], which means [the kind of systems that implies] — that's exactly the work I've done with [your matching flagship]. Two things drew me in: [specific hook #1 tied to your experience], and [specific hook #2].\" Generic enthusiasm reads as filler; one specific, researched hook reads as intent.",
+        ],
+      },
+      {
+        heading: "3 · Why are you leaving / why now",
+        card: true,
+        tag: "Script",
+        body: [
+          "The true core: continuing your engagement would have required relocating back to France (and moving to a hybrid setup), and you've built your life in Vancouver and you're staying. You weren't discarded — you had a path and chose Vancouver over it. Lead with that, measured and brief.",
+          "Remote role (you can include the hybrid piece): \"Continuing with my current engagement would have meant relocating back to France and moving to a hybrid setup, and I've built my life in Vancouver and I'm committed to staying here, ideally remote. So that chapter is closing, and I'm focused on a permanent role with a company set up the way this one is.\"",
+          "Hybrid role (lead with relocation ONLY — never argue against their own model): \"Continuing with my current engagement would have meant relocating back to France, and I've built my life in Vancouver and I'm staying. So that chapter is closing, and I'm focused on a permanent role based here, which is a big part of the appeal.\"",
+          "If they probe \"so they wanted to keep you?\": \"The only way to continue would have meant moving back to France and a setup that didn't fit my life here, so it wasn't a real fit on either side. It pushed me toward something I wanted anyway — a permanent product role, based in Vancouver.\" If they probe \"was it performance?\": \"No, nothing to do with my work. It came down to location and setup, and I'm choosing Vancouver.\"",
+        ],
+        callout: { kind: "warn", title: "Keep it clean", text: "Never use the word \"forced.\" Never criticize the client. Don't claim you walked away from a great offer — you'd have to defend it. Rest on what plainly happened: France plus hybrid didn't fit, you're staying in Vancouver. Keep all politics and frustration out of your voice." },
+      },
+      {
+        heading: "4 · Compensation",
+        card: true,
+        tag: "Script",
+        body: [
+          "The rule: clarify currency first, give a range tied to the level, then ask their band. Say the number with zero hesitation — hesitation costs you more than the number itself.",
+          "Script: \"Before I give a number, can I quickly check whether this role is US-remote and paid in USD, or Canadian? … Based on senior and staff roles in Vancouver, I'm targeting around [your number] base, and I'm flexible on the total package. Do you have a budgeted range for the role?\"",
+          "Set the number to the specific req, not a habit: a Staff req supports a higher base than a Senior one, so don't quote a Staff number into a Senior role or anchor low into a Staff one. Check the posted range if there is one and aim upper-middle, not the ceiling. USD versus CAD moves the whole figure, which is why you clarify currency before you commit. If they give a range as base, confirm whether RSUs are separate.",
+        ],
+        callout: { kind: "tip", title: "If pushed for a single number first", text: "Ask them for the role's budgeted band before you answer. Never anchor low out of nerves — and your current rate is a consultant day rate that doesn't map to a salary, so don't let an old number set the new one." },
+      },
+      {
+        heading: "5 · Work authorization",
+        body: [
+          "One line, said as an advantage, not a hedge: \"I'm a Canadian permanent resident, fully authorized to work with no sponsorship needed, now or in the future.\"",
+        ],
+      },
+      {
+        heading: "6 · Availability & logistics",
+        card: true,
+        tag: "Script",
+        body: [
+          "Start timeline: \"My current contract wraps at the end of June, so I could start shortly after, with a couple of weeks to close things out cleanly.\"",
+          "Match the location answer to the role's setup. Remote: \"I'm based in Vancouver and fully comfortable working remotely; if there's occasional office or travel, that's fine too.\" Hybrid (you're local): \"I'm in Vancouver — Yaletown — so the hybrid cadence is genuinely easy for me. Happy to be in-office on whatever schedule the team runs.\" Being local de-risks a hybrid hire on their side, so say it plainly.",
+        ],
+      },
+      {
+        heading: "7 · A light behavioral, if it comes",
+        body: [
+          "Some recruiters toss in one behavioral prompt. Have two STAR stories ready at about two minutes each: scaling the batch job from 15,000 to 50,000 items per run with no new hardware, and the solo .NET-to-Spring-Boot rewrite that took startup from ~90 seconds to near-instant. Keep the carve-out as a backup leadership story.",
+          "Tell them as Situation, Task, Action, Result — short setup, most of the airtime on what you did, and land the number at the end. The full STAR-L versions of all of these, plus your failure story, are on the Story Bank page; this is just the recruiter-level, two-minute cut.",
+        ],
+      },
+      {
+        heading: "8 · The three questions you always ask",
+        body: [
+          "Having no questions reads as low interest, and these three also pull the intel you need for the next round. Always ask all three.",
+        ],
+        steps: [
+          "What does the full interview process look like from here, and the rough timeline to a decision?",
+          "What does the next technical stage involve specifically — the format, what language I'd code in, and whether AI tools are allowed?",
+          "What does success look like in this role over the first 6 to 12 months? (or: what is the team working on right now?)",
+        ],
+        callout: { kind: "tip", title: "Tailor one add-on", text: "Add one company-specific question: confirm remote vs office expectations, where the team sits, the hybrid cadence, the squad structure, or how much of the role is backend versus full-stack. It proves you're thinking about the actual job." },
+      },
+      {
+        heading: "9 · The curveballs (the easy ones that trip people)",
+        body: [
+          "These are predictable, not hard — being caught flat on an easy one is what hurts. Short answers, all true to your situation.",
+        ],
+        table: {
+          headers: ["If they ask…", "Your answer (short)"],
+          rows: [
+            ["Walk me through your resume", "A chronological version of the pitch: Capgemini and Orange early (where you were promoted to tech lead), then the long engagement as tech lead where you owned the lead-capture API, the rewrite, the AI assistant, and the CI/CD platform. 60–90s — hit the arc, not a list."],
+            ["What are you looking for?", "\"A permanent role at a product company where I own backend systems long-term and work across both infrastructure and application code. I've been consulting for years and want to plant roots somewhere I can build for the long run.\""],
+            ["What's your current comp?", "\"I've been contracting, so it's a day rate that doesn't translate cleanly to a salary. For a permanent role I'm targeting around [your number] base.\" Never let an old number anchor the new one."],
+            ["What are your strengths?", "Two, each with a proof: end-to-end ownership (own the API from the infra up) and turning messy systems into clean ones (the .NET→Spring rewrite, CI/CD across seven codebases)."],
+            ["What's a weakness?", "\"I've spent several years deep in one long engagement, so I'm deliberately broadening right now — sharpening my interview and system-design reps and my exposure to other stacks.\" Pre-empts the one-client concern."],
+            ["How do you use AI?", "\"I built a production RAG system on AWS Bedrock over a knowledge base, so I've worked hands-on with retrieval and model integration. Day to day I use AI assistants for scaffolding, tests, and refactoring, with a quality bar on the output.\" Don't overclaim training or fine-tuning."],
+            ["Are you interviewing elsewhere?", "\"Yes, I'm in process with a couple of other companies, but this role is a strong fit.\" Don't name them — it signals demand without pressuring."],
+            ["Why should we hire you?", "Three sentences: seven years in backend and platform; you own systems end to end including the infra, not just the code; your stack — Java, Spring, AWS serverless, plus the AI work — maps directly to the role."],
+            ["When can you start?", "\"My engagement wraps at the end of June, so shortly after, with a couple of weeks to close out cleanly.\""],
+          ],
+        },
+      },
+      {
+        heading: "Cheat card — keep this visible on the call",
+        card: true,
+        tag: "Cheat card",
+        body: [
+          "Pitch spine: senior backend/platform engineer, 7 yrs, tech lead → one flagship that fits the role (the API for reliability/scale · CI/CD + carve-out for platform · RAG + ingestion for AI/data · the rewrite for full-stack) → sweep the rest → want a permanent senior/staff backend role at a product company.",
+          "Why leaving: continuing meant relocating to France (+ hybrid); you're staying in Vancouver. Remote roles: you can add the remote/hybrid piece. Hybrid roles: relocation reason ONLY. Never say \"forced,\" never criticize the client.",
+          "Salary: clarify currency first, give a number tied to the req's level (Staff > Senior), aim upper-middle of the posted range, ask their band, confirm whether RSUs are separate.",
+          "Work auth: Canadian PR, no sponsorship needed. Start: shortly after the end of June.",
+          "Always ask 3: (1) process + timeline, (2) next technical stage format + language + AI tools allowed, (3) what success looks like.",
+          "Tone: clear, warm, no rambling. Go deep on one thing, ask for the next-stage details, and you've won the call.",
+        ],
+      },
+    ],
+    keyPoints: [
+      "The recruiter screen is a non-technical gate — clarity, coherence, comp, logistics, and do-you-know-us. No coding.",
+      "One base pitch; only the flagship and the 'why this company' answer change per call.",
+      "Why leaving = relocation to France, staying in Vancouver. Hybrid roles: relocation reason only. Never 'forced.'",
+      "Comp: clarify currency → number tied to the req's level → ask their band. Say it without hesitation.",
+      "Work auth is an advantage: Canadian PR, no sponsorship, now or ever.",
+      "Always ask three questions and tailor one to the company. No questions reads as no interest.",
+      "Have two 2-minute STAR stories ready (batch scaling, .NET rewrite); full versions on Story Bank.",
+      "Pre-write the curveballs — current comp, weakness, interviewing elsewhere — so none catch you flat.",
+    ],
+    checklist: [
+      "Pitch rehearsed (see Your Pitch); right flagship picked for this company",
+      "'Why this company' researched and written for the next screen",
+      "'Why leaving' rehearsed in both the remote and the hybrid version",
+      "Comp number set to the req's level; currency question ready",
+      "Work-authorization line automatic",
+      "Availability + location answer matched to the role's setup",
+      "Three questions ready, plus one company-specific add-on",
+      "Curveball answers (current comp, weakness, elsewhere, AI) rehearsed",
+      "Two 2-minute STAR stories ready for a light behavioral",
+    ],
+  },
+
+  // ── 3. STAR-L Story Bank ──────────────────────────────────────
   {
     id: "my-stories",
     group: "For You",
@@ -351,7 +488,7 @@ export const PERSONALIZED_CONCEPTS = [
     ],
   },
 
-  // ── 3. Amazon LP Map ──────────────────────────────────────────
+  // ── 4. Amazon LP Map ──────────────────────────────────────────
   {
     id: "my-amazon-lp",
     group: "For You",
@@ -441,7 +578,7 @@ export const PERSONALIZED_CONCEPTS = [
     ],
   },
 
-  // ── 4. Study Focus ────────────────────────────────────────────
+  // ── 5. Study Focus ────────────────────────────────────────────
   {
     id: "my-focus",
     group: "For You",
@@ -453,7 +590,7 @@ export const PERSONALIZED_CONCEPTS = [
       {
         heading: "Priority order (highest expected value first)",
         body: [
-          "1. Recruiter screen prep (Your Pitch + Recurring Questions). Cheapest to prep, and it gates everything else. The nearest screen is the highest priority; tailor the pitch to that company first.",
+          "1. Recruiter screen prep (Your Pitch + Recruiter Screen). Cheapest to prep, and it gates everything else. The nearest screen is the highest priority; tailor the pitch to that company first.",
           "2. Behavioral (Story Bank + LPs). Reused in every round at every company, so it has the highest leverage. Your raw material is strong; the work is making it muscle memory and broadening past Nexity-only answers.",
           "3. System Design. Staff and senior rounds weight this heavily, and Treasure Data (realtime) and Toast (scale) will lean on it. Your three case studies (the public API, the SQS/Lambda/DynamoDB batch system, and the Bedrock RAG pipeline) are a head start; practice narrating each as a five-minute deep dive.",
         ],
