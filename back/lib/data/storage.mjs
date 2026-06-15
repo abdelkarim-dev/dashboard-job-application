@@ -9,8 +9,8 @@ import { normalizeStudyPlansStore } from "../domain/studyPlans.mjs";
 import { defaultCoursesStore, defaultPracticeStore, defaultSystemDesignStore } from "../domain/problems.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// data/ lives at the repo root; this module sits in lib/data/.
-const dataDir = path.join(__dirname, "..", "..", "data");
+// data/ lives at the repo root; this module sits in back/lib/data/, three levels down.
+const dataDir = path.join(__dirname, "..", "..", "..", "data");
 
 // Applications + profile are persisted in SQLite (database.mjs). These remaining
 // *File paths are still used as dispatch keys by readJsonFile/writeJsonFile for the

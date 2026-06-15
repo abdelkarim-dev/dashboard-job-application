@@ -549,8 +549,15 @@ function toCsv(applications) {
     ];
   });
   return [headers, ...rows]
-    .map((row) => row.map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(","))
+    .map((row) => row.map(formatCsvCell).join(","))
     .join("\n");
+}
+
+function formatCsvCell(value) {
+  const text = String(value ?? "");
+  const trimmed = text.trimStart();
+  const safe = /^[=+\-@\t\r]/.test(trimmed) ? `'${text}` : text;
+  return `"${safe.replaceAll('"', '""')}"`;
 }
 
 function toJson(applications, { exportedAt = new Date().toISOString() } = {}) {

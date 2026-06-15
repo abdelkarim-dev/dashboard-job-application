@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 // is resolved lazily (in openDatabase) so tests can point COCKPIT_DB_PATH at a
 // temp file before the handle is created, never touching the real cockpit.db.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const dataDir = path.join(__dirname, "..", "data");
+// back/db/ → data/ lives at the repo root, two levels up.
+export const dataDir = path.join(__dirname, "..", "..", "data");
 
 export function resolveDbPath(): string {
   return process.env["COCKPIT_DB_PATH"] || path.join(dataDir, "cockpit.db");

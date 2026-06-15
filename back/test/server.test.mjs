@@ -342,6 +342,23 @@ test("CSV export handles legacy string skills", () => {
   assert.match(csv, /"Python; TypeScript; PostgreSQL"/);
 });
 
+test("CSV export neutralizes spreadsheet formulas", () => {
+  const csv = toCsv([
+    {
+      company: "=IMPORTXML(\"https://evil.example\")",
+      role: "+SUM(1,2)",
+      status: "Applied",
+      notes: "  @payload",
+      skills: "-cmd",
+    },
+  ]);
+
+  assert.match(csv, /"'=IMPORTXML\(""https:\/\/evil\.example""\)"/);
+  assert.match(csv, /"'\+SUM\(1,2\)"/);
+  assert.match(csv, /"'  @payload"/);
+  assert.match(csv, /"'-cmd"/);
+});
+
 test("JSON export includes metadata and full application data", () => {
   const app = normalizeApplication({
     company: "Asana",

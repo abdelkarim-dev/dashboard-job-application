@@ -8,7 +8,8 @@ import { handleApi } from "./router";
 import { port } from "./config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.join(__dirname, "..");
+// back/server/ → repo root is two levels up (node_modules + dist stay at root).
+const repoRoot = path.join(__dirname, "..", "..");
 const aceDir = path.join(repoRoot, "node_modules", "ace-builds", "src-min-noconflict");
 const distDir = path.join(repoRoot, "dist");
 

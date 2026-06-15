@@ -14,6 +14,7 @@ const DB = path.join(os.tmpdir(), `cockpit-smoke-${process.pid}.db`);
 process.env.COCKPIT_DB_PATH = DB;
 process.env.OLLAMA_URL = "http://127.0.0.1:59321";
 process.env.LOCAL_AI_URL = "http://127.0.0.1:59322";
+process.env.CLAIRE_ENABLE_CODE_RUNNER = "";
 
 const { startServer } = await import("../server.mjs");
 
@@ -102,4 +103,50 @@ test("every API route responds without a server-side crash", async () => {
     [],
     "server logged reference/type errors",
   );
+});
+
+test("API rejects browser requests from untrusted origins before mutating data", async () => {
+  const before = await fetch(`${base}/api/profile`).then((res) => res.json());
+  const blockedWrite = await fetch(`${base}/api/profile`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://evil.example",
+    },
+    body: JSON.stringify({ fullName: "Injected From Cross Site" }),
+  });
+
+  assert.equal(blockedWrite.status, 403);
+  const after = await fetch(`${base}/api/profile`).then((res) => res.json());
+  assert.equal(after.fullName, before.fullName);
+
+  const blockedRead = await fetch(`${base}/api/profile`, {
+    headers: { Origin: "https://evil.example" },
+  });
+  assert.equal(blockedRead.status, 403);
+});
+
+test("API allows localhost dashboard/dev origins with scoped CORS", async () => {
+  const res = await fetch(`${base}/api/health`, {
+    headers: { Origin: "http://127.0.0.1:5173" },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("access-control-allow-origin"), "http://127.0.0.1:5173");
+});
+
+test("HTTP code runner endpoints are disabled unless explicitly enabled", async () => {
+  const problems = await fetch(`${base}/api/practice/problems`).then((res) => res.json());
+  const problem = problems[0];
+  assert.ok(problem?.id, "expected seeded practice problem");
+
+  const res = await fetch(`${base}/api/practice/problems/${encodeURIComponent(problem.id)}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      language: "python",
+      code: "class Solution:\n    pass\n",
+    }),
+  });
+
+  assert.equal(res.status, 403);
 });

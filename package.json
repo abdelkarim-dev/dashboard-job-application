@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx server.mjs",
-    "test": "node --import tsx --test",
+    "start": "tsx back/server.mjs",
+    "test": "node --import tsx --test back/test/*.test.mjs front/test/*.test.mjs",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:server": "tsx watch server.mjs",
+    "dev:server": "tsx watch back/server.mjs",
     "dev:client": "vite",
     "build": "vite build",
-    "check": "node --check server.mjs && node --check database.mjs && find lib -name '*.mjs' -print0 | xargs -0 -n1 node --check && node --check extension/content.js",
+    "check": "node --check back/server.mjs && node --check back/database.mjs && find back/lib -name '*.mjs' -print0 | xargs -0 -n1 node --check && node --check extension/content.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
