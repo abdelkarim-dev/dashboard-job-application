@@ -158,6 +158,34 @@ function InterviewLoop() {
   );
 }
 
+// The five-step interview framework: clarify → estimate → high-level → deep
+// dive → bottlenecks. Equal cards on one row with an arrow between each.
+function SystemDesignFramework() {
+  const steps = [
+    { label: "Clarify", sub: "requirements" },
+    { label: "Estimate", sub: "scale / load" },
+    { label: "High-level", sub: "boxes + arrows", accent: true },
+    { label: "Deep dive", sub: "1–2 parts" },
+    { label: "Bottlenecks", sub: "& trade-offs" },
+  ];
+  const w = 128;
+  const gap = 14;
+  const y = 30;
+  const h = 54;
+  const xAt = (k) => 12 + k * (w + gap);
+  return (
+    <svg viewBox="0 0 720 116" {...svgProps("The five-step system design framework")}>
+      {steps.map((s, k) => (
+        <Box key={s.label} x={xAt(k)} y={y} w={w} h={h} label={s.label} sub={s.sub} accent={s.accent} i={k} />
+      ))}
+      {steps.slice(1).map((_, k) => (
+        <Arrow key={k} x1={xAt(k) + w} y1={y + h / 2} x2={xAt(k + 1)} y2={y + h / 2} i={k + 5} />
+      ))}
+      <text x={360} y={104} className="dg-sub" textAnchor="middle">drive every question through these five steps — the framework is what stops you freezing</text>
+    </svg>
+  );
+}
+
 // Classic request flow: client → LB → service → cache / db / queue → worker.
 function SystemDesignFlow() {
   return (
@@ -229,6 +257,36 @@ function RagPipeline() {
       {/* vector store feeds retrieval: down then across to Retrieve k's top */}
       <Pipe points={[[459, 80], [459, 119], [304, 119], [304, 162]]} i={16} muted />
       <text x={12} y={236} className="dg-sub">levers: chunking · hybrid search · re-rank · groundedness eval</text>
+    </svg>
+  );
+}
+
+// Managed RAG on Bedrock: an offline ingest band (S3 → Knowledge Base → vector
+// store) over an online serve band (user → API/Lambda → retrieve → model →
+// answer). The vector store feeds retrieval via a single orthogonal pipe.
+function BedrockRag() {
+  return (
+    <svg viewBox="0 0 640 250" {...svgProps("RAG on Bedrock: ingestion and serving paths")}>
+      <text x={12} y={20} className="dg-head">Ingest (offline)</text>
+      <Box x={12} y={32} w={104} h={44} label="S3 docs" sub="PDF · MD · HTML" i={0} />
+      <Box x={150} y={28} w={150} h={52} label="Bedrock KB" sub="chunk · embed" accent i={1} />
+      <Box x={336} y={32} w={150} h={44} label="Vector store" sub="OpenSearch" i={2} />
+      <Arrow x1={116} y1={54} x2={150} y2={54} i={3} />
+      <Arrow x1={300} y1={54} x2={336} y2={54} i={4} />
+
+      <text x={12} y={150} className="dg-head">Serve (online)</text>
+      <Box x={12} y={162} w={84} h={44} label="User" i={5} />
+      <Box x={116} y={162} w={104} h={44} label="API GW + λ" i={6} />
+      <Box x={240} y={162} w={104} h={44} label="Retrieve" sub="top-K" accent i={7} />
+      <Box x={364} y={158} w={96} h={52} label="Claude" sub="on Bedrock" i={8} />
+      <Box x={480} y={162} w={148} h={44} label="Answer" sub="+ citations" i={9} />
+      <Arrow x1={96} y1={184} x2={116} y2={184} i={10} />
+      <Arrow x1={220} y1={184} x2={240} y2={184} i={11} />
+      <Arrow x1={344} y1={184} x2={364} y2={184} i={12} />
+      <Arrow x1={460} y1={184} x2={480} y2={184} i={13} />
+      {/* vector store feeds retrieval: down then across into Retrieve's top */}
+      <Pipe points={[[411, 76], [411, 119], [292, 119], [292, 162]]} i={14} muted />
+      <text x={12} y={238} className="dg-sub">RetrieveAndGenerate = one call · Retrieve = chunks you prompt · Guardrails screen I/O</text>
     </svg>
   );
 }
@@ -455,9 +513,11 @@ const REGISTRY = {
   "pitch-arc": PitchArc,
   "star-l": StarL,
   "interview-loop": InterviewLoop,
+  "sd-framework": SystemDesignFramework,
   "system-design-flow": SystemDesignFlow,
   "bias-variance": BiasVariance,
   "rag-pipeline": RagPipeline,
+  "bedrock-rag": BedrockRag,
   "tf-workflow": TerraformWorkflow,
   "tf-backend": TerraformBackend,
   "tf-environments": TerraformEnvironments,
@@ -478,6 +538,11 @@ export const DIAGRAMS_BY_CONCEPT = {
   "autodesk-interview": [{ id: "interview-loop", caption: "A typical SWE loop shape." }],
   "treasure-data-interview": [{ id: "interview-loop", caption: "A typical SWE loop shape." }],
   "system-design-core": [{ id: "system-design-flow", caption: "The building blocks most designs assemble from." }],
+  "system-design-framework": [
+    { id: "sd-framework", caption: "Run every question through these five steps — start simple, then scale." },
+    { id: "system-design-flow", caption: "The building blocks most designs assemble from." },
+  ],
+  "rag-bedrock": [{ id: "bedrock-rag", caption: "Managed RAG on Bedrock: ingest offline into a Knowledge Base; retrieve + generate online, with citations." }],
   "ai-system-design": [{ id: "rag-pipeline", caption: "A RAG/LLM feature: ingestion offline, retrieval + generation online." }],
   "rag-vector-search": [{ id: "rag-pipeline", caption: "RAG end to end — the diagonal arrow is retrieval against the store at query time." }],
   "ml-fundamentals": [{ id: "bias-variance", caption: "The bias-variance trade-off: the gap between curves is overfitting." }],

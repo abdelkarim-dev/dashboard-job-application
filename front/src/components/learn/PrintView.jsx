@@ -22,6 +22,7 @@ function k(prefix, i) {
 function PrintSection({ section, index }) {
   const body = Array.isArray(section.body) ? section.body : [];
   const steps = Array.isArray(section.steps) ? section.steps : [];
+  const defs = Array.isArray(section.defs) ? section.defs : [];
   const table = section.table && Array.isArray(section.table.rows) ? section.table : null;
   return (
     <section className="lp-section">
@@ -41,6 +42,16 @@ function PrintSection({ section, index }) {
           {section.callout.title && <strong>{section.callout.title}</strong>}
           <span>{section.callout.text}</span>
         </div>
+      )}
+      {defs.length > 0 && (
+        <dl className="lp-defs">
+          {defs.map((d, i) => (
+            <React.Fragment key={k("d", i)}>
+              <dt>{d.term}</dt>
+              <dd>{d.def}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
       )}
       {steps.length > 0 && (
         <ol className="lp-steps">

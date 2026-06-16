@@ -651,6 +651,333 @@ const EXTRA_CONCEPTS = [
       },
     ],
   },
+  {
+    id: "system-design-framework",
+    group: "Knowledge",
+    label: "SD Framework",
+    icon: "🧭",
+    title: "System Design — The Framework",
+    tagline:
+      "There's no single right answer. The score comes from driving a vague problem to a reasonable architecture and reasoning about trade-offs out loud. Here's the skeleton, the numbers, and the building blocks.",
+    sections: [
+      {
+        heading: "The mindset: drive, trade off, start simple",
+        body: [
+          "System design interviews don't have a right answer — they test whether you can take an open-ended problem, ask the right questions, propose a reasonable architecture, and reason about trade-offs out loud. The interviewer is watching how you think, not checking whether you reproduced a diagram. Three rules carry the whole round.",
+          "First, drive the conversation — don't wait to be told what to build; clarify, propose, justify. Second, there is always a trade-off; every choice costs something, and naming the cost ('this buys speed but weakens consistency') is what scores points. Third, start simple, then scale — build the naive version, then evolve it as load and constraints grow. Jumping straight to 'we'll shard everything' without explaining why reads as cargo-culting.",
+          "What sinks people isn't lack of knowledge — it's freezing, hedging ('I guess we'd use a database?'), and being vague. Say what you'd do and why, plainly.",
+        ],
+        callout: {
+          kind: "tip",
+          title: "The move",
+          text: "Think out loud the entire time — silence reads as being stuck. A calm, narrated, slightly-imperfect design beats a silent 'perfect' one you never explained.",
+        },
+      },
+      {
+        heading: "The 5-step framework — use it on every question",
+        body: [
+          "Memorize the steps, not answers. The framework is what stops you freezing, because you always know what to do next.",
+          "Clarify (3–5 min): separate functional requirements (what it does — 'users place orders, kitchen sees them') from non-functional ones (how well — how many users, read:write ratio, latency target, consistency needs, availability). Write the answers down; they drive every later decision. Estimate (3–5 min): rough numbers to size the problem — one server or a thousand? This tells you whether caching, sharding, and queues are even warranted. High-level design (~10 min): draw the major boxes and data flow (clients → load balancer → app servers → databases / caches / queues) and get agreement before going deep. Deep dive (10–15 min): detail one or two components — the data model, how you scale the DB, how the queue avoids duplicates. Bottlenecks & trade-offs (~5 min): where it breaks under load, single points of failure, what you'd monitor, what you traded away.",
+        ],
+        steps: [
+          "Clarify — functional + non-functional requirements; write them down.",
+          "Estimate — QPS, storage, bandwidth; size the problem.",
+          "High-level design — boxes and arrows; agree before deep-diving.",
+          "Deep dive — one or two components in real detail.",
+          "Bottlenecks & trade-offs — failure modes, monitoring, what you gave up.",
+        ],
+      },
+      {
+        heading: "Back-of-the-envelope numbers",
+        body: [
+          "You don't need precision — you need the right order of magnitude. Two anchors do most of the work: there are ~86,400 seconds in a day (round to 100k for speed), and peak traffic is usually 2–3× the average. Always state the read:write ratio out loud — a 100:1 read-heavy system is designed very differently from a write-heavy one.",
+          "Worked estimate: '1 million daily active users, 10 requests each per day.' That's 10M requests/day ÷ 86,400 ≈ ~115 req/sec average, so ~300 req/sec at peak. At 1 KB/request that's trivial bandwidth; at 1 KB/user/day of new data it's ~1 GB/day, ~365 GB/year — and now you can size storage. The latency table is why caching and CDNs exist: memory is ~thousands of times faster than disk, and crossing continents dominates everything.",
+        ],
+        table: {
+          headers: ["Operation", "Rough time"],
+          rows: [
+            ["Memory reference", "~100 ns"],
+            ["Read 1 MB from memory", "~10 µs"],
+            ["SSD random read", "~100 µs"],
+            ["Round trip within a datacenter", "~500 µs"],
+            ["Read 1 MB from SSD", "~1 ms"],
+            ["Disk seek (spinning)", "~10 ms"],
+            ["Round trip across continents", "~150 ms"],
+          ],
+        },
+      },
+      {
+        heading: "The building blocks",
+        body: [
+          "These are the LEGO pieces almost every design assembles from. Know what each does, when to add it, and its cost — adding one should be a justified response to a number from your estimate, never reflex.",
+        ],
+        defs: [
+          { term: "Load balancer", def: "Spreads requests across servers and routes around dead ones — the basis of horizontal scaling and high availability. Algorithms: round-robin, least-connections, IP-hash (sticky). L4 (fast, transport) vs L7 (application-aware, routes by URL/header). Cost: it can become a single point of failure, so run it redundantly." },
+          { term: "Cache (Redis/Memcached)", def: "Keeps hot data in memory so you don't re-fetch or recompute. Patterns: cache-aside (default), write-through (consistent, slower), write-back (fast, risk of loss). Evict with LRU/TTL. The hard part is invalidation — a stale cache serves wrong answers." },
+          { term: "SQL vs NoSQL", def: "SQL (Postgres/MySQL): fixed schema, JOINs, ACID transactions — pick it when relationships and strong consistency matter (orders, payments). NoSQL (DynamoDB/Cassandra): flexible, built to scale writes out — pick it for huge scale with simple access patterns (feeds, sessions). The senior move is naming both with reasons." },
+          { term: "Replication", def: "Copy data to read replicas to absorb read load; writes go to the primary and replicate out. Trade-off: replication lag means a replica can be momentarily stale (eventual consistency)." },
+          { term: "Sharding (partitioning)", def: "Split data across machines by a key when one machine can't hold the data or the write volume. Shard-key choice is critical — a bad key creates hot shards. Cross-shard queries and transactions get hard; rebalancing is operationally painful." },
+          { term: "CDN", def: "Edge servers that cache static content near users, killing the ~150 ms cross-continent round trip and offloading your origin. Use for assets and increasingly cached API responses." },
+          { term: "Message queue / stream", def: "A buffer between producers and consumers so work runs asynchronously and survives spikes. A queue (SQS, RabbitMQ) delivers to one consumer then deletes; a log/stream (Kafka, Pulsar, Kinesis) keeps an ordered, replayable record many consumers can read. Trade-off: eventual consistency, plus you must handle duplicates and ordering." },
+          { term: "API gateway", def: "A single entry point in front of your services for routing, auth, rate limiting, and request shaping — so each service doesn't reimplement cross-cutting concerns." },
+          { term: "Rate limiter", def: "Caps requests per client per window to protect against abuse and overload. Token bucket (allows bursts), leaky bucket (smooth rate), sliding window (accurate counts)." },
+        ],
+      },
+      {
+        heading: "The core theory you'll be asked to name",
+        body: [
+          "A handful of distributed-systems concepts come up again and again. Know the name and the one-line property of each — you lose points for hand-waving and gain them for precision.",
+        ],
+        defs: [
+          { term: "CAP theorem", def: "During a network partition you must choose Consistency (every read sees the latest write) or Availability (every request answers, possibly stale). Partition tolerance isn't optional, so the real choice is C vs A. CP for banking/orders/inventory; AP for feeds/catalogs." },
+          { term: "ACID vs BASE", def: "ACID (SQL transactions): Atomic, Consistent, Isolated, Durable — strong guarantees, right for money. BASE (many NoSQL): Basically Available, Soft state, Eventually consistent — relaxed guarantees traded for scale and availability." },
+          { term: "Strong vs eventual consistency", def: "Strong: after a write, all reads reflect it immediately — simpler to reason about, costs latency/availability. Eventual: reads may be briefly stale but converge — enables scale. Fine for a likes count, dangerous for an account balance." },
+          { term: "Idempotency", def: "An operation you can safely repeat with the same result. With queues and retries (at-least-once delivery), an idempotency key stops a redelivered 'charge card' from charging twice. Design for it wherever you have retries." },
+          { term: "Consistent hashing", def: "Distributes keys across nodes so adding/removing a node moves only a small fraction of keys instead of remapping everything. Used by distributed caches and DBs (Cassandra, DynamoDB) to resize smoothly." },
+        ],
+      },
+      {
+        heading: "Worked example — restaurant order processing",
+        body: [
+          "This mirrors the kind of problem a Toast-style company asks; walk it through the five steps. Clarify: tablets place orders → orders sync to the cloud → kitchen display shows them → customers track status, with no lost or duplicated order changes. Non-functional: ~1B order changes/week (≈1,650/sec average, ~5,000/sec peak) across 150k+ restaurants, high availability, order accuracy critical → lean CP for the order record itself.",
+          "High-level: tablets → API gateway → Order Service, which writes to a sharded Postgres (by restaurant_id) and publishes to an event stream (Pulsar/Kafka). The kitchen display, analytics, and device-sync each consume the stream independently. Deep dive: the stream decouples the write path from every consumer, so slow analytics never slows the kitchen, and a consumer that was down catches up by re-reading the log. No lost updates because the stream persists durably and consumers ack after processing (at-least-once). No duplicates because each change carries an idempotency key (order_id + version) that consumers dedupe on — this is the key insight to the 'no duplicates' requirement. Shard by restaurant_id so load spreads and a restaurant's queries stay on one shard; partition the stream by order_id so one order's changes stay ordered while different orders process in parallel.",
+          "Bottlenecks & trade-offs: a giant chain could create a hot shard (sub-shard by location); the stream is critical infra (replicate across AZs). The trade-off taken: eventual consistency for the downstream views (analytics, sync) in exchange for decoupling and resilience — but strong consistency for the order record itself. Naming that split is the senior-level point.",
+        ],
+      },
+      {
+        heading: "Worked example — URL shortener",
+        body: [
+          "A simpler one to keep ready; it teaches read-heavy design. Requirements: long URL in → short code out; visiting the code redirects; ~100:1 read:write; low redirect latency. The core question is how to generate the code: either a counter encoded in base-62 (a–z, A–Z, 0–9 → 7 chars covers trillions, collision-free but needs coordination) or a hash of the URL truncated to N chars (no central counter, but handle collisions).",
+          "Design: on write, generate the code and store {code → long URL} in a key-value store (DynamoDB fits perfectly). On read, check a Redis cache first and only fall through to the DB on a miss, then populate the cache — redirects are massively read-heavy, so the cache is the main performance lever. Trade-off: the counter approach needs coordination so two servers don't mint the same number; solve it by handing each server a range of IDs, or use a distributed ID generator.",
+        ],
+      },
+      {
+        heading: "Common mistakes",
+        body: [
+          "These are the recurring ways candidates lose points — most are about process, not knowledge.",
+        ],
+        defs: [
+          { term: "Jumping to a solution", def: "Drawing before clarifying. Always nail functional + non-functional requirements first." },
+          { term: "Hedging", def: "'I guess we'd maybe use a cache?' → 'I'd put a Redis cache in front of the DB because reads dominate 100:1.' State it and justify it." },
+          { term: "Over-engineering", def: "Sharding and five queues for 100 users. Match complexity to the scale your estimate justified." },
+          { term: "Ignoring trade-offs", def: "Every component has a cost — name it, unprompted." },
+          { term: "Forgetting failure", def: "No single points of failure, what happens when a component dies, how you'd monitor it. Raise these before you're asked." },
+          { term: "Not knowing your numbers", def: "'3× faster' → 'startup dropped from 90s to 15s.' Specifics signal you did the work." },
+        ],
+      },
+    ],
+    keyPoints: [
+      "No right answer — you're scored on driving the problem and reasoning about trade-offs out loud.",
+      "Five steps every time: Clarify → Estimate → High-level → Deep dive → Bottlenecks.",
+      "Anchors: ~86,400 s/day, peak ≈ 2–3× average, always state the read:write ratio.",
+      "Building blocks (LB, cache, SQL/NoSQL, replication, sharding, CDN, queue, gateway, rate limiter) — add each as a justified response to a number.",
+      "Name the theory precisely: CAP (C vs A during a partition), ACID vs BASE, idempotency for retries, consistent hashing for smooth resizing.",
+      "Event stream + idempotency key = reliable fan-out with no lost or duplicate updates (the order-processing pattern).",
+      "Start simple, then scale; think out loud; never go silent.",
+    ],
+    checklist: [
+      "Can run a blank prompt through all five steps without notes",
+      "Can do the 1M-DAU estimate (≈115/sec avg, ~300/sec peak) out loud",
+      "Can recite the latency ladder (memory → SSD → cross-continent) and what it implies",
+      "Can justify SQL vs NoSQL and when to add a cache / queue / shard",
+      "Can define CAP, ACID/BASE, idempotency, consistent hashing in one line each",
+      "Walked the order-processing design end to end, naming the consistency split",
+      "Have the URL-shortener read-heavy design ready as a second example",
+    ],
+    quiz: [
+      {
+        q: "An order system must never lose or duplicate an order change, with many independent consumers. The cleanest pattern is…",
+        options: [
+          "Synchronous calls from the writer to each consumer",
+          "A durable event stream with consumers that ack, plus an idempotency key per change",
+          "A single shared database table everyone polls",
+          "Fire-and-forget messages to each consumer",
+        ],
+        answer: 1,
+        explain: "A replayable stream gives at-least-once delivery (no loss); an idempotency key (order_id + version) lets consumers dedupe redeliveries (no duplicates).",
+      },
+      {
+        q: "~1M daily active users make ~10 requests each per day. Roughly what average QPS are you sizing for?",
+        options: ["~12 req/sec", "~115 req/sec", "~1,200 req/sec", "~12,000 req/sec"],
+        answer: 1,
+        explain: "10M requests ÷ ~86,400 s ≈ 115/sec average; peak is ~2–3× that, so ~300/sec.",
+      },
+      {
+        q: "During a network partition, a payments system should favour…",
+        options: [
+          "Availability — always answer, even if possibly stale",
+          "Consistency — refuse rather than serve wrong data",
+          "Neither; CAP doesn't apply to payments",
+          "Whichever has lower latency",
+        ],
+        answer: 1,
+        explain: "Money is a CP case: better to reject than to serve or accept an inconsistent balance. Feeds and catalogs lean AP.",
+      },
+    ],
+  },
+  {
+    id: "rag-bedrock",
+    group: "Knowledge",
+    label: "RAG on Bedrock",
+    icon: "📚",
+    title: "RAG on AWS Bedrock",
+    tagline:
+      "Change the task from 'answer from memory' to 'answer using only these documents.' How the pipeline works, where Bedrock fits, the two APIs to know cold, and the levers that separate a demo from a system.",
+    sections: [
+      {
+        heading: "The mental model",
+        body: [
+          "A language model only knows its training data and will confidently invent answers about your private data. RAG (Retrieval-Augmented Generation) changes the task from 'answer from memory' to 'here are the relevant documents — answer using only these.' You keep your data in a searchable store, fetch the relevant pieces at query time, and inject them into the prompt. The model becomes a reasoning-and-phrasing engine over your facts.",
+          "Why RAG over fine-tuning: data stays current (update the store, not the model), it's cheaper, answers are grounded and citable, and you don't bake proprietary data into model weights. Fine-tuning changes style/behaviour; RAG supplies knowledge. They're complementary, but for 'answer questions over our docs', RAG is the default.",
+        ],
+      },
+      {
+        heading: "The pipeline: two phases",
+        body: [
+          "Phase A — ingestion (offline, runs when data changes): take your documents, chunk them into passages (you can't usefully embed a 50-page PDF as one unit), embed each chunk into a vector with an embedding model, and store the vectors + text + metadata in a vector database indexed for nearest-neighbour search. Chunking strategy is the single biggest lever on quality. Use the same embedding model for indexing and querying.",
+          "Phase B — serving (online, per question): embed the question with that same model, retrieve the top-K nearest chunks, build a prompt with those chunks as context plus the question and an instruction ('answer only from this context; if it's not here, say so'), and send it to the model to generate a grounded answer with citations. A chatbot just wraps Phase B in a loop and carries conversation history so follow-ups work.",
+        ],
+      },
+      {
+        heading: "Where Bedrock fits — and the two APIs",
+        body: [
+          "Amazon Bedrock is a fully-managed service giving you one API to call many foundation models (Claude, Amazon Nova/Titan, Llama, Cohere) with no GPUs to host. Bedrock Knowledge Bases is managed RAG: point it at a data source and it does all of Phase A (fetch, chunk, embed, store) and gives you APIs for Phase B, with built-in session context for multi-turn. Two APIs are worth knowing cold:",
+        ],
+        defs: [
+          { term: "RetrieveAndGenerate", def: "'RAG in one call' — embeds the query, searches, augments the prompt, calls the model, and returns an answer with source attribution. Use it to ship fast." },
+          { term: "Retrieve", def: "Returns just the chunks and lets you do the prompting/generation. Use it when you need control: custom prompts, your own reranking, hybrid search, or multi-model routing." },
+        ],
+        callout: {
+          kind: "tip",
+          title: "The one-liner",
+          text: "Start with RetrieveAndGenerate to ship; move to Retrieve + custom orchestration when retrieval quality becomes the bottleneck.",
+        },
+      },
+      {
+        heading: "Reference architecture — chatbot over a knowledge base",
+        body: [
+          "It maps cleanly onto a serverless stack. Documents land in S3. A Bedrock Knowledge Base ingests them (chunk → embed with Titan/Cohere → store) into a vector index — OpenSearch Serverless, Aurora pgvector, or Pinecone. A user hits API Gateway → Lambda, which calls Retrieve or RetrieveAndGenerate: vector search for the top-K, optional rerank + metadata filter, then a foundation model (Claude/Nova) returns the answer with citations. Session history is kept per user; Bedrock Guardrails screen both input and output. Infra is defined in Terraform.",
+          "The diagram above shows the two bands: ingestion offline into the Knowledge Base, serving online from user to answer, with the vector store feeding retrieval at query time.",
+        ],
+      },
+      {
+        heading: "Production levers — what separates a demo from a system",
+        body: [
+          "A basic knowledge base 'works' but gives mediocre answers. The fixes are almost always about retrieval quality, not a bigger model.",
+        ],
+        defs: [
+          { term: "Chunking strategy", def: "Fixed-size (fast, for dev), semantic (model finds natural breaks), hierarchical (parent/child — retrieve a focused child, pull surrounding parent context; a robust production default), or custom. Recommended default: hierarchical + hybrid search + reranking." },
+          { term: "Hybrid search", def: "Combine semantic (vector) and keyword (BM25) search. Vectors catch meaning; keywords catch exact terms, product codes, and acronyms. Improves recall." },
+          { term: "Reranking", def: "After a broad first retrieval, a cross-encoder reranker (Amazon Rerank, Cohere Rerank) re-scores candidates and keeps only the most relevant before the model. High ROI." },
+          { term: "Metadata filtering", def: "Tag chunks (date, department, region) and filter before search ('only 2026 docs'). Kills whole classes of wrong answers cheaply." },
+          { term: "Guardrails", def: "Bedrock Guardrails do content filtering, PII redaction, denied topics, and a contextual grounding check that flags answers unsupported by the retrieved context — your anti-hallucination guard. Apply on input and output." },
+          { term: "Evaluation", def: "Don't eyeball it. Build a ground-truth Q&A set and measure Faithfulness (grounded in context?), Correctness, and Context Relevance. The mature take: invest in evaluation before you fuss over chunking." },
+          { term: "Observability", def: "CloudWatch is infra-focused (latency, logs) and won't show cost-per-conversation or per-user token usage; teams add LLM observability (Datadog LLM Observability, Langfuse, LangSmith)." },
+        ],
+      },
+      {
+        heading: "The honest trade-off (this is the senior answer)",
+        body: [
+          "Bedrock Knowledge Bases is 'RAG in a box' — fast to stand up, but somewhat of a black box: you're constrained on chunking/retrieval internals, and debugging a bad answer through CloudWatch alone is painful. Teams that outgrow it sometimes rebuild retrieval directly on OpenSearch or Pinecone to regain control over accuracy.",
+          "The mature framing isn't 'managed vs DIY' — it's start managed to ship, then break out the parts you need control over when your evaluation tells you to. Driven by measurement, not dogma. Saying that is what reads as senior.",
+        ],
+      },
+      {
+        heading: "The two code patterns",
+        body: [
+          "Pattern 1 is managed — one call returns the answer plus citations. Pattern 2 gives you control — retrieve the chunks, then prompt and generate yourself. The same operations exist in the AWS SDK for Java (BedrockAgentRuntimeClient), which is what you'd use at a Java/Kotlin shop.",
+        ],
+        code: {
+          lang: "python",
+          source: `import boto3
+rt = boto3.client("bedrock-agent-runtime", region_name="us-east-1")
+
+# Pattern 1 — managed, one call (answer + citations)
+resp = rt.retrieve_and_generate(
+    input={"text": "What is our refund policy for enterprise customers?"},
+    retrieveAndGenerateConfiguration={
+        "type": "KNOWLEDGE_BASE",
+        "knowledgeBaseConfiguration": {
+            "knowledgeBaseId": KB_ID,
+            "modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "retrievalConfiguration": {"vectorSearchConfiguration": {"numberOfResults": 5}},
+        },
+    },
+)
+print(resp["output"]["text"])  # resp["citations"] for sources
+
+# Pattern 2 — control: retrieve, then generate yourself
+hits = rt.retrieve(
+    knowledgeBaseId=KB_ID,
+    retrievalQuery={"text": user_question},
+    retrievalConfiguration={"vectorSearchConfiguration": {"numberOfResults": 8}},
+)
+context = "\\n\\n".join(h["content"]["text"] for h in hits["retrievalResults"])
+brt = boto3.client("bedrock-runtime", region_name="us-east-1")
+answer = brt.converse(
+    modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+    messages=[{"role": "user", "content": [{"text":
+        f"Answer using ONLY the context. If it's not there, say you don't know.\\n\\n"
+        f"Context:\\n{context}\\n\\nQuestion: {user_question}"}]}],
+)
+print(answer["output"]["message"]["content"][0]["text"])`,
+        },
+      },
+    ],
+    keyPoints: [
+      "RAG = retrieve relevant chunks at query time and answer only from them — grounded, current, citable.",
+      "RAG supplies knowledge; fine-tuning changes behaviour. For 'answer over our docs', RAG is the default.",
+      "Two phases: ingest offline (chunk → embed → store); serve online (embed query → retrieve top-K → augment → generate).",
+      "Use the SAME embedding model for indexing and querying; chunking is the biggest quality lever.",
+      "Bedrock: RetrieveAndGenerate to ship fast; Retrieve + your own orchestration when you need control.",
+      "Quality fixes are about retrieval, not a bigger model: hierarchical chunking + hybrid search + reranking + metadata filters.",
+      "Stop hallucination with grounding + 'answer only from context', Guardrails' grounding check, citations, and a faithfulness eval.",
+      "Senior framing: start managed (Knowledge Bases), break out to OpenSearch/Pinecone when evaluation demands it.",
+    ],
+    checklist: [
+      "Can explain RAG vs fine-tuning in two sentences",
+      "Can draw the two-phase pipeline from memory",
+      "Can say when to use RetrieveAndGenerate vs Retrieve",
+      "Can name four retrieval-quality levers (chunking, hybrid, rerank, metadata)",
+      "Can give the anti-hallucination stack (grounding, Guardrails check, citations, faithfulness eval)",
+      "Can state the managed-vs-DIY trade-off as a measurement-driven decision",
+    ],
+    quiz: [
+      {
+        q: "Answers from your Bedrock knowledge base are mediocre. What do you tune first?",
+        options: [
+          "Swap in a larger / more expensive model",
+          "Retrieval: better chunking, hybrid search, reranking, metadata filters — measured against an eval set",
+          "Raise the temperature",
+          "Add more few-shot examples to the prompt",
+        ],
+        answer: 1,
+        explain: "Mediocre RAG is almost always a retrieval problem, not a model problem. Fix chunking/hybrid/rerank/filters and measure faithfulness before reaching for a bigger model.",
+      },
+      {
+        q: "You need to ship a doc-Q&A bot fast with source attribution. The quickest Bedrock path is…",
+        options: [
+          "Retrieve, then hand-build prompting and generation",
+          "RetrieveAndGenerate — it embeds, searches, augments, calls the model, and returns citations in one call",
+          "Fine-tune a model on the docs",
+          "Embed everything into one giant prompt",
+        ],
+        answer: 1,
+        explain: "RetrieveAndGenerate is 'RAG in one call' with built-in source attribution. Move to Retrieve + custom orchestration only when retrieval quality becomes the bottleneck.",
+      },
+      {
+        q: "Which best stops the bot from making things up?",
+        options: [
+          "A bigger model",
+          "Ground answers in retrieved context, instruct 'answer only from context else say you don't know', add a grounding guardrail, and measure faithfulness",
+          "Turning off retrieval",
+          "Asking the model to be confident",
+        ],
+        answer: 1,
+        explain: "Hallucination is controlled by grounding + an explicit 'only from context' instruction + Bedrock's contextual grounding check + citations, verified against a faithfulness eval — not by model size.",
+      },
+    ],
+  },
 ];
 
 export const CONCEPTS = [...PRINCIPLES, ...GENERATED_CONCEPTS, ...EXTRA_CONCEPTS, ...CLOUD_CONCEPTS];

@@ -264,6 +264,79 @@ export const GLOSSARY_ENTRIES = [
   { term: "HTTP 429", aliases: ["429"], short: "The HTTP status 'Too Many Requests' — what a rate limiter returns, usually with a Retry-After header saying when to try again." },
   { term: "Retry-After", short: "An HTTP response header telling the client how long to wait before retrying after a 429 or 503." },
   { term: "ETL", short: "Extract, Transform, Load — the batch pipeline that pulls data from sources, reshapes it, and loads it into a warehouse." },
+
+  // ── RAG, embeddings & Bedrock ───────────────────────────────────────────
+  {
+    term: "RAG",
+    aliases: ["retrieval-augmented generation"],
+    short:
+      "Retrieval-Augmented Generation — fetch the documents relevant to a question and put them in the prompt, so the model answers from your data instead of its memory. Grounds answers and lets them cite sources.",
+  },
+  {
+    term: "embedding",
+    aliases: ["embeddings", "embed"],
+    short:
+      "A vector (list of numbers) that captures the meaning of a piece of text, so similar meanings sit close together. The same model must embed both your documents and the query.",
+  },
+  {
+    term: "vector database",
+    aliases: ["vector store", "vector DB"],
+    short:
+      "A store that holds embeddings (plus the original text + metadata) and does fast nearest-neighbour search to find the chunks closest in meaning to a query.",
+  },
+  {
+    term: "chunking",
+    aliases: ["chunk"],
+    short:
+      "Splitting documents into passages before embedding them — you can't usefully embed a 50-page PDF as one unit. Chunking strategy is the single biggest lever on RAG quality.",
+  },
+  {
+    term: "reranking",
+    aliases: ["reranker", "re-rank", "rerank"],
+    short:
+      "A second pass after the initial retrieval: a cross-encoder re-scores the candidate chunks and keeps only the most relevant before they reach the model. High ROI on answer quality.",
+  },
+  {
+    term: "hybrid search",
+    short:
+      "Combining semantic (vector) search with keyword (BM25) search — vectors catch meaning, keywords catch exact terms, product codes, and acronyms. Improves recall.",
+  },
+  {
+    term: "fine-tuning",
+    aliases: ["fine-tune"],
+    short:
+      "Continuing to train a model on your data so the new knowledge/behaviour is baked into its weights. Changes style/behaviour; RAG instead supplies knowledge at query time without retraining.",
+  },
+  {
+    term: "hallucination",
+    aliases: ["hallucinate"],
+    short:
+      "When a language model confidently states something false. The RAG defence is to ground answers in retrieved context and instruct 'answer only from this; else say you don't know.'",
+  },
+  {
+    term: "Bedrock",
+    aliases: ["Amazon Bedrock"],
+    short:
+      "AWS's fully-managed service that gives you one API to call many foundation models (Claude, Nova/Titan, Llama, Cohere) with no GPUs to host. Knowledge Bases add managed RAG on top.",
+  },
+  {
+    term: "Knowledge Base",
+    aliases: ["Knowledge Bases"],
+    caseSensitive: true, // only the Bedrock feature (title case), not "knowledge base" the phrase
+    short:
+      "Bedrock's managed RAG: point it at a data source and it does ingestion (fetch, chunk, embed, store) and exposes Retrieve / RetrieveAndGenerate APIs for serving, with built-in session context.",
+  },
+  {
+    term: "Guardrails",
+    short:
+      "Bedrock's safety layer: content filtering, PII redaction, denied topics, and a contextual grounding check that flags answers unsupported by the retrieved context. Apply on input and output.",
+  },
+  {
+    term: "foundation model",
+    aliases: ["foundation models"],
+    short:
+      "A large, general-purpose model (like Claude) pretrained on broad data, which you then adapt via prompting, RAG, or fine-tuning rather than training from scratch.",
+  },
 ];
 
 // Escape a string for safe inclusion in a RegExp.

@@ -1845,6 +1845,133 @@ const AWS_CONCEPTS = [
       },
     ],
   },
+  {
+    id: "aws-service-picker",
+    group: "AWS (SAA)",
+    label: "Service Picker & Traps",
+    icon: "🎯",
+    title: "AWS Service Picker — Exam Cram Sheet",
+    tagline:
+      "The exam tests trade-off judgment in scenarios, not definitions. This is the rapid 'which service?' table, the cost-optimization patterns, and the recurring confusions that decide questions — the sheet to glance at last.",
+    sections: [
+      {
+        heading: "How to read a scenario question",
+        body: [
+          "Most SAA questions read: 'A company needs X with constraint Y — which is MOST cost-effective / MOST resilient / LEAST operational overhead?' Several options technically work; you pick the best fit for the qualifier. So read the qualifier first — it tells you which Well-Architected pillar to optimize for, and usually eliminates two answers immediately. Then eliminate the over-built answer and the security anti-pattern (hard-coded keys, public buckets), and choose the best of what's left.",
+          "Your hands-on AWS experience is a real head start here — trust the instinct, then verify it against the framework's vocabulary. The rest of this sheet is pure recall: the service-by-cue table, the cost levers, and the half-dozen pairs the exam loves to confuse.",
+        ],
+        callout: {
+          kind: "tip",
+          title: "Qualifier → pillar",
+          text: "'Cost-effective' → Cost. 'Highly available / fault tolerant' → Reliability. 'Least operational effort' → managed/serverless. 'Fastest / lowest latency' → Performance. 'Encrypt / least privilege / audit' → Security.",
+        },
+      },
+      {
+        heading: "The rapid 'which service?' table",
+        body: [
+          "Train the cue → service reflex. When a scenario uses one of these phrases, the answer is usually the paired service.",
+        ],
+        table: {
+          headers: ["Scenario cue", "Service"],
+          rows: [
+            ["Decouple components / buffer work", "SQS"],
+            ["Fan-out one message to many consumers", "SNS"],
+            ["Real-time streaming data", "Kinesis"],
+            ["Shared file system across many instances", "EFS"],
+            ["One instance's disk", "EBS"],
+            ["Object storage / static site / backups", "S3"],
+            ["Cheapest archival storage", "S3 Glacier Deep Archive"],
+            ["Relational DB, high availability", "RDS Multi-AZ"],
+            ["Relational DB, scale reads", "RDS Read Replicas"],
+            ["NoSQL at huge scale, serverless", "DynamoDB"],
+            ["Cache to reduce DB load", "ElastiCache (DAX for DynamoDB)"],
+            ["Data warehouse / analytics", "Redshift"],
+            ["Run containers without managing servers", "Fargate"],
+            ["Deploy app without managing infra", "Elastic Beanstalk"],
+            ["Private instances need outbound internet", "NAT Gateway"],
+            ["Route by URL path", "ALB"],
+            ["Extreme performance / static IP LB", "NLB"],
+            ["Encrypt at rest with managed keys", "KMS"],
+            ["Rotate database credentials automatically", "Secrets Manager"],
+            ["Block SQL injection / web attacks", "WAF"],
+            ["DDoS protection", "Shield"],
+            ["Audit who did what (API calls)", "CloudTrail"],
+            ["Monitor performance / alarm on a metric", "CloudWatch"],
+            ["Give an app temporary AWS access", "IAM Role"],
+            ["Interruptible batch, cheapest compute", "EC2 Spot"],
+            ["Steady 24/7 workload, save money", "Reserved Instances / Savings Plans"],
+            ["Coordinate a multi-step workflow", "Step Functions"],
+            ["Forecast/alert on monthly spend", "AWS Budgets"],
+          ],
+        },
+      },
+      {
+        heading: "Cost-optimization patterns (20% of the exam)",
+        body: [
+          "The cost domain is mostly about matching the workload to the right pricing model and tiering data down as it goes cold.",
+        ],
+        defs: [
+          { term: "Right purchasing model", def: "Spot for interruptible/fault-tolerant batch (up to ~90% off), Reserved Instances / Savings Plans for steady 24/7 load (1–3 yr commit), On-Demand for spiky/unpredictable. Matching workload to model is the most common cost question." },
+          { term: "S3 lifecycle + storage classes", def: "Auto-transition cold objects Standard → Standard-IA → Glacier/Deep Archive over time. Intelligent-Tiering when access patterns are unknown or changing." },
+          { term: "Auto Scaling", def: "Scale in when idle so you stop paying for unused capacity — a cost win as much as a resilience one." },
+          { term: "Serverless (Lambda / Fargate)", def: "Pay only for what you use — ideal for variable or low-traffic workloads with no always-on baseline." },
+          { term: "Right-sizing", def: "Don't over-provision EC2/RDS; pick the smallest instance that meets the need, and revisit with Compute Optimizer / Trusted Advisor." },
+          { term: "Managed over self-managed", def: "Managed services usually beat self-managed on total cost once you count operational overhead (patching, scaling, HA)." },
+        ],
+      },
+      {
+        heading: "The recurring traps (memorize these pairs)",
+        body: [
+          "A handful of look-alike pairs decide a disproportionate share of questions. Know the one-line distinction for each cold.",
+        ],
+        defs: [
+          { term: "Multi-AZ vs Read Replica", def: "Multi-AZ = high availability (synchronous standby, automatic failover) — a resilience answer. Read Replicas = read scaling (asynchronous, can be cross-region) — a performance answer. Don't mix them up." },
+          { term: "Security Group vs NACL", def: "Security Group = instance-level, stateful (return traffic auto-allowed), allow rules only. NACL = subnet-level, stateless (must allow both directions), allow + deny rules." },
+          { term: "CloudWatch vs CloudTrail", def: "CloudWatch = performance (metrics, logs, alarms). CloudTrail = audit (who made which API call). 'Who did what' → CloudTrail; 'alarm on a threshold' → CloudWatch." },
+          { term: "SQS vs SNS", def: "SQS = queue, one consumer processes then deletes (decouple/buffer). SNS = pub/sub, one message fanned out to many subscribers (notify many). The SNS → SQS fan-out is a classic combo." },
+          { term: "IAM Role vs access keys", def: "Prefer roles (temporary, auto-rotated credentials assumed by services/users) over long-lived access keys — roles are the recurring 'right answer' for giving an app AWS access." },
+          { term: "IGW vs NAT Gateway", def: "Internet Gateway = lets a public subnet reach the internet (inbound + outbound). NAT Gateway = lets private-subnet instances reach the internet outbound only, staying unreachable from outside." },
+          { term: "Secrets Manager vs SSM Parameter Store", def: "Secrets Manager = stores and auto-rotates secrets (DB creds, API keys). Parameter Store = cheaper config/secret storage with no built-in rotation. 'Automatic rotation' → Secrets Manager." },
+        ],
+      },
+    ],
+    keyPoints: [
+      "Read the qualifier first (MOST cost-effective / resilient / LEAST ops) — it picks the pillar and usually kills two answers.",
+      "Eliminate the over-built answer and the security anti-pattern, then choose the best survivor.",
+      "Cue → service: decouple → SQS, fan-out → SNS, streaming → Kinesis, shared FS → EFS, archive → Glacier Deep Archive.",
+      "Cost: Spot (interruptible), Reserved/Savings Plans (steady), On-Demand (spiky); lifecycle data to colder S3 tiers.",
+      "Trap pairs: Multi-AZ (HA) vs Read Replica (perf); SG (stateful/instance) vs NACL (stateless/subnet); CloudWatch (perf) vs CloudTrail (audit); SQS (queue) vs SNS (pub/sub); roles > access keys; IGW (internet) vs NAT (private outbound).",
+      "Practice exams are the highest-ROI prep — study WHY each wrong answer is wrong until you're consistently ~85%+.",
+    ],
+    checklist: [
+      "Can answer the whole cue → service table from memory",
+      "Can state Multi-AZ vs Read Replica without hesitating",
+      "Can state SG vs NACL and CloudWatch vs CloudTrail cold",
+      "Can match each workload (interruptible / steady / spiky) to its pricing model",
+      "Know SNS → SQS fan-out and IGW vs NAT scenarios",
+      "Consistently scoring ~85%+ on timed practice exams",
+    ],
+    quiz: [
+      {
+        q: "Private-subnet instances must download OS patches from the internet but never be reachable from it. Which service?",
+        options: ["Internet Gateway attached to the subnet", "NAT Gateway in a public subnet", "A public IP on each instance", "VPC peering"],
+        answer: 1,
+        explain: "A NAT Gateway gives private instances outbound-only internet access; an IGW would also make them reachable inbound.",
+      },
+      {
+        q: "An app must survive an Availability Zone failure of its relational database with automatic failover. Choose…",
+        options: ["RDS Read Replicas", "RDS Multi-AZ", "A larger single instance", "DynamoDB Global Tables"],
+        answer: 1,
+        explain: "Multi-AZ is the high-availability answer (synchronous standby + automatic failover). Read Replicas scale reads, they're not for failover.",
+      },
+      {
+        q: "You need an audit trail of who made which change in the account. Which service?",
+        options: ["CloudWatch", "CloudTrail", "Config", "X-Ray"],
+        answer: 1,
+        explain: "CloudTrail logs API calls (who did what) for audit/governance. CloudWatch is for performance metrics and alarms.",
+      },
+    ],
+  },
 ];
 
 export const CLOUD_CONCEPTS = [...TERRAFORM_CONCEPTS, ...AWS_CONCEPTS];

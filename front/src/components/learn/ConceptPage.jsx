@@ -306,6 +306,16 @@ function Section({ section, index, id, bodySegments }) {
           <span>{section.callout.text}</span>
         </div>
       )}
+      {Array.isArray(section.defs) && section.defs.length > 0 && (
+        <dl className="learn-defs">
+          {section.defs.map((d, k) => (
+            <div className="learn-def" key={d.term || k}>
+              <dt>{d.term}</dt>
+              <dd>{d.def}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       {Array.isArray(section.steps) && section.steps.length > 0 && (
         <ol className="learn-steps">
           {section.steps.map((s, k) => (

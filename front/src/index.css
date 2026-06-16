@@ -10689,6 +10689,35 @@ body.pane-resizing {
   text-transform: uppercase;
 }
 
+/* Definition lists: a term + its plain explanation, for catalogs of building
+   blocks, theory, or "which service?" pairs. Opt in with section.defs. */
+.learn-defs {
+  margin: 14px 0;
+  max-width: 78ch;
+  display: grid;
+  gap: 0;
+}
+.learn-def {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.learn-def:first-child {
+  border-top: 1px solid var(--md-outline-variant);
+}
+.learn-def dt {
+  margin: 0 0 3px;
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--md-primary);
+}
+.learn-def dd {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--md-on-surface);
+}
+
 /* Numbered steps */
 .learn-steps {
   max-width: 78ch;
@@ -11087,6 +11116,19 @@ body.pane-resizing {
   }
   .lp-steps li {
     margin: 3px 0;
+  }
+
+  .lp-defs {
+    margin: 8px 0;
+  }
+  .lp-defs dt {
+    font-weight: 700;
+    color: #11241f;
+    margin-top: 6px;
+  }
+  .lp-defs dd {
+    margin: 0 0 4px;
+    padding-left: 0;
   }
 
   .lp-table {
