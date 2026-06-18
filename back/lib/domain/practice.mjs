@@ -60,6 +60,32 @@ function normalizePracticeLanguageCodeMap(value = {}) {
   return codeByLanguage;
 }
 
+// Classify-before-code: the structured plan a solver commits to before the
+// editor unlocks for submission — a named pattern, a short written approach, and
+// the time/space cost. Persisted on the problem and round-tripped through every
+// normalize path so it survives runs, saves, and SRS updates.
+function normalizeApproach(value, base = {}) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const fallback = base && typeof base === "object" && !Array.isArray(base) ? base : {};
+  return {
+    pattern: clean(src.pattern ?? fallback.pattern),
+    summary: String(src.summary ?? fallback.summary ?? "").trim(),
+    timeComplexity: clean(src.timeComplexity ?? fallback.timeComplexity),
+    spaceComplexity: clean(src.spaceComplexity ?? fallback.spaceComplexity),
+    updatedAt: cleanTimestamp(src.updatedAt) || cleanTimestamp(fallback.updatedAt),
+  };
+}
+
+// A fresh attempt stays locked until the approach names a pattern, a written
+// plan, and both complexities — the gate the Practice editor enforces.
+function isApproachComplete(approach) {
+  if (!approach || typeof approach !== "object" || Array.isArray(approach)) return false;
+  return Boolean(clean(approach.pattern))
+    && String(approach.summary || "").trim().length > 0
+    && Boolean(clean(approach.timeComplexity))
+    && Boolean(clean(approach.spaceComplexity));
+}
+
 function normalizePracticeProblem(input = {}, existing = {}) {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const base = existing && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
@@ -133,6 +159,8 @@ function normalizePracticeProblem(input = {}, existing = {}) {
     examples: String(source.examples ?? base.examples ?? ""),
     constraints: String(source.constraints ?? base.constraints ?? ""),
     notes: String(source.notes ?? base.notes ?? ""),
+    approach: normalizeApproach(source.approach, base.approach),
+    insight: clean(source.insight ?? base.insight),
     customTests: normalizedCustomTests,
     companies: Array.isArray(source.companies) && source.companies.length
       ? source.companies
@@ -479,6 +507,8 @@ export {
   normalizePracticeLanguageDrafts,
   normalizePracticeLanguageCodeMap,
   normalizePracticeProblem,
+  normalizeApproach,
+  isApproachComplete,
   normalizePracticeTest,
   augmentPracticeTests,
   decoratePracticeTest,

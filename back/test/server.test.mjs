@@ -8,10 +8,12 @@ import {
   getDueProblems,
   getStageDate,
   getStageTimestamp,
+  isApproachComplete,
   markProblemFailed,
   markProblemSolved,
   migrateApplications,
   normalizeApplication,
+  normalizeApproach,
   normalizeCourseStore,
   normalizePracticeProblem,
   normalizePracticeStore,
@@ -448,6 +450,76 @@ test("seeded practice problems preserve user drafts and solution code", () => {
   });
   assert.equal(revealedSeed.draft, legacySeed.solutionCode);
   assert.equal(revealedSeed.solutionRevealed, true);
+});
+
+test("practice problem normalization captures the classify-before-code approach", () => {
+  const problem = normalizePracticeProblem({
+    title: "Two Sum",
+    methodName: "twoSum",
+    approach: {
+      pattern: "Hash Table",
+      summary: "Scan once. Store each value's complement in a map. Return the pair when a complement is already seen.",
+      timeComplexity: "O(n)",
+      spaceComplexity: "O(n)",
+    },
+    insight: "Trade space for time with a complement map.",
+  });
+
+  assert.equal(problem.approach.pattern, "Hash Table");
+  assert.match(problem.approach.summary, /complement/);
+  assert.equal(problem.approach.timeComplexity, "O(n)");
+  assert.equal(problem.approach.spaceComplexity, "O(n)");
+  assert.equal(problem.insight, "Trade space for time with a complement map.");
+  assert.equal(isApproachComplete(problem.approach), true);
+});
+
+test("practice problem normalization defaults to an empty, incomplete approach", () => {
+  const problem = normalizePracticeProblem({ title: "Fresh", methodName: "solve" });
+  assert.deepEqual(problem.approach, {
+    pattern: "",
+    summary: "",
+    timeComplexity: "",
+    spaceComplexity: "",
+    updatedAt: "",
+  });
+  assert.equal(problem.insight, "");
+  assert.equal(isApproachComplete(problem.approach), false);
+});
+
+test("the approach and insight survive re-normalization and solving", () => {
+  const problem = normalizePracticeProblem({
+    id: "lc-two-sum-approach",
+    title: "Two Sum",
+    methodName: "twoSum",
+    approach: {
+      pattern: "Two Pointers",
+      summary: "Sort, then walk two pointers inward toward the target sum.",
+      timeComplexity: "O(n log n)",
+      spaceComplexity: "O(1)",
+    },
+    insight: "Sorted input unlocks the two-pointer sweep.",
+  });
+
+  // A run/save re-normalizes from the existing record plus a new draft.
+  const rerun = normalizePracticeProblem({ ...problem, draft: "class Solution:\n    pass\n" });
+  assert.equal(rerun.approach.pattern, "Two Pointers");
+  assert.equal(rerun.insight, "Sorted input unlocks the two-pointer sweep.");
+
+  // Marking solved must not drop the approach or insight.
+  const solved = markProblemSolved(problem, { timeSpentMinutes: 20 });
+  assert.equal(solved.approach.pattern, "Two Pointers");
+  assert.equal(solved.approach.spaceComplexity, "O(1)");
+  assert.equal(solved.insight, "Sorted input unlocks the two-pointer sweep.");
+});
+
+test("isApproachComplete requires a pattern, a written plan, and both complexities", () => {
+  const full = normalizeApproach({ pattern: "BFS", summary: "Level-order walk.", timeComplexity: "O(n)", spaceComplexity: "O(n)" });
+  assert.equal(isApproachComplete(full), true);
+  assert.equal(isApproachComplete({ ...full, pattern: "" }), false);
+  assert.equal(isApproachComplete({ ...full, summary: "   " }), false);
+  assert.equal(isApproachComplete({ ...full, timeComplexity: "" }), false);
+  assert.equal(isApproachComplete({ ...full, spaceComplexity: "" }), false);
+  assert.equal(isApproachComplete(null), false);
 });
 
 test("SRS scheduling uses fixed review intervals", () => {
