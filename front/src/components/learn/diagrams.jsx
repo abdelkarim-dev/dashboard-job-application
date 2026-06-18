@@ -660,7 +660,6 @@ const REGISTRY = {
 // Which diagram(s) render on which concept page, with a caption.
 export const DIAGRAMS_BY_CONCEPT = {
   "my-pitch": [{ id: "pitch-arc", caption: "The 90-second arc — widths show where your time goes." }],
-  "my-stories": [{ id: "star-l", caption: "STAR-L: keep setup short, spend your airtime on Action and Result." }],
   behavioral: [{ id: "star-l", caption: "STAR-L: setup short; Action and Result carry the answer." }],
   "amazon-lp": [{ id: "interview-loop", caption: "The LP loop — behavioral-heavy, with a bar raiser and a written debrief." }],
   "interview-tactics": [{ id: "interview-loop", caption: "Where each tactic applies across the loop." }],

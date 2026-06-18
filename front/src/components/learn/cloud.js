@@ -33,6 +33,28 @@ const TERRAFORM_CONCEPTS = [
         },
       },
       {
+        heading: "The vocabulary, in plain language",
+        body: [
+          "Terraform throws a lot of words at you on day one. Here's the whole starter glossary in one place — keep this open while the rest of the page builds intuition around each term. You don't need to memorize it; you'll absorb it by doing.",
+        ],
+        defs: [
+          { term: "Infrastructure as Code (IaC)", def: "Describing your servers, networks, and databases in text files instead of clicking around a web console — so it can be versioned, reviewed, and rebuilt." },
+          { term: "Declarative", def: "You write the end state you want ('one bucket, versioning on'); Terraform figures out the steps. The opposite, imperative, is a script of explicit commands." },
+          { term: "Provider", def: "A plugin that teaches Terraform how to talk to one API or platform — aws, google, kubernetes, github. You download providers with `terraform init`." },
+          { term: "Resource", def: "A single piece of infrastructure Terraform creates and owns — an EC2 instance, an S3 bucket, a DNS record. Written as `resource \"<type>\" \"<name>\"`." },
+          { term: "Data source", def: "A read-only lookup of something Terraform does NOT manage — the latest AMI id, your account number, an existing VPC. Written as `data \"<type>\" \"<name>\"`." },
+          { term: "Argument", def: "A `key = value` setting inside a block, like `instance_type = \"t3.micro\"`." },
+          { term: "Attribute", def: "A value you read back FROM a resource after Terraform knows it, like `aws_instance.web.id`. Arguments go in; attributes come out." },
+          { term: "HCL", def: "HashiCorp Configuration Language — the blocks-and-arguments syntax you write Terraform in (`.tf` files)." },
+          { term: "Interpolation", def: "Inserting a value into a string with `${...}`, e.g. `\"web-${var.environment}\"`. In this learning file we escape it as `\\${...}` so the page doesn't try to evaluate it." },
+          { term: "State", def: "Terraform's memory — a file recording what it built and which real resource each block maps to. Covered in depth on the next page." },
+          { term: "Plan", def: "A dry run: Terraform shows you exactly what it would create (+), change (~), or destroy (-) before touching anything." },
+          { term: "Apply", def: "The command that actually makes the changes the plan described." },
+          { term: "Idempotent", def: "Safe to run repeatedly — running `apply` again when nothing changed does nothing, instead of creating duplicates." },
+          { term: "Init", def: "`terraform init` — sets up a working directory: downloads providers and wires up where state lives. Run it first." },
+        ],
+      },
+      {
         heading: "The pieces: providers, resources, data sources",
         body: [
           "A provider is a plugin that knows how to talk to one API — `aws`, `azurerm`, `google`, `kubernetes`. You declare which providers you need and pin their versions in a `required_providers` block; `terraform init` downloads them into `.terraform/`.",
@@ -157,6 +179,17 @@ output "bucket_arn" {
         },
       },
       {
+        heading: "Common beginner mistakes",
+        body: [
+          "Everyone trips on the same handful of things in their first week. None are hard once you've seen them — the trick is recognizing them, so here they are up front.",
+        ],
+        callout: {
+          kind: "warn",
+          title: "The day-one traps",
+          text: "Editing in the console after Terraform built it (then being surprised the next plan reverts your change — that's drift). Committing terraform.tfstate or your AWS keys to git. Auto-approving instead of reading the plan, then deleting something live. Forgetting to re-run `terraform init` after adding a provider or backend. Hand-editing the state file. Leaving provider versions unpinned, so the same code plans differently for a teammate.",
+        },
+      },
+      {
         heading: "How to actually learn it",
         body: [
           "Don't read the whole docs — build something small and grow it. Path that works: (1) install Terraform + the AWS CLI, configure credentials; (2) create one S3 bucket, run the full init/plan/apply/destroy loop until it's muscle memory; (3) add a second resource and wire them with a reference so you see the dependency graph; (4) introduce variables and outputs; (5) extract a module; (6) move state to a remote backend. Each step is a separate page in this track.",
@@ -248,6 +281,22 @@ output "bucket_arn" {
         },
       },
       {
+        heading: "The state vocabulary, in plain language",
+        body: [
+          "State has its own cluster of jargon. Here's the plain-English version so the rest of the page reads easily.",
+        ],
+        defs: [
+          { term: "State (tfstate)", def: "Terraform's record of what it built — a JSON file mapping each block in your code to a real resource id (e.g. aws_instance.web → i-0abc123)." },
+          { term: "Backend", def: "Where state is stored and how operations run. Default is a local file; a remote backend (like S3) stores it centrally so a team can share it." },
+          { term: "Remote state", def: "State kept in a shared, durable location (S3, HCP Terraform) instead of one person's laptop — required for any team." },
+          { term: "Locking", def: "A mechanism that stops two `apply`s from running at once and corrupting shared state. With S3 it's done via a DynamoDB table or a native lockfile." },
+          { term: "Drift", def: "When the real infrastructure no longer matches what state says — usually because someone changed it by hand in the console." },
+          { term: "Refresh", def: "Terraform re-reading the real world to update its view before planning. `plan -refresh-only` shows drift without proposing code-driven changes." },
+          { term: "Import", def: "Adopting an existing, hand-created resource into Terraform's state so it starts managing it — without recreating it." },
+          { term: "Bootstrap", def: "Creating the state bucket/lock table first, by hand or with a tiny separate config, because the main config can't create the place its own state lives." },
+        ],
+      },
+      {
         heading: "Local vs remote backends",
         body: [
           "By default state is a local file. That's fine for a solo experiment and unacceptable for a team: the file lives on one laptop, two people can't collaborate, there's no locking, and a lost laptop loses the state. The fix is a remote backend.",
@@ -322,6 +371,35 @@ import {
           text: "Editing the JSON directly is how you corrupt state. Use the `state` subcommands, `moved`/`import` blocks, and remote-state versioning (S3 versioning lets you roll back a bad write).",
         },
       },
+      {
+        heading: "Your first time: local state, then go remote",
+        body: [
+          "On your very first project you don't need any of this — Terraform writes a local `terraform.tfstate` next to your code and it just works. The moment a second person (or CI) touches the project, you move that state into a shared backend. Here's exactly what that transition looks like at the CLI.",
+          "Migrating is painless: add the backend block to your config, re-run `init`, and Terraform offers to copy your existing local state up to the remote. Say yes and you're done.",
+        ],
+        code: {
+          lang: "bash",
+          source: `# 1) Solo start: no backend block at all — state is a local file.
+terraform init          # sets up the dir
+terraform apply         # writes ./terraform.tfstate locally
+
+# 2) Going to a team: add a backend "s3" block to your .tf, then:
+terraform init          # Terraform detects the new backend and asks:
+#   "Do you want to copy existing state to the new backend?"  ->  yes
+
+# 3) Everyday state inspection (read-only, safe to run anytime):
+terraform state list                 # what is Terraform managing?
+terraform state show aws_s3_bucket.assets   # one resource's tracked attributes
+
+# 4) Adopt a resource you created by hand (so Terraform stops ignoring it):
+terraform import aws_s3_bucket.legacy my-existing-bucket-name`,
+        },
+        callout: {
+          kind: "warn",
+          title: "Common beginner state mistakes",
+          text: "Committing terraform.tfstate (and the .terraform/ dir) to git — add them to .gitignore. Running apply from two machines with only local state, so each has a different truth. Deleting the state file to 'start fresh' (now Terraform wants to recreate everything that already exists). Confusing `state rm` (forget it, keep the real thing) with `destroy` (delete the real thing).",
+        },
+      },
     ],
     keyPoints: [
       "State maps your config to real resource ids, tracks dependencies, and is Terraform's source of truth — lose it and Terraform gets confused.",
@@ -334,6 +412,8 @@ import {
       "Never hand-edit tfstate — use the state subcommands and S3 versioning to recover.",
     ],
     checklist: [
+      "Ran a project with local state, then migrated it to a remote backend with init",
+      "Added terraform.tfstate and .terraform/ to .gitignore",
       "Configured an S3 backend with DynamoDB (or S3 lockfile) locking",
       "Can explain why state must be remote and locked for a team",
       "Triggered and read a lock conflict; know when force-unlock is safe",
@@ -426,6 +506,25 @@ output "name_prefix" {
   value = local.name_prefix
 }`,
         },
+      },
+      {
+        heading: "The reuse vocabulary, in plain language",
+        body: [
+          "This page introduces the words you'll use to make configs reusable. Skim them now; the sections below show each in action.",
+        ],
+        defs: [
+          { term: "Input variable", def: "A parameter for your config (a `variable` block), so the same code can build dev and prod. Referenced as `var.name`." },
+          { term: "Default", def: "The value a variable takes when nobody supplies one. Optional — a variable with no default must be provided." },
+          { term: "Local value", def: "A named expression computed once (`locals { ... }`, read as `local.name`) — for derived or repeated values like a name prefix or a shared tag map." },
+          { term: "Output", def: "A value a config exposes after apply (`output` block) — for humans, scripts, or other configs to consume." },
+          { term: "Sensitive", def: "`sensitive = true` on a variable or output hides its value in CLI output and logs (it's still stored in state)." },
+          { term: "tfvars file", def: "A file of variable values (`prod.tfvars`) you load with `-var-file`. Keep secrets OUT of these and out of git." },
+          { term: "count", def: "Create N copies of a resource, addressed by numeric index (`aws_instance.web[0]`). Simple, but removing a middle item shifts indexes." },
+          { term: "for_each", def: "Create one instance per entry in a map/set, addressed by a stable key (`aws_instance.web[\"api\"]`). Safer than count for named things." },
+          { term: "Module", def: "A directory of `.tf` files used as a reusable building block, with its own inputs (variables) and outputs. The dir you run commands in is the root module." },
+          { term: "Source", def: "Where a module's code comes from — a local path (`./modules/vpc`), the Terraform Registry, or a git URL." },
+          { term: "dynamic block", def: "A loop that generates repeated nested blocks (like several `ingress` rules) inside one resource — not whole resources." },
+        ],
       },
       {
         heading: "Where variable values come from (precedence)",
@@ -539,6 +638,17 @@ resource "aws_instance" "app" {
           text: "The community `terraform-aws-modules` (VPC, EKS, RDS, security-group) are battle-tested and save you from subtle networking bugs. Reading their source is also a great way to learn idiomatic Terraform.",
         },
       },
+      {
+        heading: "Common beginner mistakes",
+        body: [
+          "The variables-and-modules stage has its own predictable potholes. Watching for these saves a lot of confused `terraform plan` output.",
+        ],
+        callout: {
+          kind: "warn",
+          title: "What trips people up here",
+          text: "Using count for named resources, then watching everything after the removed one get recreated — reach for for_each. Putting secrets in a tfvars file and committing it. Forgetting to pin a module's `version`, so an upstream release silently changes your infra. Hard-coding values you should have made variables (then copy-pasting the file per environment). Over-modularizing — wrapping a single resource in a module adds indirection with no payoff; extract on the rule of three.",
+        },
+      },
     ],
     keyPoints: [
       "Variables parameterize configs (type, validation, sensitive); locals name derived/repeated values; outputs expose results.",
@@ -619,11 +729,44 @@ resource "aws_instance" "app" {
         },
       },
       {
+        heading: "The environments vocabulary, in plain language",
+        body: [
+          "This page compares several approaches; here are the terms they all lean on, in one place.",
+        ],
+        defs: [
+          { term: "Environment", def: "A separate copy of your infrastructure for a purpose — dev, staging, prod. The goal is to keep them isolated yet defined by the same code." },
+          { term: "Isolation", def: "A guarantee that a mistake in one environment can't touch another — strongest when each env has its own state and its own AWS account." },
+          { term: "DRY", def: "\"Don't Repeat Yourself\" — share one definition (a module) across environments so they can't drift apart, instead of copy-pasting." },
+          { term: "Blast radius", def: "How much can break from one bad change. Splitting state by environment and component keeps it small." },
+          { term: "Workspace", def: "A built-in way to keep one config but switch between multiple state files (`terraform workspace select prod`). DRY, but weak isolation." },
+          { term: "Directory per environment", def: "A folder per env (environments/prod, environments/staging), each with its own backend and tfvars, all calling shared modules. The common production default." },
+          { term: "Partial backend config", def: "Leaving the backend block's keys empty in code and supplying them per env at init time with `-backend-config` — same code, different state location." },
+          { term: "Promotion", def: "Rolling the same tested module version from dev → staging → prod. You promote versions, not git branches." },
+          { term: "Orchestrator", def: "A platform (HCP Terraform, Atlantis, Spacelift) that runs plan/apply centrally with approvals, policy, and drift detection — instead of from a laptop." },
+        ],
+      },
+      {
         heading: "Native option A — one config + workspaces",
         body: [
           "Terraform workspaces keep a single configuration and switch between multiple state files (`terraform workspace select prod`), branching behavior on `terraform.workspace`. They're built-in and DRY, but the isolation is weak: all environments share one backend and one set of credentials, and it's genuinely easy to apply to prod while you think you're in dev. There's no structural barrier — just a string you have to remember to set.",
           "Use workspaces for ephemeral or near-identical environments: per-developer sandboxes, short-lived PR-preview stacks, or per-region copies of an identical stack. Don't use them as your prod-vs-staging boundary when those environments differ in scale, account, or risk.",
         ],
+        code: {
+          lang: "bash",
+          source: `# Workspaces in practice — one config, several state files
+terraform workspace list           # * default
+terraform workspace new dev        # create + switch to "dev"
+terraform workspace new prod       # create + switch to "prod"
+
+terraform workspace select dev     # <- which env you're operating on
+terraform apply                    # writes to the "dev" state only
+
+# In the config you branch on terraform.workspace:
+#   instance_type = terraform.workspace == "prod" ? "m5.large" : "t3.micro"
+
+# The danger: this is just a label. Forget to 'select dev' and you
+# apply to prod. That's why directories (next section) are safer for prod.`,
+        },
       },
       {
         heading: "Native option B — directory per environment (the solid default)",
@@ -739,6 +882,11 @@ inputs = {
             ["Orchestrator (TFC/Spacelift/Atlantis)", "—", "Strong", "Platform", "PR workflow, policy, drift at scale"],
           ],
         },
+        callout: {
+          kind: "warn",
+          title: "Common beginner mistakes",
+          text: "Using workspaces as the prod/staging boundary, then applying to prod because you forgot to switch. Sharing one state file (or one backend key) across environments — a change to one can clobber another. Copy-pasting a whole config per environment, which guarantees they drift. Branch-per-environment: promotion becomes a merge nightmare — promote pinned module versions instead. Reaching for Terragrunt or Stacks on day one when two plain directories would do.",
+        },
       },
     ],
     keyPoints: [
@@ -826,6 +974,24 @@ inputs = {
         },
       },
       {
+        heading: "The production vocabulary, in plain language",
+        body: [
+          "Going from laptop to team adds a layer of words. Here's the short version so the rest of the page lands.",
+        ],
+        defs: [
+          { term: "CI/CD", def: "Continuous Integration / Delivery — the automated pipeline that runs your checks and apply when code is merged, instead of someone running it locally." },
+          { term: "Plan artifact", def: "A saved plan file (`-out=tf.plan`) so `apply` runs exactly what was reviewed — no gap between review and execution." },
+          { term: "OIDC federation", def: "Letting CI assume a short-lived IAM role via a trust relationship, so no long-lived AWS keys are stored in the pipeline." },
+          { term: "Policy as code", def: "Rules enforced automatically at plan time (Sentinel, OPA/Conftest) — e.g. 'no public S3 bucket', 'every resource needs a cost-center tag'." },
+          { term: "tflint", def: "A linter that catches provider-specific mistakes (invalid instance types, deprecated arguments) before you apply." },
+          { term: "tfsec / checkov", def: "Security scanners that read your HCL for misconfigurations (public buckets, open SSH, unencrypted volumes) before anything is built." },
+          { term: "terraform test", def: "The built-in test framework (1.6+, `.tftest.hcl` files) for plan-time assertions and real apply/destroy integration tests." },
+          { term: "lifecycle", def: "A meta-argument controlling update behavior: create_before_destroy, prevent_destroy, ignore_changes." },
+          { term: "Provisioner", def: "A script run during create/destroy (local-exec, remote-exec). A last resort — it breaks the plan/apply guarantees; prefer cloud-init or baked AMIs." },
+          { term: "Lock file (.terraform.lock.hcl)", def: "Records the exact provider versions chosen, so every teammate and CI gets identical plans. Commit it." },
+        ],
+      },
+      {
         heading: "The CI/CD pipeline for Terraform",
         body: [
           "The team workflow mirrors application code review, but the artifact under review is a plan. On a pull request, CI runs `fmt -check`, `validate`, a security scan, and `terraform plan`, then posts the plan as a PR comment so a human reviews exactly what will change. On merge to main, CI runs `apply` against the saved plan.",
@@ -897,6 +1063,11 @@ run "bucket_is_private" {
             ["Long-lived keys in CI", "OIDC federation → short-lived least-privilege role"],
             ["Destructive replacements", "Read plans; create_before_destroy; prevent_destroy on critical resources"],
           ],
+        },
+        callout: {
+          kind: "warn",
+          title: "Common beginner mistakes going to production",
+          text: "Storing long-lived AWS access keys as CI secrets instead of using OIDC. Not committing .terraform.lock.hcl, so you and CI resolve different provider versions. Auto-approving apply in CI without a human reading the plan. Reaching for a provisioner (local-exec) to glue something together when user_data or a baked AMI would do. Putting the whole org in one state file. Skipping tfsec/checkov and shipping a public bucket.",
         },
       },
     ],

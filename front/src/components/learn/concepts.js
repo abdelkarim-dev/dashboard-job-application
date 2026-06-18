@@ -652,6 +652,160 @@ const EXTRA_CONCEPTS = [
     ],
   },
   {
+    id: "ai-fluency",
+    group: "Interview",
+    label: "AI Fluency",
+    icon: "🤖",
+    title: "AI Fluency — Your Amazon Q & Bedrock Narrative",
+    tagline:
+      "Every senior loop now quietly asks one thing: are you an engineer who uses AI to go faster, or someone nervous and avoiding it? You're the first — you use Q daily and shipped a Bedrock RAG chatbot. This is the vocabulary to say it crisply and the story to tell smoothly.",
+    sections: [
+      {
+        heading: "Why this travels into every loop",
+        body: [
+          "Every senior and staff loop now checks for AI fluency. They are not testing whether you can build a model from scratch — they are quietly answering one question: is this person an engineer who uses AI to go faster and build new things, or is this someone nervous and avoiding it. You want to land firmly as the first kind: calmly, with concrete proof, not buzzwords.",
+          "The good news is you already are that person. You use Amazon Q in your day-to-day coding, and you built a real AI feature — a Bedrock retrieval chatbot. You are not pretending. You just need the vocabulary to talk about it crisply and a clean way to tell the story. This same narrative travels into all four loops, so the reps here pay off four times.",
+        ],
+        callout: {
+          kind: "tip",
+          title: "The rep that counts",
+          text: "Tell the Bedrock story out loud, start to finish, as if asked 'tell me about something you built with AI.' If you can tell it smoothly once, you own it.",
+        },
+      },
+      {
+        heading: "The vocabulary, each one a sentence",
+        body: [
+          "Take the AI words that get thrown around and make each a plain sentence. Every one below is a sentence, not a mountain — that is the whole working vocabulary you need to talk fluently.",
+        ],
+        defs: [
+          { term: "Large language model (LLM)", def: "A system trained on huge amounts of text that predicts the most likely next words." },
+          { term: "Foundation model", def: "A big general-purpose model you build on top of, like Claude or Amazon's own models. You don't train these — you use them." },
+          { term: "Prompt", def: "The instruction and information you send the model." },
+          { term: "Context window", def: "How much text the model can consider at once — the prompt plus its answer. It's finite, so you can't just dump unlimited data in. That limit is why retrieval matters." },
+          { term: "Hallucination", def: "When the model confidently states something false. It's not lying — it's filling a gap with a plausible-sounding guess. The single most important limitation to name, because the senior move is showing you design around it." },
+          { term: "RAG (retrieval-augmented generation)", def: "On its own a model only knows what it was trained on and will hallucinate about your private data. RAG searches your own documents for the most relevant passages at question time, pastes them into the prompt, and says 'answer using this' — so the model reads from your source of truth instead of guessing." },
+          { term: "Embeddings", def: "Turning a piece of text into a list of numbers that captures its meaning, so two passages that mean similar things end up close together." },
+          { term: "Vector database", def: "A store built to answer one question: find me the passages most similar in meaning to this query." },
+          { term: "Semantic search", def: "Finding by meaning rather than by exact keyword." },
+          { term: "Agent", def: "A model given tools and allowed to take actions in steps, not just answer — for example, one that can call an API, read the result, and decide what to do next." },
+          { term: "Guardrails", def: "The safety layer around a model that blocks unwanted inputs and outputs — filtering harmful content, or stopping it leaking sensitive data." },
+          { term: "Evals (evaluations)", def: "How you measure whether your AI feature is actually any good: testing it against known questions and checking the answers. Mentioning that you evaluate, rather than ship and hope, is a senior signal almost nobody offers." },
+        ],
+      },
+      {
+        heading: "Three ways to make a model useful — and when to pick which",
+        body: [
+          "Knowing when to reach for which is a strong signal. Prompting is cheapest and first to try. RAG is the right choice when answers must come from your own knowledge that changes over time. Fine-tuning is the most expensive and the last resort.",
+        ],
+        table: {
+          headers: ["Approach", "What it is", "When to reach for it"],
+          rows: [
+            ["Prompting", "Writing good instructions", "Cheapest, always try first"],
+            ["RAG", "Giving the model your data at question time", "When answers must come from your own knowledge that changes over time"],
+            ["Fine-tuning", "Further training the model on your examples to change its behavior or style", "Most expensive, last resort — rarely the first answer"],
+          ],
+        },
+        callout: {
+          kind: "key",
+          title: "Interview-ready line",
+          text: "Most problems are solved with good prompting and RAG; fine-tuning is rarely the first answer.",
+        },
+      },
+      {
+        heading: "Story 1 — Amazon Q in your daily workflow",
+        body: [
+          "Amazon Q is AWS's generative AI assistant, and the developer version lives in your editor. You use it to scaffold boilerplate, generate unit tests, explain unfamiliar code, and answer AWS questions without leaving your work.",
+          "The framing that sounds senior, and is true: you let it handle the rote, repetitive parts so you can spend your judgment on the architecture and the hard decisions. You are not outsourcing thinking — you are removing typing. Say it that way.",
+        ],
+      },
+      {
+        heading: "Story 2 — the Bedrock retrieval chatbot (your headline)",
+        body: [
+          "This is your headline AI story, so know it one layer deeper than the summary. Amazon Bedrock is AWS's managed service for building with foundation models: instead of hosting a model yourself, you reach a range of models through one API, and it provides the surrounding pieces — managed retrieval, guardrails, and agents.",
+          "Your chatbot used the RAG pattern: documents were broken into chunks, embedded, and stored, and when a user asked a question the system retrieved the most relevant chunks and fed them to the model to ground the answer.",
+          "Be ready for the deeper pokes — a real engineer hits these and you did. You don't need perfect answers; you need to show you met these trade-offs head on, because that is exactly what separates someone who built it from someone who read about it.",
+        ],
+        defs: [
+          { term: "How did you chunk the documents?", def: "Chunks too big waste the context window; chunks too small lose meaning. The trade-off lives there." },
+          { term: "How did you keep retrieval quality high?", def: "So the right passages came back for each question." },
+          { term: "How did you handle hallucination?", def: "Instruct the model to answer only from the provided context, and to say it doesn't know when the context is thin." },
+          { term: "How did you know it worked?", def: "Evaluate against a set of real questions — you measured it, you didn't ship and hope." },
+        ],
+      },
+      {
+        heading: "The common questions, with crisp answers",
+        body: [
+          "These four come up everywhere. Pre-decide the shape of each so you answer calmly, not searching.",
+        ],
+        defs: [
+          { term: "How do you use AI in your work?", def: "Two parts. Day to day, Amazon Q for the rote coding so my time goes to design. And I've shipped an AI feature — a retrieval chatbot on Bedrock — so I've built with this, not just used it." },
+          { term: "Tell me about something you built with AI.", def: "The Bedrock RAG story, structured: the problem it solved, the RAG approach in plain terms, the trade-offs you hit on chunking and retrieval and hallucination, and how you evaluated it." },
+          { term: "What are the risks or limitations?", def: "Your chance to shine — name them calmly: hallucination (handled with retrieval and grounding), data privacy (be careful what data reaches a model), cost and latency at scale, and the need for evaluation and guardrails rather than shipping on faith. Knowing the limits is the strongest fluency signal there is." },
+          { term: "How does AI change engineering?", def: "Grounded and unworried: it amplifies engineers and raises the bar on judgment and review — now you must be good at reading and verifying generated code, not just writing it. It does not remove the need to understand systems." },
+        ],
+        callout: {
+          kind: "tip",
+          title: "Tone",
+          text: "Confident and current, not hyped and not afraid. Naming the limitations calmly reads as more senior than any amount of enthusiasm.",
+        },
+      },
+    ],
+    keyPoints: [
+      "The loop is answering one question: do you use AI to go faster, or avoid it? Land as the first — calmly, with proof.",
+      "You have proof: Amazon Q daily, and a shipped Bedrock RAG chatbot. The only gap was the words.",
+      "Every AI term is one sentence: LLM, foundation model, prompt, context window, hallucination, RAG, embeddings, vector DB, semantic search, agent, guardrails, evals.",
+      "Three ways to make a model useful: prompting (first), RAG (your own changing data), fine-tuning (last resort).",
+      "Q framing: you remove typing so your judgment goes to architecture — not outsourcing thinking.",
+      "Bedrock = one API to many foundation models + managed retrieval, guardrails, agents; your chatbot was chunk → embed → store → retrieve → ground.",
+      "Know the deeper pokes: chunking trade-off, retrieval quality, hallucination via 'answer only from context', and evaluation.",
+      "Naming risks (hallucination, data privacy, cost/latency, the need for evals + guardrails) is the strongest fluency signal.",
+    ],
+    checklist: [
+      "Can define all twelve AI terms in one sentence each, cold",
+      "Can state when to use prompting vs RAG vs fine-tuning",
+      "Can give the Amazon Q answer (remove typing, keep judgment) in two sentences",
+      "Can tell the Bedrock RAG story end to end in under 2 minutes",
+      "Have answers ready for chunking, retrieval quality, hallucination, and how you evaluated it",
+      "Can name the risks (hallucination, privacy, cost/latency, evals + guardrails) calmly",
+      "Told the Bedrock story out loud, smoothly, at least once",
+    ],
+    quiz: [
+      {
+        q: "An interviewer asks how you'd make a model answer questions about your company's private, frequently-changing docs. The right first reach is…",
+        options: [
+          "Fine-tune the model on the docs",
+          "RAG — retrieve the relevant passages at question time and have the model answer from them",
+          "Put all the docs into a single prompt",
+          "Train a new foundation model",
+        ],
+        answer: 1,
+        explain: "RAG is the right choice when answers must come from your own knowledge that changes over time. Fine-tuning is expensive and rarely the first answer; the context window is finite so you can't just dump everything in.",
+      },
+      {
+        q: "Asked about the risks of AI, the strongest 'senior' answer leads with…",
+        options: [
+          "How fast models are improving",
+          "Naming hallucination and how you design around it with retrieval, grounding, evals, and guardrails",
+          "That there are basically no real risks anymore",
+          "How many tokens the latest model supports",
+        ],
+        answer: 1,
+        explain: "Hallucination is the most important limitation to name, and the senior move is showing you design around it. Knowing the limits — and that you evaluate rather than ship on faith — is the strongest fluency signal.",
+      },
+      {
+        q: "Why does chunking matter in your Bedrock RAG chatbot?",
+        options: [
+          "It makes the model train faster",
+          "Chunks too big waste the context window; chunks too small lose meaning — it's a real trade-off you tuned",
+          "It encrypts the documents",
+          "It replaces the need for a vector database",
+        ],
+        answer: 1,
+        explain: "Chunking is a genuine trade-off: oversized chunks burn the finite context window, undersized chunks lose meaning. Showing you met that trade-off is what separates someone who built it from someone who read about it.",
+      },
+    ],
+  },
+  {
     id: "system-design-framework",
     group: "Knowledge",
     label: "SD Framework",
@@ -765,6 +919,58 @@ const EXTRA_CONCEPTS = [
           { term: "Not knowing your numbers", def: "'3× faster' → 'startup dropped from 90s to 15s.' Specifics signal you did the work." },
         ],
       },
+      {
+        heading: "The words that scared you, made friendly",
+        body: [
+          "These are the exact terms that make you feel like you don't know enough — and each is a sentence, not a mountain. None of it is low-level genius; it was just words nobody had handed you yet. Say each in two sentences and you sound fluent.",
+        ],
+        defs: [
+          { term: "Latency", def: "How long one request takes from start to finish. You click, the page shows up in 200 ms — that 200 ms is the latency. Lower is better." },
+          { term: "Throughput", def: "How many requests you can handle per second. Latency is one request being fast; throughput is handling many at once. A checkout lane is quick for one person (latency); a store can open many lanes (throughput). Different dials, tuned separately." },
+          { term: "p99", def: "Line up 1,000 request times fastest to slowest. p50 is the median (the typical experience); p99 is the request at the 99th percentile — 99% were that fast or faster, only the slowest 1% were worse. Engineers watch the tail because averages lie: a 50 ms average can still leave 1-in-100 users waiting 5 seconds, which at a million users is 10,000 angry people. p99 is just 'how bad is it for my unluckiest 1%.'" },
+          { term: "Load balancer (L4 vs L7)", def: "A traffic director in front of several identical servers that spreads requests so no one server gets buried, and stops sending traffic to a server that falls over. L4 works at the network level, just shuffling connections (fast); L7 works at the application level and can peek at the request to route by content (e.g. all image requests to one group) — the smarter one." },
+          { term: "Vertical vs horizontal scaling", def: "Vertical = make one machine bigger (more CPU/memory) — simpler, but you hit a ceiling and it's a single point of failure. Horizontal = add more machines and share the work — how everything large is built, because you keep adding boxes and survive any one dying. When in doubt, scale horizontally and put a load balancer in front." },
+          { term: "Caching (TTL, LRU, CDN)", def: "Keep a copy of frequently-used data somewhere faster (Redis) so you don't redo slow work every time. Caches go stale, so you set a TTL (time-to-live) after which data refreshes, and an eviction policy for when it fills — commonly LRU (least recently used), evicting whatever nobody has touched longest. A CDN is just caching pushed geographically close to users, so Tokyo gets your images from a Tokyo server, not Virginia." },
+          { term: "Replication", def: "Keep copies of your database so reads are faster and you survive failures: one primary takes writes, several read replicas take reads (most apps read far more than they write). Trade-off: a tiny delay before a write shows up on the replicas, so a user might not see their own write for a heartbeat — eventual consistency in the wild." },
+          { term: "Sharding", def: "Split one database that's grown too big into pieces so no single machine holds all of it (last names A–M on DB one, N–Z on DB two). You shard when one box can't keep up. The hard, interesting part is choosing the split key so pieces stay roughly even and related data stays together — a bad key sends all traffic to one shard while the others sit idle." },
+          { term: "Message queue", def: "A buffer that lets you do work later. A request comes in, you drop a task on the queue and immediately tell the user 'got it'; a separate worker picks it off and does the slow part in the background (like sending a confirmation email after a purchase). It decouples the system, smooths traffic spikes, and if the email service is down a minute the tasks just wait instead of failing. Names you'll hear: SQS and Kafka." },
+        ],
+        callout: {
+          kind: "tip",
+          title: "The consistency one-liner",
+          text: "Default to eventual consistency for most things (it scales better and is simpler), but insist on strong consistency for anything involving money or inventory, where being wrong for even a second is unacceptable.",
+        },
+      },
+      {
+        heading: "Toast practice prompts — anchor everything to your real system",
+        body: [
+          "Toast's senior loop reliably includes a dedicated system-design round (Tech Lead plus engineers), and it's concrete, not abstract box-drawing: SQL schema and queries, client/connection pools, persistent repositories. One reported prompt is literally 'calculate employee hours from login/logout times' — your target team's exact domain (employee lifecycle), so expect timesheet, payroll, and scheduling-style designs.",
+          "Your starting advantage: you are not learning system design from zero. You built a distributed, event-driven lead-ingestion API for 40+ partners with dedup, business-rule routing, and downstream processing on AWS — precisely the kind of system these rounds probe. So your strongest move on every prompt is to anchor it to that real system: present it with the 5-step framework, then map the new prompt onto patterns you already shipped (dedup → idempotency keys, partner fan-out → event stream, routing → business rules). Make that one fluent.",
+        ],
+        steps: [
+          "Your own lead-ingestion API, as a design answer — rehearse presenting it with the framework. Strongest asset; make it fluent.",
+          "Employee timesheet / hours system: clock-in/out events → computed hours → payroll. (Closest to the reported Toast prompt.)",
+          "Employee-lifecycle event pipeline: onboarding / role-change events fan out to dependent systems.",
+          "Shift-reminder notification system: scheduling + delivery + retries.",
+        ],
+        callout: {
+          kind: "key",
+          title: "Drive the room (Staff differentiator)",
+          text: "Don't wait to be led. Propose the scope yourself, raise cross-team concerns unprompted, and state trade-offs before being asked. Driving the conversation is what separates Staff from Senior.",
+        },
+      },
+      {
+        heading: "How to actually talk in the room",
+        body: [
+          "The content is half of it; delivery is the other half, and it's the trainable part. Four habits carry the round.",
+          "Think out loud the entire time — silence reads as being stuck, a running narration of your reasoning reads as competence. State your assumptions before building on them ('I'll assume this is read-heavy, ~1M daily users, fair?') so everything is anchored and the interviewer can correct you, which is a gift. Lead with the simple version, then improve it when they push — get it working end to end, then say 'now if we needed to scale this, here's the first thing I'd change'; that progression is exactly the seniority they're scoring.",
+        ],
+        callout: {
+          kind: "warn",
+          title: "Never give a flat no — bridge instead",
+          text: "When you don't know something, don't dead-end. Say: 'I haven't used that exact feature in production, but conceptually here's how it works and when I'd reach for it.' That single habit turns every gap from a dead end into a demonstration of how you think. Practice it until it's automatic.",
+        },
+      },
     ],
     keyPoints: [
       "No right answer — you're scored on driving the problem and reasoning about trade-offs out loud.",
@@ -773,6 +979,9 @@ const EXTRA_CONCEPTS = [
       "Building blocks (LB, cache, SQL/NoSQL, replication, sharding, CDN, queue, gateway, rate limiter) — add each as a justified response to a number.",
       "Name the theory precisely: CAP (C vs A during a partition), ACID vs BASE, idempotency for retries, consistent hashing for smooth resizing.",
       "Event stream + idempotency key = reliable fan-out with no lost or duplicate updates (the order-processing pattern).",
+      "The scary words are sentences: latency (one request fast), throughput (many at once), p99 (your unluckiest 1%), L4 vs L7, vertical vs horizontal, TTL/LRU/CDN, replication lag, shard-key choice, queues.",
+      "For Toast: anchor every prompt to your 40+-partner lead-ingestion API; expect timesheet/payroll/scheduling designs (e.g. hours from login/logout).",
+      "Delivery: think out loud, state assumptions, lead simple then scale, and never give a flat no — bridge to what you do know.",
       "Start simple, then scale; think out loud; never go silent.",
     ],
     checklist: [
@@ -781,8 +990,11 @@ const EXTRA_CONCEPTS = [
       "Can recite the latency ladder (memory → SSD → cross-continent) and what it implies",
       "Can justify SQL vs NoSQL and when to add a cache / queue / shard",
       "Can define CAP, ACID/BASE, idempotency, consistent hashing in one line each",
+      "Can explain latency, throughput, p99, L4/L7, vertical/horizontal, TTL/LRU/CDN, replication, sharding, queue in two sentences each",
       "Walked the order-processing design end to end, naming the consistency split",
       "Have the URL-shortener read-heavy design ready as a second example",
+      "Can present the lead-ingestion API as a design answer, and map a Toast timesheet prompt onto it",
+      "Rehearsed the bridge sentence for 'I don't know that' until it's automatic",
     ],
     quiz: [
       {

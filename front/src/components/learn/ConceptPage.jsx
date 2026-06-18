@@ -368,6 +368,8 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const [activeId, setActiveId] = useState(null);
   const [printing, setPrinting] = useState(false);
   const [drilling, setDrilling] = useState(false);
+  // Paginated reading: one section per page instead of a wall of text.
+  const [page, setPage] = useState(0);
   const articleRef = useRef(null);
 
   // The "On this page" navigator entries (one per titled section + takeaways),
@@ -390,14 +392,13 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
     };
   }, [concept?.id]);
 
-  // Two IntersectionObservers: one reveals each block as it scrolls into view
-  // (progressive disclosure instead of a wall of text), one drives the
-  // navigator's active-section highlight. Both rebuild when the page changes.
+  // Reveal the active page's blocks as they enter view (progressive disclosure).
+  // In paginated mode only one section is mounted at a time, so re-run on every
+  // page change to animate the freshly-rendered section in.
   useEffect(() => {
     const root = articleRef.current;
     if (!root) return undefined;
     let revealObs;
-    let spyObs;
     try {
       revealObs = new IntersectionObserver(
         (entries) => {
@@ -408,36 +409,21 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
             }
           }
         },
-        { rootMargin: "0px 0px -8% 0px", threshold: 0.04 }
+        { rootMargin: "0px 0px -6% 0px", threshold: 0.03 }
       );
-      root.querySelectorAll(".learn-reveal").forEach((el) => revealObs.observe(el));
-
-      const spyEls = Array.from(root.querySelectorAll('[id^="sec-"]'));
-      const visible = new Map();
-      spyObs = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) visible.set(e.target.id, e.isIntersecting);
-          const first = spyEls.find((el) => visible.get(el.id));
-          if (first) setActiveId(first.id);
-        },
-        { rootMargin: "-76px 0px -70% 0px", threshold: 0 }
-      );
-      spyEls.forEach((el) => spyObs.observe(el));
+      root.querySelectorAll(".learn-reveal:not(.is-revealed)").forEach((el) => revealObs.observe(el));
     } catch {
       // No IntersectionObserver: just show everything.
       root.querySelectorAll(".learn-reveal").forEach((el) => el.classList.add("is-revealed"));
     }
-    return () => {
-      revealObs?.disconnect();
-      spyObs?.disconnect();
-    };
-  }, [concept?.id]);
+    return () => revealObs?.disconnect();
+  }, [concept?.id, page]);
 
-  const jumpTo = (id) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    setActiveId(id);
-  };
+  // Reset to the first page whenever the concept changes.
+  useEffect(() => {
+    setPage(0);
+    setActiveId(null);
+  }, [concept?.id]);
 
   if (!concept) return null;
 
@@ -464,6 +450,23 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const sections = Array.isArray(concept.sections) ? concept.sections : [];
   const diagrams = DIAGRAMS_BY_CONCEPT[concept.id] || [];
   const doneCount = checklist.reduce((n, _, i) => n + (checked[i] ? 1 : 0), 0);
+
+  // One page per section, plus a final "Key takeaways" page. Each page carries
+  // the matching `sec-*` id the "On this page" navigator already targets.
+  const pages = [
+    ...sections.map((s, i) => ({ kind: "section", index: i, id: `sec-${i}`, label: s.heading || `Section ${i + 1}` })),
+    ...(keyPoints.length > 0 ? [{ kind: "keypoints", id: "sec-keypoints", label: "Key takeaways" }] : []),
+  ];
+  const pageCount = pages.length;
+  const current = pages[Math.min(page, Math.max(0, pageCount - 1))] || null;
+
+  const goTo = (i) => {
+    const next = Math.max(0, Math.min(pageCount - 1, i));
+    setPage(next);
+    setActiveId(pages[next]?.id || null);
+    const el = articleRef.current;
+    if (el) el.scrollTo ? el.scrollTo({ top: 0, behavior: "smooth" }) : (el.scrollTop = 0);
+  };
 
   return (
     <article className="learn-concept has-aside" key={concept.id} ref={articleRef}>
@@ -516,10 +519,15 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
 
       <div className="learn-concept-body">
         <div className="learn-concept-main">
-          {sections.map((section, i) => (
-            <React.Fragment key={section.heading || i}>
-              <Section section={section} index={i} id={`sec-${i}`} bodySegments={glossed.sectionSegs[i]} />
-              {i === 0 &&
+          {current && current.kind === "section" && (
+            <React.Fragment key={`${concept.id}-sec-${current.index}`}>
+              <Section
+                section={sections[current.index]}
+                index={current.index}
+                id={current.id}
+                bodySegments={glossed.sectionSegs[current.index]}
+              />
+              {current.index === 0 &&
                 diagrams.map((d) => (
                   <figure className="learn-diagram learn-reveal" key={d.id}>
                     <Diagram id={d.id} />
@@ -527,10 +535,10 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
                   </figure>
                 ))}
             </React.Fragment>
-          ))}
+          )}
 
-          {keyPoints.length > 0 && (
-            <section id="sec-keypoints" className="learn-section learn-keypoints learn-reveal">
+          {current && current.kind === "keypoints" && (
+            <section id="sec-keypoints" className="learn-section learn-keypoints learn-reveal" key={`${concept.id}-kp`}>
               <h3>Key takeaways</h3>
               <ul className="learn-points">
                 {keyPoints.map((point, ki) => (
@@ -541,6 +549,44 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
               </ul>
             </section>
           )}
+
+          {pageCount > 1 && (
+            <nav className="learn-pager" aria-label="Page navigation">
+              <button
+                type="button"
+                className="learn-pager-btn"
+                onClick={() => goTo(page - 1)}
+                disabled={page <= 0}
+              >
+                ‹ Prev
+              </button>
+              <div className="learn-pager-mid">
+                <span className="learn-pager-count">{page + 1} / {pageCount}</span>
+                <span className="learn-pager-label">{current?.label}</span>
+                <div className="learn-pager-dots" role="tablist" aria-label="Jump to page">
+                  {pages.map((p, i) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`learn-pager-dot ${i === page ? "active" : ""}`}
+                      onClick={() => goTo(i)}
+                      aria-label={`Page ${i + 1}: ${p.label}`}
+                      aria-selected={i === page}
+                      title={p.label}
+                    />
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="learn-pager-btn primary"
+                onClick={() => goTo(page + 1)}
+                disabled={page >= pageCount - 1}
+              >
+                Next ›
+              </button>
+            </nav>
+          )}
         </div>
 
         <aside className="learn-concept-aside" aria-label="Study tools">
@@ -548,20 +594,24 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
             <nav className="learn-aside-card learn-toc-card" aria-label="On this page">
               <h3>On this page</h3>
               <ol className="learn-toc">
-                {toc.map((it, i) => (
-                  <li key={it.id}>
-                    <button
-                      type="button"
-                      className={`learn-toc-link ${activeId === it.id ? "active" : ""}`}
-                      onClick={() => jumpTo(it.id)}
-                    >
-                      <span className="learn-toc-num" aria-hidden="true">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                      <span className="learn-toc-label">{it.label}</span>
-                    </button>
-                  </li>
-                ))}
+                {toc.map((it, i) => {
+                  const pageIndex = pages.findIndex((p) => p.id === it.id);
+                  const isActive = current?.id === it.id;
+                  return (
+                    <li key={it.id}>
+                      <button
+                        type="button"
+                        className={`learn-toc-link ${isActive ? "active" : ""}`}
+                        onClick={() => pageIndex >= 0 && goTo(pageIndex)}
+                      >
+                        <span className="learn-toc-num" aria-hidden="true">
+                          {String(i + 1).padStart(2, "0")}
+                        </span>
+                        <span className="learn-toc-label">{it.label}</span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ol>
             </nav>
           )}

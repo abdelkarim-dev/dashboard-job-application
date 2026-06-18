@@ -11730,3 +11730,71 @@ body.pane-resizing {
 .drill-rate { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
 .drill-flash-hint { text-align: center; font-size: 12px; color: var(--md-on-surface-variant); margin: 12px 0 0; }
 .drill-flash-summary { font-size: 16px; margin-bottom: 4px; }
+
+/* ====================================================================== */
+/* Concept page in-page pagination (one section per page)                 */
+/* ====================================================================== */
+.learn-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--md-outline-variant);
+}
+.learn-pager-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .1s ease;
+}
+.learn-pager-btn:hover:not(:disabled) { border-color: var(--md-primary); transform: translateY(-1px); }
+.learn-pager-btn:disabled { opacity: .4; cursor: default; }
+.learn-pager-btn.primary { background: var(--md-primary); border-color: var(--md-primary); color: var(--md-on-primary); }
+.learn-pager-mid {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.learn-pager-count {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--md-on-surface-variant);
+}
+.learn-pager-label {
+  font-size: 12.5px;
+  color: var(--md-on-surface);
+  text-align: center;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.learn-pager-dots { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.learn-pager-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: var(--md-outline-variant);
+  cursor: pointer;
+  transition: background .15s ease, transform .15s ease;
+}
+.learn-pager-dot:hover { background: color-mix(in srgb, var(--md-primary) 50%, var(--md-outline-variant)); }
+.learn-pager-dot.active { background: var(--md-primary); transform: scale(1.25); }
+
+@media (max-width: 640px) {
+  .learn-pager-dots { display: none; }
+}
