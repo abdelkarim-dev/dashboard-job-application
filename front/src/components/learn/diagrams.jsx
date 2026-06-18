@@ -291,6 +291,98 @@ function BedrockRag() {
   );
 }
 
+// Terraform core loop: code reconciled against state and the real cloud.
+// Top row is the linear write→init→plan→apply→cloud pipeline. State sits below
+// in its own band; the two connectors live in the clear gap between the rows
+// (plan reads state, apply writes state) and never cross a box or label.
+function TerraformWorkflow() {
+  // Pipeline row: 5 boxes on a shared grid (y=30, h=48), 18px gaps.
+  const py = 30;
+  const ph = 48;
+  return (
+    <svg viewBox="0 0 668 200" {...svgProps("Terraform core workflow: write, init, plan, apply against state")}>
+      <Box x={12} y={py} w={96} h={ph} label="Write .tf" i={0} />
+      <Box x={130} y={py} w={96} h={ph} label="init" sub="providers+backend" i={1} />
+      <Box x={248} y={py} w={96} h={ph} label="plan" sub="the diff" accent i={2} />
+      <Box x={366} y={py} w={96} h={ph} label="apply" sub="make real" i={3} />
+      <Box x={484} y={py} w={172} h={ph} label="Cloud" sub="real resources" accent i={4} />
+      <Arrow x1={108} y1={py + ph / 2} x2={130} y2={py + ph / 2} i={5} />
+      <Arrow x1={226} y1={py + ph / 2} x2={248} y2={py + ph / 2} i={6} />
+      <Arrow x1={344} y1={py + ph / 2} x2={366} y2={py + ph / 2} i={7} />
+      <Arrow x1={462} y1={py + ph / 2} x2={484} y2={py + ph / 2} i={8} />
+
+      {/* State band, centred under plan↔apply. Both connectors are pure
+          verticals in the clear gap (y 78→132) — they cross nothing. */}
+      <Box x={256} y={132} w={160} h={46} label="State" sub="what was built" accent i={9} />
+      {/* plan reads state: vertical up into plan's bottom edge (x=300) */}
+      <Arrow x1={300} y1={132} x2={300} y2={py + ph} i={10} muted />
+      {/* apply writes state: vertical down into state's top edge (x=390) */}
+      <Arrow x1={390} y1={py + ph} x2={390} y2={132} i={11} />
+      <text x={334} y={196} className="dg-sub" textAnchor="middle">plan diffs code vs state vs reality; apply reconciles; destroy tears it down</text>
+    </svg>
+  );
+}
+
+// Remote state backend with locking: two engineers funnel through one CLI into a
+// shared, locked backend. Devs share a vertical lane on the left, the CLI sits
+// on the centre line, and the backend (S3 + DynamoDB) is grouped on the right.
+// All connectors are elbows in clear lanes — nothing crosses a label.
+function TerraformBackend() {
+  const cy = 96; // shared centre line for the terraform CLI box
+  return (
+    <svg viewBox="0 0 560 196" {...svgProps("Remote state backend with locking")}>
+      <Box x={16} y={40} w={104} h={44} label="Dev A" i={0} />
+      <Box x={16} y={108} w={104} h={44} label="Dev B" i={1} />
+      <Box x={196} y={cy - 26} w={128} h={52} label="terraform" sub="plan / apply" accent i={2} />
+
+      {/* Backend group on the right */}
+      <Group x={372} y={28} w={172} h={140} label="Remote backend" tone="region" i={3} />
+      <Box x={384} y={54} w={148} h={46} label="S3 — tfstate" sub="versioned · encrypted" i={4} />
+      <Box x={384} y={110} w={148} h={46} label="DynamoDB lock" sub="one apply at a time" i={5} />
+
+      {/* Devs → CLI: vertical out of each dev, then horizontal into CLI's
+          left edge (arrowheads point right into the box). */}
+      <Elbow x1={120} y1={62} x2={196} y2={cy - 8} dir="vh" i={6} />
+      <Elbow x1={120} y1={130} x2={196} y2={cy + 8} dir="vh" i={7} />
+      {/* CLI → backend: out of CLI's right edge, then up/down into each box. */}
+      <Elbow x1={324} y1={cy - 8} x2={384} y2={77} dir="hv" i={8} />
+      <Elbow x1={324} y1={cy + 8} x2={384} y2={133} dir="hv" i={9} />
+    </svg>
+  );
+}
+
+// Environment strategy: thin per-env roots over shared, pinned modules. The
+// three env roots sit on one row inside a "per-env roots" container; the shared
+// modules box is centred below. Each root connects to the shared modules with a
+// clean elbow that drops into a shared horizontal bus, so the fan-in reads
+// instantly and no connector crosses a box or label.
+function TerraformEnvironments() {
+  const roots = [
+    { x: 30, label: "dev/", sub: "tfvars · own state" },
+    { x: 250, label: "staging/", sub: "tfvars · own state" },
+    { x: 470, label: "prod/", sub: "own state · own acct", accent: true },
+  ];
+  const rw = 160;
+  const bus = 116; // shared horizontal bus y between roots and modules
+  return (
+    <svg viewBox="0 0 660 226" {...svgProps("Environment strategy: thin per-env roots over shared modules")}>
+      <Group x={16} y={18} w={628} h={70} label="PER-ENV ROOTS" i={0} />
+      {roots.map((r, k) => (
+        <Box key={r.label} x={r.x} y={36} w={rw} h={48} label={r.label} sub={r.sub} accent={r.accent} i={k + 1} />
+      ))}
+
+      <Box x={210} y={150} w={240} h={54} label="shared modules" sub="pinned versions" accent i={4} />
+
+      {/* Each root drops to a shared bus (y=116) then into the modules box top */}
+      {roots.map((r, k) => {
+        const cx = r.x + rw / 2;
+        return <Pipe key={r.label} points={[[cx, 84], [cx, bus], [330, bus], [330, 150]]} i={k + 5} />;
+      })}
+      <text x={330} y={222} className="dg-sub" textAnchor="middle">one thin root per env over the same pinned modules; promote versions dev → staging → prod</text>
+    </svg>
+  );
+}
+
 // Default secure VPC. Internet + Internet Gateway sit above the VPC. Inside the
 // VPC container: a Public subnet (ALB + NAT) over a Private subnet (App + RDS).
 // Routing lives in clear vertical lanes: the inbound path runs down the LEFT
@@ -551,6 +643,9 @@ const REGISTRY = {
   "bias-variance": BiasVariance,
   "rag-pipeline": RagPipeline,
   "bedrock-rag": BedrockRag,
+  "tf-workflow": TerraformWorkflow,
+  "tf-backend": TerraformBackend,
+  "tf-environments": TerraformEnvironments,
   "aws-vpc": AwsVpc,
   "aws-ha": AwsHaReference,
   "aws-dr": AwsDrStrategies,
@@ -569,9 +664,6 @@ export const DIAGRAMS_BY_CONCEPT = {
   behavioral: [{ id: "star-l", caption: "STAR-L: setup short; Action and Result carry the answer." }],
   "amazon-lp": [{ id: "interview-loop", caption: "The LP loop — behavioral-heavy, with a bar raiser and a written debrief." }],
   "interview-tactics": [{ id: "interview-loop", caption: "Where each tactic applies across the loop." }],
-  "toast-interview": [{ id: "interview-loop", caption: "A typical SWE loop shape." }],
-  "autodesk-interview": [{ id: "interview-loop", caption: "A typical SWE loop shape." }],
-  "treasure-data-interview": [{ id: "interview-loop", caption: "A typical SWE loop shape." }],
   "system-design-core": [{ id: "system-design-flow", caption: "The building blocks most designs assemble from." }],
   "system-design-framework": [
     { id: "sd-framework", caption: "Run every question through these five steps — start simple, then scale." },
@@ -581,6 +673,9 @@ export const DIAGRAMS_BY_CONCEPT = {
   "ai-system-design": [{ id: "rag-pipeline", caption: "A RAG/LLM feature: ingestion offline, retrieval + generation online." }],
   "rag-vector-search": [{ id: "rag-pipeline", caption: "RAG end to end — the diagonal arrow is retrieval against the store at query time." }],
   "ml-fundamentals": [{ id: "bias-variance", caption: "The bias-variance trade-off: the gap between curves is overfitting." }],
+  "terraform-foundations": [{ id: "tf-workflow", caption: "The core loop — code is reconciled against state and the real cloud. Read the plan; apply makes it real." }],
+  "terraform-state": [{ id: "tf-backend", caption: "Team-grade remote state: S3 stores it (versioned, encrypted); DynamoDB locks it so two applies can't collide." }],
+  "terraform-environments": [{ id: "tf-environments", caption: "Thin per-environment roots over shared, pinned modules — the layout most approaches converge on." }],
   "aws-saa-overview": [{ id: "aws-regions", caption: "Spread across AZs for HA within a region; replicate to another region for DR / global reach." }],
   "aws-networking": [{ id: "aws-vpc", caption: "The default secure VPC: public subnet holds the ALB + NAT, private subnet holds the app + database." }],
   "aws-resilience-cost": [

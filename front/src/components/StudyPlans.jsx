@@ -9,7 +9,6 @@ const ACCENTS = ["violet", "sky", "amber", "emerald", "rose", "cyan"];
 // in the Learn rail. Each maps to a concept group; "land" is where Open jumps to.
 const PREP_TRACKS = [
   { group: "For You", label: "Pitch & stories", accent: "violet", land: "my-pitch" },
-  { group: "Companies", label: "Company prep", accent: "sky", land: "toast-interview" },
   { group: "Interview", label: "Interview craft", accent: "amber", land: "behavioral" },
   { group: "Knowledge", label: "Knowledge: AI & system design", accent: "emerald", land: "system-design-core" },
   { group: "Principles", label: "Design principles", accent: "cyan", land: "dry" },

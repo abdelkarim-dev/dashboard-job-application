@@ -980,6 +980,13 @@ print(answer["output"]["message"]["content"][0]["text"])`,
   },
 ];
 
-export const CONCEPTS = [...PRINCIPLES, ...GENERATED_CONCEPTS, ...EXTRA_CONCEPTS, ...CLOUD_CONCEPTS];
+// Company-specific intel pages were removed (2026-06-17, per request): the
+// per-company prep packs aren't pulling their weight against the prep sources.
+// Filtered here rather than editing the auto-generated file, so a future
+// `gen-concepts.mjs` run stays clean.
+const REMOVED_COMPANY_IDS = new Set(["toast-interview", "autodesk-interview", "treasure-data-interview"]);
+const VISIBLE_GENERATED_CONCEPTS = GENERATED_CONCEPTS.filter((c) => !REMOVED_COMPANY_IDS.has(c.id));
+
+export const CONCEPTS = [...PRINCIPLES, ...VISIBLE_GENERATED_CONCEPTS, ...EXTRA_CONCEPTS, ...CLOUD_CONCEPTS];
 
 export const CONCEPTS_BY_ID = Object.fromEntries(CONCEPTS.map((c) => [c.id, c]));
