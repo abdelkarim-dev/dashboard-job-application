@@ -1619,6 +1619,170 @@ class Solution {
     }
 }
 `,
+  "lc-number-of-provinces": `class Solution {
+    public int findCircleNum(int[][] isConnected) {
+        int n = isConnected.length;
+        boolean[] seen = new boolean[n];
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            if (!seen[i]) {
+                dfs(isConnected, seen, i, n);
+                count++;
+            }
+        }
+        return count;
+    }
+    private void dfs(int[][] g, boolean[] seen, int i, int n) {
+        seen[i] = true;
+        for (int j = 0; j < n; j++) {
+            if (g[i][j] == 1 && !seen[j]) dfs(g, seen, j, n);
+        }
+    }
+}
+`,
+  "lc-word-search": `class Solution {
+    public boolean exist(char[][] board, String word) {
+        int rows = board.length, cols = board[0].length;
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (dfs(board, word, r, c, 0)) return true;
+            }
+        }
+        return false;
+    }
+    private boolean dfs(char[][] b, String w, int r, int c, int i) {
+        if (i == w.length()) return true;
+        if (r < 0 || c < 0 || r >= b.length || c >= b[0].length || b[r][c] != w.charAt(i)) return false;
+        char tmp = b[r][c];
+        b[r][c] = '#';
+        boolean found = dfs(b, w, r + 1, c, i + 1) || dfs(b, w, r - 1, c, i + 1)
+                || dfs(b, w, r, c + 1, i + 1) || dfs(b, w, r, c - 1, i + 1);
+        b[r][c] = tmp;
+        return found;
+    }
+}
+`,
+  "lc-maximum-subarray": `class Solution {
+    public int maxSubArray(int[] nums) {
+        int best = nums[0], cur = nums[0];
+        for (int i = 1; i < nums.length; i++) {
+            cur = Math.max(nums[i], cur + nums[i]);
+            best = Math.max(best, cur);
+        }
+        return best;
+    }
+}
+`,
+  "lc-subarray-sum-equals-k": `import java.util.*;
+
+class Solution {
+    public int subarraySum(int[] nums, int k) {
+        Map<Integer, Integer> prefix = new HashMap<>();
+        prefix.put(0, 1);
+        int total = 0, count = 0;
+        for (int x : nums) {
+            total += x;
+            count += prefix.getOrDefault(total - k, 0);
+            prefix.merge(total, 1, Integer::sum);
+        }
+        return count;
+    }
+}
+`,
+  "lc-k-closest-points-to-origin": `import java.util.*;
+
+class Solution {
+    public int[][] kClosest(int[][] points, int k) {
+        Arrays.sort(points, (a, b) -> (a[0] * a[0] + a[1] * a[1]) - (b[0] * b[0] + b[1] * b[1]));
+        return Arrays.copyOfRange(points, 0, k);
+    }
+}
+`,
+  "lc-validate-bst": `class Solution {
+    public boolean isValidBST(TreeNode root) {
+        return valid(root, Long.MIN_VALUE, Long.MAX_VALUE);
+    }
+    private boolean valid(TreeNode node, long low, long high) {
+        if (node == null) return true;
+        if (node.val <= low || node.val >= high) return false;
+        return valid(node.left, low, node.val) && valid(node.right, node.val, high);
+    }
+}
+`,
+  "lc-kth-smallest-bst": `import java.util.*;
+
+class Solution {
+    public int kthSmallest(TreeNode root, int k) {
+        Deque<TreeNode> stack = new ArrayDeque<>();
+        TreeNode node = root;
+        while (!stack.isEmpty() || node != null) {
+            while (node != null) {
+                stack.push(node);
+                node = node.left;
+            }
+            node = stack.pop();
+            if (--k == 0) return node.val;
+            node = node.right;
+        }
+        return -1;
+    }
+}
+`,
+  "lc-binary-tree-right-side-view": `import java.util.*;
+
+class Solution {
+    public int[] rightSideView(TreeNode root) {
+        List<Integer> out = new ArrayList<>();
+        if (root == null) return new int[0];
+        Queue<TreeNode> queue = new LinkedList<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            int size = queue.size();
+            for (int i = 0; i < size; i++) {
+                TreeNode node = queue.poll();
+                if (i == size - 1) out.add(node.val);
+                if (node.left != null) queue.add(node.left);
+                if (node.right != null) queue.add(node.right);
+            }
+        }
+        int[] res = new int[out.size()];
+        for (int i = 0; i < res.length; i++) res[i] = out.get(i);
+        return res;
+    }
+}
+`,
+  "lc-search-2d-matrix-ii": `class Solution {
+    public boolean searchMatrix(int[][] matrix, int target) {
+        if (matrix.length == 0 || matrix[0].length == 0) return false;
+        int r = 0, c = matrix[0].length - 1;
+        while (r < matrix.length && c >= 0) {
+            int v = matrix[r][c];
+            if (v == target) return true;
+            if (v > target) c--; else r++;
+        }
+        return false;
+    }
+}
+`,
+  "lc-valid-sudoku": `import java.util.*;
+
+class Solution {
+    public boolean isValidSudoku(char[][] board) {
+        Set<String> seen = new HashSet<>();
+        for (int r = 0; r < 9; r++) {
+            for (int c = 0; c < 9; c++) {
+                char v = board[r][c];
+                if (v == '.') continue;
+                if (!seen.add("r" + r + v) || !seen.add("c" + c + v)
+                        || !seen.add("b" + (r / 3) + (c / 3) + v)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+}
+`,
 };
 
 const supplementalPracticeTests = {
