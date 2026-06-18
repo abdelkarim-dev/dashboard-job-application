@@ -186,7 +186,7 @@ export default function StudyPlans({ onTrainPlan, onNavigate }) {
 
   if (loading) {
     return (
-      <div className="tab-content-container active learning-view">
+      <div className="tab-content-container active learning-view learning-scroll">
         <div className="learning-empty"><strong>Loading study plans…</strong></div>
       </div>
     );
@@ -203,7 +203,7 @@ export default function StudyPlans({ onTrainPlan, onNavigate }) {
         || (p.tags || []).some((t) => t.toLowerCase().includes(search)));
 
     return (
-      <div className="tab-content-container active learning-view">
+      <div className="tab-content-container active learning-view learning-scroll">
         <div className="learning-header">
           <div>
             <p className="eyebrow">Study plans</p>
@@ -316,7 +316,7 @@ export default function StudyPlans({ onTrainPlan, onNavigate }) {
 
   // ---------- Board view ----------
   return (
-    <div className="tab-content-container active learning-view">
+    <div className="tab-content-container active learning-view learning-scroll">
       <div className="learning-header">
         <div>
           <p className="eyebrow">Interview training</p>

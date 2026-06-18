@@ -2068,6 +2068,14 @@ textarea.drawer-input {
   overflow: hidden;
 }
 
+/* Long, flowing learning views (e.g. Study Plans) scroll as a whole, unlike the
+   LeetCode lab which manages its own internal panes and stays overflow:hidden. */
+.learning-view.learning-scroll {
+  overflow-y: auto;
+  padding-right: 4px;
+  padding-bottom: 32px;
+}
+
 .learning-header {
   flex-shrink: 0;
   display: flex;
