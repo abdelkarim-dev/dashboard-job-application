@@ -22,9 +22,9 @@ const LAB_ITEMS = [
 
 const LAB_IDS = new Set(LAB_ITEMS.map((l) => l.id));
 
-// "For You" (personalized) first so it's the most prominent; then the code labs,
-// then the reading tracks.
-const GROUP_ORDER = ["For You", "Code labs", "Terraform", "Principles", "Interview", "Knowledge"];
+// "Pitch & Plan" (the get-started templates) first so it's the most prominent;
+// then the code labs, then the reading tracks.
+const GROUP_ORDER = ["Pitch & Plan", "Code labs", "Terraform", "Principles", "Interview", "Knowledge"];
 
 const DEFAULT_SUB = "study-plans";
 

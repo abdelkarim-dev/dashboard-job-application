@@ -552,7 +552,7 @@ const EXTRA_CONCEPTS = [
       {
         heading: "How to drill with this bank",
         body: [
-          "The other behavioral pages teach the method (STAR-L, the Leadership Principles, what's scored). This page is for reps: the concrete questions you will actually be asked. For each one, pre-decide which story from your Story Bank you would reach for, so under pressure you retrieve fast instead of stalling. The story numbers below refer to your STAR-L Story Bank under For You.",
+          "The other behavioral pages teach the method (STAR-L, the Leadership Principles, what's scored). This page is for reps: the concrete questions you will actually be asked. For each one, pre-decide which story from your story bank you would reach for, so under pressure you retrieve fast instead of stalling. The story numbers below refer to your own STAR-L story bank — the set of archetype stories you've prepared.",
           "Rehearse out loud, not in your head, and time yourself to roughly two to three minutes per answer. Expect the deep follow-ups on every story: what was the data, what did others think, and what would you do differently. Say \"I\", not \"we\". A single story can answer several of these by changing what you emphasize, so practice re-aiming.",
         ],
       },
