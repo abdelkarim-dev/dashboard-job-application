@@ -22,6 +22,8 @@ export async function sqlLoadPracticeStore() {
     history: JSON.parse(prob.history || "[]"),
     attempts: JSON.parse(prob.attempts || "[]"),
     sessions: JSON.parse(prob.sessions || "[]"),
+    approach: JSON.parse(prob.approach || "{}"),
+    insight: prob.insight || "",
   }));
 
   const settingsRow = db
@@ -56,8 +58,8 @@ export async function sqlSavePracticeStore(store: PracticeStoreInput) {
       id, title, slug, url, difficulty, tags, paidOnly, acceptance, syncedAt,
       methodName, description, notes, reflection, customTests, starterCode, solutionCode,
       draft, languageDrafts, solutionRevealed, userStarted, solved, solveCount, reviewLevel, nextReviewAt,
-      history, attempts, sessions, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      history, attempts, sessions, approach, insight, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec("BEGIN TRANSACTION");
@@ -99,6 +101,8 @@ export async function sqlSavePracticeStore(store: PracticeStoreInput) {
         JSON.stringify(prob.history || []),
         JSON.stringify(prob.attempts || []),
         JSON.stringify(prob.sessions || []),
+        JSON.stringify(prob.approach || {}),
+        prob.insight || "",
         new Date().toISOString()
       );
     }

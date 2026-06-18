@@ -103,6 +103,8 @@ export interface PracticeProblemRow {
   history: string | null;
   attempts: string | null;
   sessions: string | null;
+  approach: string | null;
+  insight: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,6 +137,8 @@ export interface PracticeProblemInput {
   history?: unknown[];
   attempts?: unknown[];
   sessions?: unknown[];
+  approach?: Record<string, unknown>;
+  insight?: string;
 }
 
 export interface PracticeStoreInput {

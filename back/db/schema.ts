@@ -116,11 +116,15 @@ export function createSchema(): void {
       history TEXT,
       attempts TEXT,
       sessions TEXT,
+      approach TEXT,
+      insight TEXT,
       createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
   ensureColumn("practice_problems", "languageDrafts", "TEXT");
+  ensureColumn("practice_problems", "approach", "TEXT");
+  ensureColumn("practice_problems", "insight", "TEXT");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS courses (

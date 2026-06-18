@@ -150,3 +150,31 @@ test("HTTP code runner endpoints are disabled unless explicitly enabled", async 
 
   assert.equal(res.status, 403);
 });
+
+test("practice approach + insight round-trip through SQLite", async () => {
+  const problems = await fetch(`${base}/api/practice/problems`).then((res) => res.json());
+  const problem = problems[0];
+  assert.ok(problem?.id, "expected seeded practice problem");
+
+  const approach = {
+    pattern: "Hash Table",
+    summary: "Scan once. Keep complements in a map. Return when a complement is seen.",
+    timeComplexity: "O(n)",
+    spaceComplexity: "O(n)",
+  };
+  const put = await fetch(`${base}/api/practice/problems/${encodeURIComponent(problem.id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approach, insight: "Trade space for time." }),
+  });
+  assert.equal(put.status, 200);
+
+  // Re-read with a fresh query to prove the columns persist, not just the
+  // in-memory normalize of the PUT response.
+  const reloaded = await fetch(`${base}/api/practice/problems/${encodeURIComponent(problem.id)}`).then((res) => res.json());
+  assert.equal(reloaded.approach.pattern, "Hash Table");
+  assert.equal(reloaded.approach.timeComplexity, "O(n)");
+  assert.equal(reloaded.approach.spaceComplexity, "O(n)");
+  assert.equal(reloaded.insight, "Trade space for time.");
+  assert.ok(reloaded.draft, "an approach-only update must not wipe the saved draft");
+});
