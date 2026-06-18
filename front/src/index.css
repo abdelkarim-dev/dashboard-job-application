@@ -2131,6 +2131,7 @@ textarea.drawer-input {
 
 .practice-sidebar,
 .practice-detail {
+  position: relative;
   min-height: 0;
   overflow: hidden;
 }
@@ -11254,4 +11255,279 @@ body.pane-resizing {
     font-size: 9.5pt;
     margin-top: 8px;
   }
+}
+
+/* ====================================================================== */
+/* Toast coding-screen roadmap (LeetCode lab landing surface)             */
+/* ====================================================================== */
+.troad-toggle {
+  margin-left: auto;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.troad-toggle:hover { border-color: var(--md-primary); }
+.troad-toggle.active {
+  background: var(--md-primary);
+  border-color: var(--md-primary);
+  color: var(--md-on-primary);
+}
+
+/* Overlay variant: covers the editor pane without unmounting Ace. */
+.troad-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  overflow: auto;
+  background: var(--md-surface-2);
+}
+
+.troad {
+  height: 100%;
+  overflow: auto;
+  padding: 22px 26px 40px;
+  background: var(--md-surface-2);
+}
+.troad-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.troad-head h2 { margin: 2px 0 0; font-size: 26px; }
+.troad-lead { margin: 6px 0 0; color: var(--md-on-surface-variant); max-width: 70ch; }
+.troad-lead strong { color: var(--md-primary); }
+
+/* Screen-at-a-glance banner */
+.troad-screen {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 18px;
+  align-items: center;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--md-primary) 9%, var(--md-surface)), var(--md-surface));
+  border: 1px solid color-mix(in srgb, var(--md-primary) 26%, var(--md-outline-variant));
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+.troad-screen-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 18px;
+  border-right: 1px solid var(--md-outline-variant);
+}
+.troad-screen-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--md-on-surface-variant);
+  font-weight: 700;
+}
+.troad-screen-when strong { font-size: 20px; color: var(--md-primary); }
+.troad-screen-when small { color: var(--md-on-surface-variant); }
+.troad-screen-facts { margin: 0; display: grid; gap: 8px; }
+.troad-screen-facts > div { display: grid; grid-template-columns: 92px 1fr; gap: 12px; }
+.troad-screen-facts dt {
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--md-on-surface-variant);
+  padding-top: 1px;
+}
+.troad-screen-facts dd { margin: 0; color: var(--md-on-surface); }
+
+.troad-cols {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.troad-side { display: grid; gap: 16px; align-content: start; }
+
+.troad-card {
+  background: var(--md-surface);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-1);
+}
+.troad-card h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.troad-card h3 small {
+  font-weight: 500;
+  color: var(--md-on-surface-variant);
+  font-size: 12px;
+}
+
+/* Top-10 list */
+.troad-top10-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.troad-top10-list li {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.troad-rank {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-weight: 700;
+  font-size: 12px;
+}
+.troad-pattern {
+  font-size: 11.5px;
+  color: var(--md-on-surface-variant);
+  white-space: nowrap;
+}
+
+/* Problem chips — runnable (in local bank) vs external (LeetCode link) */
+.troad-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s ease, background .15s ease, transform .1s ease;
+}
+.troad-chip:hover { transform: translateY(-1px); }
+.troad-chip.runnable { border-color: color-mix(in srgb, var(--md-primary) 45%, var(--md-outline-variant)); }
+.troad-chip.runnable:hover { border-color: var(--md-primary); background: var(--md-primary-container); }
+.troad-chip.runnable.solved { border-color: color-mix(in srgb, var(--s-offer) 55%, var(--md-outline-variant)); }
+.troad-chip.external { opacity: .82; }
+.troad-chip.external:hover { opacity: 1; border-color: var(--md-secondary); }
+.troad-chip-run {
+  font-size: 11px;
+  color: var(--md-primary);
+  flex: 0 0 auto;
+}
+.troad-chip.solved .troad-chip-run { color: var(--s-offer); }
+.troad-chip.external .troad-chip-run { color: var(--md-on-surface-variant); }
+.troad-chip-title { white-space: nowrap; }
+.troad-chip-lc {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--md-on-surface-variant);
+  background: var(--md-surface-2);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+.troad-chip-note {
+  font-weight: 500;
+  color: var(--md-on-surface-variant);
+  font-size: 11px;
+  white-space: normal;
+}
+
+/* Habits + recursion checklist */
+.troad-habits ul, .troad-recur ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; }
+.troad-recur ol { counter-reset: rc; }
+.troad-habits li { display: grid; grid-template-columns: 22px 1fr; gap: 9px; font-size: 13px; align-items: start; }
+.troad-habit-n {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--md-surface-2);
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 11px; color: var(--md-on-surface-variant);
+}
+.troad-recur li {
+  counter-increment: rc;
+  position: relative;
+  padding-left: 26px;
+  font-size: 13px;
+}
+.troad-recur li::before {
+  content: counter(rc);
+  position: absolute; left: 0; top: 0;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--md-tertiary-container);
+  color: var(--md-on-tertiary-container);
+  display: grid; place-items: center;
+  font-weight: 700; font-size: 11px;
+}
+
+/* Subject ladder */
+.troad-subjects { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.troad-subject {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 12px;
+  padding: 13px 14px;
+  background: var(--md-surface);
+  border-left: 3px solid var(--md-outline-variant);
+}
+.troad-subject.status-done { border-left-color: var(--s-offer); }
+.troad-subject.status-next {
+  border-left-color: var(--s-screen);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--s-screen) 7%, var(--md-surface)), var(--md-surface));
+}
+.troad-subject.status-later { opacity: .94; }
+.troad-subject-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.troad-subject-n {
+  width: 26px; height: 26px; border-radius: 8px;
+  background: var(--md-surface-2);
+  display: grid; place-items: center;
+  font-weight: 800; font-size: 13px; color: var(--md-on-surface-variant);
+  flex: 0 0 auto;
+}
+.troad-subject-titles { flex: 1 1 auto; min-width: 0; }
+.troad-subject-titles h4 { margin: 0; font-size: 14px; }
+.troad-subject-level { font-size: 11px; color: var(--md-on-surface-variant); }
+.troad-status {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+.troad-status-done { background: var(--s-offer-bg); color: var(--s-offer); }
+.troad-status-next { background: var(--s-screen-bg); color: var(--s-screen); }
+.troad-status-later { background: var(--md-surface-2); color: var(--md-on-surface-variant); }
+.troad-subject-idea { margin: 0 0 8px; font-size: 12.5px; color: var(--md-on-surface); line-height: 1.5; }
+.troad-subject-built {
+  margin: 0 0 9px;
+  font-size: 11.5px;
+  color: var(--md-on-surface-variant);
+}
+.troad-subject-built span {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: 10px;
+  margin-right: 6px;
+  color: var(--s-offer);
+}
+.troad-subject-problems { display: flex; flex-wrap: wrap; gap: 6px; }
+.troad-favorites { margin-bottom: 8px; }
+
+@media (max-width: 1100px) {
+  .troad-cols { grid-template-columns: 1fr; }
+  .troad-subjects { grid-template-columns: 1fr; }
+  .troad-screen { grid-template-columns: 1fr; }
+  .troad-screen-when { border-right: none; border-bottom: 1px solid var(--md-outline-variant); padding-bottom: 12px; }
 }
