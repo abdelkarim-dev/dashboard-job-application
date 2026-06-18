@@ -509,6 +509,131 @@ function AwsRegions() {
   );
 }
 
+// The compute decision: one question fans to the three ways to run code, each
+// with its cue. The senior heuristic lives in the caption.
+function AwsComputeDecision() {
+  const top = { x: 250, y: 14, w: 160, h: 42 };
+  const cx = top.x + top.w / 2; // 330
+  const cards = [
+    { x: 24, label: "Lambda", sub: "event-driven · short", cue: "billed only while running" },
+    { x: 234, label: "Containers / Fargate", sub: "long service · portable", cue: "serverless containers" },
+    { x: 444, label: "EC2", sub: "full machine control", cue: "you patch & scale it" },
+  ];
+  const cw = 192;
+  return (
+    <svg viewBox="0 0 660 196" {...svgProps("AWS compute decision: Lambda vs Fargate vs EC2")}>
+      <Box x={top.x} y={top.y} w={top.w} h={top.h} label="Run code on AWS" accent i={0} />
+      {cards.map((c, k) => (
+        <Box key={c.label} x={c.x} y={96} w={cw} h={52} label={c.label} sub={c.sub} accent={k === 0} i={k + 1} />
+      ))}
+      {/* funnel from the question down into each card top */}
+      <Arrow x1={cx} y1={56} x2={cx} y2={96} i={4} />
+      <Pipe points={[[cx, 56], [cx, 78], [120, 78], [120, 96]]} i={5} muted />
+      <Pipe points={[[cx, 56], [cx, 78], [540, 78], [540, 96]]} i={6} muted />
+      {cards.map((c, k) => (
+        <text key={c.label} x={c.x + cw / 2} y={166} className="dg-sub" textAnchor="middle">{c.cue}</text>
+      ))}
+      <text x={330} y={188} className="dg-sub" textAnchor="middle">event-driven & short → Lambda · long-running & portable → Fargate · need the box → EC2</text>
+    </svg>
+  );
+}
+
+// The decoupling/messaging picker: four services, each reduced to its verb.
+function AwsMessaging() {
+  const cards = [
+    { label: "SQS", sub: "queue", verb: "hand off work" },
+    { label: "SNS", sub: "pub / sub", verb: "broadcast 1→many" },
+    { label: "EventBridge", sub: "event bus", verb: "route by rules" },
+    { label: "Kinesis", sub: "stream", verb: "ordered · replayable" },
+  ];
+  const x0 = 16;
+  const cw = 146;
+  const gap = 10;
+  return (
+    <svg viewBox="0 0 632 150" {...svgProps("AWS messaging services: SQS, SNS, EventBridge, Kinesis")}>
+      {cards.map((c, k) => (
+        <Box key={c.label} x={x0 + k * (cw + gap)} y={26} w={cw} h={56} label={c.label} sub={c.sub} accent={k === 0} i={k} />
+      ))}
+      {cards.map((c, k) => (
+        <text key={c.label} x={x0 + k * (cw + gap) + cw / 2} y={104} className="dg-sub" textAnchor="middle">{c.verb}</text>
+      ))}
+      <text x={316} y={138} className="dg-sub" textAnchor="middle">SQS to hand off work · SNS to broadcast · EventBridge to route events · Kinesis to stream</text>
+    </svg>
+  );
+}
+
+// DynamoDB partitioning: a lopsided key sends all traffic to one partition (hot,
+// throttling) while the rest sit idle; a high-cardinality / sharded key spreads
+// it evenly. The traffic-share subs carry the story (no fan-out arrows to cross).
+function DynamoPartitions() {
+  const parts = [0, 1, 2, 3];
+  const px = (k) => 178 + k * 110;
+  return (
+    <svg viewBox="0 0 640 212" {...svgProps("DynamoDB hot partition vs write sharding")}>
+      {/* Hot row */}
+      <Box x={16} y={28} w={140} h={48} label="key: ACTIVE" sub="low cardinality" i={0} />
+      {parts.map((k) => (
+        <Box key={`h${k}`} x={px(k)} y={28} w={96} h={48} label={`P${k + 1}`} sub={k === 0 ? "100% ⚠" : "0%"} accent={k === 0} i={k + 1} />
+      ))}
+      {/* Sharded row */}
+      <Box x={16} y={120} w={140} h={48} label="key: ACTIVE#n" sub="high cardinality" accent i={5} />
+      {parts.map((k) => (
+        <Box key={`s${k}`} x={px(k)} y={120} w={96} h={48} label={`P${k + 1}`} sub="~25%" i={k + 6} />
+      ))}
+      <text x={88} y={96} className="dg-sub" textAnchor="middle">hot partition</text>
+      <text x={88} y={188} className="dg-sub" textAnchor="middle">balanced</text>
+      <text x={320} y={206} className="dg-sub" textAnchor="middle">spread load with a high-cardinality key or a write-sharding suffix — never design a hot key</text>
+    </svg>
+  );
+}
+
+// S3 storage classes on the hot→cold / cost spectrum, aged down by lifecycle.
+function S3StorageClasses() {
+  const cards = [
+    { label: "Standard", sub: "hot · $$$$" },
+    { label: "Standard-IA", sub: "cool · $$" },
+    { label: "Glacier", sub: "cold · $" },
+    { label: "Deep Archive", sub: "frozen · ¢" },
+  ];
+  const x0 = 16;
+  const cw = 138;
+  const gap = 10;
+  const cyTop = 30;
+  return (
+    <svg viewBox="0 0 608 178" {...svgProps("S3 storage classes by access frequency and cost")}>
+      {cards.map((c, k) => (
+        <Box key={c.label} x={x0 + k * (cw + gap)} y={cyTop} w={cw} h={56} label={c.label} sub={c.sub} accent={k === 0} i={k} />
+      ))}
+      {/* lifecycle arrows ageing data down between adjacent classes */}
+      {[0, 1, 2].map((k) => {
+        const ax = x0 + k * (cw + gap) + cw;
+        return <Arrow key={k} x1={ax} y1={cyTop + 28} x2={ax + gap} y2={cyTop + 28} i={k + 4} muted />;
+      })}
+      <Arrow x1={x0} y1={114} x2={592} y2={114} i={7} />
+      <text x={x0} y={134} className="dg-sub" textAnchor="start">frequent access</text>
+      <text x={592} y={134} className="dg-sub" textAnchor="end">rare / archival</text>
+      <text x={304} y={166} className="dg-sub" textAnchor="middle">lifecycle rules age objects down on a schedule · Intelligent-Tiering auto-moves when access is unpredictable</text>
+    </svg>
+  );
+}
+
+// Lambda cold start: the first invocation pays init + handler; a warm one pays
+// only the handler. The named fixes shrink or skip the init segment.
+function LambdaColdStart() {
+  return (
+    <svg viewBox="0 0 640 172" {...svgProps("Lambda cold start vs warm start timeline")}>
+      <text x={16} y={52} className="dg-sub" textAnchor="start">Cold</text>
+      <Box x={64} y={30} w={300} h={36} label="Init · download + bootstrap" accent i={0} />
+      <Box x={372} y={30} w={150} h={36} label="Handler" i={1} />
+      <text x={16} y={112} className="dg-sub" textAnchor="start">Warm</text>
+      <Box x={64} y={90} w={150} h={36} label="Handler" i={2} />
+      {/* latency brackets */}
+      <text x={214} y={20} className="dg-sub" textAnchor="middle">extra latency only on cold</text>
+      <text x={320} y={152} className="dg-sub" textAnchor="middle">fixes: provisioned concurrency · SnapStart · smaller package · lazy-load deps</text>
+    </svg>
+  );
+}
+
 const REGISTRY = {
   "pitch-arc": PitchArc,
   "star-l": StarL,
@@ -525,6 +650,11 @@ const REGISTRY = {
   "aws-ha": AwsHaReference,
   "aws-dr": AwsDrStrategies,
   "aws-regions": AwsRegions,
+  "aws-compute-decision": AwsComputeDecision,
+  "aws-messaging": AwsMessaging,
+  "dynamo-partitions": DynamoPartitions,
+  "s3-storage-classes": S3StorageClasses,
+  "lambda-coldstart": LambdaColdStart,
 };
 
 // Which diagram(s) render on which concept page, with a caption.
@@ -554,6 +684,18 @@ export const DIAGRAMS_BY_CONCEPT = {
   "aws-resilience-cost": [
     { id: "aws-ha", caption: "The HA web-app reference architecture most 'design a resilient app' answers reduce to." },
     { id: "aws-dr", caption: "The four DR strategies on the cost vs recovery-time spectrum." },
+    { id: "aws-messaging", caption: "The decoupling picker: match the service to the verb — hand off, broadcast, route, or stream." },
+  ],
+  "aws-compute": [
+    { id: "aws-compute-decision", caption: "The compute decision: carry one cue per option into the room." },
+    { id: "lambda-coldstart", caption: "Cold start = init + handler; the named fixes shrink or skip the init segment." },
+  ],
+  "aws-storage": [{ id: "s3-storage-classes", caption: "S3 cost = storage class + lifecycle. Age data down; let Intelligent-Tiering guess when you can't." }],
+  "aws-databases": [{ id: "dynamo-partitions", caption: "Design the partition key for even spread — the hot-partition trap and the write-sharding fix." }],
+  "aws-interview-decisions": [
+    { id: "aws-compute-decision", caption: "Compute: one decision, one tradeoff per option." },
+    { id: "aws-messaging", caption: "Decoupling: match the service to the verb." },
+    { id: "dynamo-partitions", caption: "DynamoDB: design the key for even spread; shard hot keys." },
   ],
 };
 

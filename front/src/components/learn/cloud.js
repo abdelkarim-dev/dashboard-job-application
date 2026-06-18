@@ -962,6 +962,166 @@ run "bucket_is_private" {
 // ── AWS (Solutions Architect – Associate) ─────────────────────────
 const AWS_CONCEPTS = [
   {
+    id: "aws-interview-decisions",
+    group: "AWS (SAA)",
+    label: "Interview Decisions",
+    icon: "🧭",
+    title: "AWS Interview Decisions — One Decision + One Tradeoff per Category",
+    tagline:
+      "The spoken-interview layer for an ex-AWS interviewer: not every service, just a sensible choice and its tradeoff for each major category — plus the golden rule and the Well-Architected lens.",
+    sections: [
+      {
+        heading: "The frame for this whole round",
+        card: true,
+        tag: "Read first",
+        body: [
+          "You will not be asked to know every AWS service. You will be asked to make sensible choices and explain the tradeoffs. So for each major category, carry one decision and one tradeoff in your head — that is what senior sounds like. The schematics below are that map: compute, messaging, and DynamoDB partitioning at a glance.",
+          "Keep the golden rule running underneath everything: never give a flat no. If they ask about a service you have not run in production, bridge — 'I haven't run that in production, but here is the problem it solves and when I'd reach for it.' With an ex-AWS interviewer, that single habit is the difference between a dead end and a good conversation.",
+        ],
+        callout: {
+          kind: "key",
+          title: "The bridge sentence (rehearse it until automatic)",
+          text: "“I haven't used that exact feature in production, but conceptually here's how it works and here's when I'd reach for it.” Every gap becomes a demonstration of how you think instead of a stop.",
+        },
+      },
+      {
+        heading: "Compute — the decision",
+        body: [
+          "The three ways to run code on AWS are EC2, Lambda, and containers; the skill is knowing when to reach for each. EC2 is a virtual server you control fully, OS and all — reach for it when you need that control or you're running something long-lived that doesn't fit the other two. Lambda is functions that run on demand, no servers to manage, billed only while they run — reach for it when work is event-driven, spiky, or short-lived. Containers (ECS with Fargate, or EKS for Kubernetes) give you portable long-running services without babysitting servers; Fargate is the key phrase — serverless containers, hand it the container and it runs it.",
+          "The clean heuristic to say out loud: if it's event-driven and short, Lambda; if it's a long-running service and I want portability without managing servers, containers on Fargate; if I need full control of the machine, EC2. The tradeoff to name for Lambda is the cold start — the delay on the first invocation or after idle, because AWS spins up a fresh environment and initializes your code. The named fixes are provisioned concurrency (keep environments pre-warmed; you pay to keep them warm) and SnapStart (restore from a snapshot of the initialized function — started as a Java feature). Beyond those: keep the package small, lazy-load heavy dependencies, don't over-stuff init. Reserved concurrency caps or guarantees how many copies run at once.",
+        ],
+      },
+      {
+        heading: "Databases — the decision",
+        body: [
+          "The first fork is relational vs NoSQL. Relational is for structured data with complex queries, joins, and transactions where consistency matters: on AWS that's RDS (managed MySQL/Postgres/etc.) or Aurora (AWS's cloud-native engine, MySQL/Postgres-compatible but built for more performance and availability). The phrase to carry: Aurora when I want relational plus more scale and resilience, RDS when I want straightforward managed relational.",
+          "NoSQL here means DynamoDB — for well-understood access patterns that must scale enormously with fast key-based lookups. You design the table around how you'll read it, not around a tidy data model. The deep-dive answer is partition-key design and write sharding to avoid hot partitions, and Global Secondary Indexes for alternate access patterns (see the partitioning schematic). For resilience, name two distinct things: read replicas spread read traffic and are eventually consistent (for scale); Multi-AZ keeps a standby in another AZ for automatic failover (for survival). Replicas are for scale, Multi-AZ is for survival — naming both shows you separate the concerns.",
+        ],
+        callout: {
+          kind: "tip",
+          title: "The senior one-liner on consistency",
+          text: "Default to eventual consistency for most things (it scales better and is simpler), but insist on strong consistency for anything involving money or inventory, where being wrong for even a second is unacceptable.",
+        },
+      },
+      {
+        heading: "S3 — cost and lockdown",
+        body: [
+          "Cost: storage classes plus lifecycle policies. Standard for hot data, Standard-IA for rarely touched, Glacier and Deep Archive for cold archives, Intelligent-Tiering when access is unpredictable (it auto-moves objects between tiers). Lifecycle policies age data into cheaper tiers or delete it on a schedule — and a good one also clears incomplete multipart uploads that quietly cost money. Remember cost = storage + requests + data transfer out, so a CDN in front cuts the transfer bill.",
+          "Security: Block Public Access, least-privilege policies, and encryption. Block Public Access is the master off switch for internet exposure and should be on by default. Grant the minimum with bucket and IAM policies — never a wildcard. Encrypt at rest (S3 does it by default; use KMS keys when you need to control and audit them). Share one file temporarily with a pre-signed URL (a link that expires) instead of making the bucket public, and reach S3 over the private network with a VPC endpoint. If you remember three words: Block Public Access, least privilege, pre-signed URLs.",
+        ],
+      },
+      {
+        heading: "Networking — the parts that come up",
+        body: [
+          "A VPC is your own private network inside AWS. Inside it are subnets; the key split is public (can reach the internet) vs private (cannot directly). Put servers in private subnets and only expose what must be public. A security group is a stateful firewall on a resource — allow traffic in and the response is automatically allowed back out. A network ACL is its stateless cousin at the subnet level — you must allow both directions explicitly. In practice you do almost all your work with security groups.",
+          "A NAT gateway lets private-subnet resources reach out to the internet (for updates) without being reachable from it. A VPC endpoint reaches AWS services like S3 privately, keeping traffic off the public internet. CloudFront is AWS's CDN, caching content close to users for speed and lower transfer cost.",
+        ],
+      },
+      {
+        heading: "Decoupling and messaging — match the verb",
+        body: [
+          "When a question involves spikes, background work, or connecting services, knowing which service is which is the signal. SQS is a queue: drop work on it, consumers pull it off — smooths spikes and moves slow work to the background. SNS is publish/subscribe: fan one message out to many subscribers at once. EventBridge is an event bus that routes events between services by rules — good for event-driven architectures. Kinesis is streaming: an ordered, replayable river of records for real-time analytics and high-volume pipelines.",
+          "The short version to say: SQS to hand off work, SNS to broadcast, EventBridge to route events, Kinesis to stream. This maps directly onto your lead-ingestion platform (event-driven, dedup, routing).",
+        ],
+      },
+      {
+        heading: "Identity, security, observability",
+        body: [
+          "Identity: the key distinction is IAM roles vs users. A user is a human with long-lived credentials. A role is an identity assumed temporarily — and it's what your services and applications should use, because the credentials are short-lived and rotated automatically. The senior phrase: applications get roles, not access keys, and everything follows least privilege. KMS manages encryption keys; Secrets Manager stores credentials like DB passwords so they're never hardcoded.",
+          "Observability: CloudWatch is the home for metrics, logs, and alarms; X-Ray traces a request as it moves across services so you can find where the latency lives. If they ask how you'd know your system is healthy, those two are the answer.",
+        ],
+      },
+      {
+        heading: "The senior framing that ties it together",
+        body: [
+          "If you want one move that reads as architect-level, reason in terms of the AWS Well-Architected Framework — AWS's own checklist of six pillars: operational excellence, security, reliability, performance efficiency, cost optimization, and sustainability. You don't recite them; you use them as a lens — 'that handles reliability, and on the cost pillar I'd add lifecycle policies.' Speaking in those terms tells an ex-AWS interviewer you think the way they were trained to think.",
+        ],
+        defs: [
+          { term: "Operational excellence", def: "Run and monitor systems; improve processes. (Automation, runbooks, observability.)" },
+          { term: "Security", def: "Protect data and systems. (Least privilege, encryption, Block Public Access.)" },
+          { term: "Reliability", def: "Recover from failure, scale to demand. (Multi-AZ, ASG, health checks.)" },
+          { term: "Performance efficiency", def: "Use resources efficiently as demand changes. (Right-sizing, caching, the right service.)" },
+          { term: "Cost optimization", def: "Avoid unneeded spend. (Savings Plans/Spot, storage classes, lifecycle, CDN.)" },
+          { term: "Sustainability", def: "Minimize the environmental impact of the workload. (Efficient regions, managed/serverless.)" },
+        ],
+      },
+    ],
+    keyPoints: [
+      "Compute: event-driven & short → Lambda; long-running & portable → Fargate; full machine control → EC2. Lambda tradeoff = cold start (fix: provisioned concurrency / SnapStart).",
+      "Databases: Aurora = relational + scale/resilience; RDS = straightforward managed relational; DynamoDB = huge scale + key lookups, design around access patterns. Read replicas = scale; Multi-AZ = survival.",
+      "Consistency: default eventual; insist on strong for money/inventory.",
+      "S3 cost = storage classes + lifecycle (clear incomplete multipart uploads); transfer out is part of the bill, so put a CDN in front.",
+      "S3 lockdown = Block Public Access + least privilege + encryption; pre-signed URL for one temporary file; VPC endpoint for private access.",
+      "Messaging: SQS to hand off, SNS to broadcast, EventBridge to route, Kinesis to stream.",
+      "Identity: applications get roles (short-lived), not access keys; Secrets Manager for passwords, KMS for keys.",
+      "Observability: CloudWatch (metrics/logs/alarms) + X-Ray (request tracing).",
+      "Golden rule: never a flat no — bridge to the problem it solves and when you'd reach for it. Reason in Well-Architected pillars.",
+    ],
+    checklist: [
+      "Can give the compute decision (Lambda/Fargate/EC2) with the cold-start tradeoff and its two fixes",
+      "Can separate read replicas (scale) from Multi-AZ (survival) in one sentence",
+      "Can explain the DynamoDB hot-partition trap and the write-sharding fix",
+      "Can give the S3 cost answer (storage classes + lifecycle) and the lockdown answer (Block Public Access, least privilege, pre-signed URLs)",
+      "Can match SQS/SNS/EventBridge/Kinesis to their verbs instantly",
+      "Can say why applications use roles, not access keys",
+      "Can use the Well-Architected pillars as a lens, not a recitation",
+      "Can deliver the bridge sentence without hesitating when asked about an unfamiliar service",
+    ],
+    quiz: [
+      {
+        q: "A spiky, event-driven task runs for a few seconds at a time. Which compute, and what's the tradeoff to name?",
+        options: [
+          "EC2 — and mention right-sizing",
+          "Lambda — and mention cold starts (fix: provisioned concurrency / SnapStart)",
+          "Fargate — and mention Kubernetes",
+          "Dedicated Hosts — and mention licensing",
+        ],
+        answer: 1,
+        explain:
+          "Event-driven and short → Lambda. The senior move is to volunteer the tradeoff: cold starts, fixed with provisioned concurrency or SnapStart.",
+      },
+      {
+        q: "A DynamoDB table throttles because almost every write uses the partition key status=ACTIVE. The fix?",
+        options: [
+          "Add a read replica",
+          "Switch to strong consistency",
+          "Use a high-cardinality key or append a sharding suffix (e.g. ACTIVE#n)",
+          "Enable Multi-AZ",
+        ],
+        answer: 2,
+        explain:
+          "That's a hot partition — one partition key takes all the traffic. Spread it with a high-cardinality key or write sharding. Replicas/Multi-AZ are about scale/survival, not key skew.",
+      },
+      {
+        q: "You must give a partner temporary access to download one S3 object without making the bucket public. Best tool?",
+        options: ["Disable Block Public Access", "A pre-signed URL", "A wildcard bucket policy", "A public CloudFront distribution"],
+        answer: 1,
+        explain:
+          "A pre-signed URL grants time-limited access to a single object and then expires — no need to open the bucket.",
+      },
+      {
+        q: "An application needs to call AWS APIs. How should it authenticate?",
+        options: [
+          "Long-lived access keys baked into the app",
+          "An IAM role it assumes (short-lived, auto-rotated credentials)",
+          "The root account credentials",
+          "A shared IAM user for the whole fleet",
+        ],
+        answer: 1,
+        explain:
+          "Applications get roles, not access keys. Role credentials are short-lived and rotated automatically — least privilege by default.",
+      },
+      {
+        q: "You need to broadcast one event to several independent subscribers at once. Which service?",
+        options: ["SQS", "SNS", "Kinesis", "A larger EC2 instance"],
+        answer: 1,
+        explain:
+          "SNS is publish/subscribe — fan one message out to many subscribers. SQS is a point-to-point queue; Kinesis is for ordered streaming.",
+      },
+    ],
+  },
+
+  {
     id: "aws-saa-overview",
     group: "AWS (SAA)",
     label: "SAA Exam & Well-Architected",
