@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { collectGlossaryTerms } from "./glossary.js";
+import { awardPoints } from "../../lib/points.mjs";
 
 // Interactive study drill for a concept page. Questions are AUTO-GENERATED from
 // the page's own content — the curated quiz, plus term↔definition MCQs mined
@@ -100,6 +101,7 @@ function QuizMode({ pool, concept }) {
   const next = () => {
     if (idx + 1 >= order.length) {
       setDone(true);
+      awardPoints("drillQuiz");
       return;
     }
     setIdx((v) => v + 1);

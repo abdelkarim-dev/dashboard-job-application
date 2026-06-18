@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import ToastRoadmap from "./ToastRoadmap.jsx";
+import { awardPoints } from "../lib/points.mjs";
 
 function ToolbarIcon({ name }) {
   const common = {
@@ -391,9 +391,6 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
   const [running, setRunning] = useState(false);
   const [sidePanelMode, setSidePanelMode] = useState("description");
   const [openPatterns, setOpenPatterns] = useState({});
-  // The Toast screen roadmap is the landing surface for the lab; it overlays the
-  // editor (kept mounted so Ace is never torn down) and is the empty state too.
-  const [showRoadmap, setShowRoadmap] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(330);
   const [editorPaneWidth, setEditorPaneWidth] = useState(620);
   const [consoleHeight, setConsoleHeight] = useState(264);
@@ -701,6 +698,8 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
           });
           if (solvedRes.ok) {
             setCompilerStatus(`Submitted. All ${result.total} tests passed. Marked solved automatically.`);
+            // Points for solving — only the first time, so re-runs don't farm.
+            if (!selectedProblem.solved) awardPoints("problemSolved");
           }
         }
 
@@ -1288,18 +1287,9 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     <div className="tab-content-container active learning-view">
       <div className="learning-header">
         <div>
-          <p className="eyebrow">Interview training · Toast screen</p>
+          <p className="eyebrow">Interview training</p>
           <h2>LeetCode</h2>
         </div>
-        <button
-          type="button"
-          className={`troad-toggle ${showRoadmap ? "active" : ""}`}
-          onClick={() => setShowRoadmap((v) => !v)}
-          aria-pressed={showRoadmap}
-          title="The Toast coding-screen roadmap"
-        >
-          {showRoadmap ? "✕ Close roadmap" : "🗺 Screen roadmap"}
-        </button>
       </div>
 
       <div
@@ -1389,13 +1379,10 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
         {/* Practice Workspace Workspace */}
         <section className="practice-detail">
           {!selectedProblem ? (
-            <ToastRoadmap
-              problems={problems}
-              onSelectProblem={(p) => {
-                setShowRoadmap(false);
-                handleSelectProblem(p);
-              }}
-            />
+            <div className="learning-empty">
+              <strong>Select a problem</strong>
+              <span>Pick a problem from the list, or build a focused set in Study Plans.</span>
+            </div>
           ) : (
             <div
               className="practice-editor-shell"
@@ -1570,18 +1557,6 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
                   {sidePanelMode === "solution" ? renderSolution() : renderDescription()}
                 </div>
               </div>
-            </div>
-          )}
-          {selectedProblem && showRoadmap && (
-            <div className="troad-overlay">
-              <ToastRoadmap
-                problems={problems}
-                onSelectProblem={(p) => {
-                  setShowRoadmap(false);
-                  handleSelectProblem(p);
-                }}
-                onClose={() => setShowRoadmap(false)}
-              />
             </div>
           )}
         </section>

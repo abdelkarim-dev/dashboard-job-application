@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { CONCEPTS } from "./learn/concepts.js";
 import { PERSONALIZED_CONCEPTS } from "./learn/personalized.js";
 import { loadConceptProgress, loadChecklistProgress } from "./learn/ConceptPage.jsx";
+import PointsBanner from "./StudyHabit.jsx";
+import PatternRecall from "./learn/PatternRecall.jsx";
 
 const ACCENTS = ["violet", "sky", "amber", "emerald", "rose", "cyan"];
 
@@ -324,6 +326,10 @@ export default function StudyPlans({ onTrainPlan, onNavigate }) {
       </div>
 
       {status && <p className="plan-status-line">{status}</p>}
+
+      <PointsBanner />
+
+      <PatternRecall />
 
       <section className="prep-coverage-section">
         <div className="prep-coverage-head">

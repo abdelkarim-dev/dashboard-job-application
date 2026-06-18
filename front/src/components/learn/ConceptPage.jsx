@@ -5,6 +5,7 @@ import { buildToc } from "./toc"; // first TypeScript module (compiled by Vite)
 import { GlossarySegments, JargonCard } from "./GlossaryText.jsx";
 import { splitWithGlossary } from "./glossary.js";
 import ConceptDrill from "./ConceptDrill.jsx";
+import { awardPoints } from "../../lib/points.mjs";
 
 const PROGRESS_KEY = "learnConceptProgress";
 const CHECKLIST_KEY = "learnChecklistProgress";
@@ -431,6 +432,7 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
     const next = !reviewed;
     setReviewedState(next);
     setReviewed(concept.id, next);
+    if (next) awardPoints("conceptReviewed");
   };
 
   const toggleCheck = (i) => {
