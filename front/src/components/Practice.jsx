@@ -225,6 +225,76 @@ function matchesPattern(problem, pattern) {
   return pattern.tags.some((tag) => tags.includes(tag));
 }
 
+// Classify-before-code gate (client mirror of the domain check): a fresh attempt
+// stays locked for submission until the solver names the pattern, writes a plan,
+// and states both complexities.
+function emptyApproach() {
+  return { pattern: "", summary: "", timeComplexity: "", spaceComplexity: "" };
+}
+
+function approachFromProblem(problem) {
+  const a = (problem && problem.approach) || {};
+  return {
+    pattern: a.pattern || "",
+    summary: a.summary || "",
+    timeComplexity: a.timeComplexity || "",
+    spaceComplexity: a.spaceComplexity || "",
+  };
+}
+
+function isApproachComplete(approach) {
+  if (!approach || typeof approach !== "object") return false;
+  return Boolean(String(approach.pattern || "").trim())
+    && String(approach.summary || "").trim().length > 0
+    && Boolean(String(approach.timeComplexity || "").trim())
+    && Boolean(String(approach.spaceComplexity || "").trim());
+}
+
+// The one-line takeaway shown in review mode: the saved insight, else the most
+// recent solved reflection.
+function problemInsight(problem) {
+  if (!problem) return "";
+  if (String(problem.insight || "").trim()) return problem.insight.trim();
+  const solved = (problem.history || []).find((h) => h.type === "solved" && String(h.note || "").trim());
+  return solved ? solved.note.trim() : "";
+}
+
+// Pattern-coverage scoreboard: bucket each PATTERN_GROUP into cold / warm / solid
+// from solve history + SRS level. reviewLevel resets to 0 on a failed attempt, so
+// recent misses naturally pull a pattern back toward cold without extra tracking.
+function patternRecognitionStatus(matching) {
+  const solved = matching.filter((p) => (p.solveCount || 0) > 0);
+  if (solved.length === 0) return "cold";
+  const bestLevel = matching.reduce((max, p) => Math.max(max, p.reviewLevel || 0), 0);
+  if (solved.length >= 2 && bestLevel >= 3) return "solid";
+  return "warm";
+}
+
+const PATTERN_STATUS_RANK = { cold: 0, warm: 1, solid: 2 };
+
+function buildPatternCoverage(problems) {
+  return PATTERN_GROUPS
+    .map((pattern) => {
+      const matching = problems.filter((p) => matchesPattern(p, pattern));
+      const solved = matching.filter((p) => (p.solveCount || 0) > 0).length;
+      const bestLevel = matching.reduce((max, p) => Math.max(max, p.reviewLevel || 0), 0);
+      return {
+        name: pattern.name,
+        total: matching.length,
+        solved,
+        unsolved: matching.length - solved,
+        bestLevel,
+        status: matching.length === 0 ? "empty" : patternRecognitionStatus(matching),
+      };
+    })
+    .filter((row) => row.total > 0)
+    .sort((a, b) => (
+      (PATTERN_STATUS_RANK[a.status] - PATTERN_STATUS_RANK[b.status])
+      || b.total - a.total
+      || a.name.localeCompare(b.name)
+    ));
+}
+
 function formatValue(value) {
   if (value === undefined) return "undefined";
   if (typeof value === "string") return value;
@@ -394,6 +464,14 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
   const [sidebarWidth, setSidebarWidth] = useState(330);
   const [editorPaneWidth, setEditorPaneWidth] = useState(620);
   const [consoleHeight, setConsoleHeight] = useState(264);
+  // "workspace" = editor; "coverage" = the pattern-recognition scoreboard.
+  const [view, setView] = useState("workspace");
+  // Classify-before-code: the in-progress approach for the selected problem, plus
+  // a one-line insight; reviewMode re-solves a due problem from a blank editor.
+  const [approachDraft, setApproachDraft] = useState(emptyApproach);
+  const [insight, setInsight] = useState("");
+  const [editingApproach, setEditingApproach] = useState(false);
+  const [reviewMode, setReviewMode] = useState(false);
 
   // Read the persisted timer that lives in App.jsx so it survives tab navigation.
   const focusMinutes = timerState?.focusMinutes ?? 25;
@@ -419,6 +497,15 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
       seconds: Math.max(0, Number(prev?.focusMinutes) || 0) * 60,
       running: false,
     }));
+  };
+
+  // Review mode re-solves from blank against the clock: restart the focus timer
+  // from its configured duration and run it.
+  const startTimerFresh = () => {
+    setTimerState((prev) => {
+      const minutes = Math.max(0, Number(prev?.focusMinutes) || 25);
+      return { ...prev, seconds: minutes * 60, running: true };
+    });
   };
 
   const aceEditorRef = useRef(null);
@@ -450,6 +537,14 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     return () => window.clearTimeout(id);
   }, [sidebarWidth, editorPaneWidth, consoleHeight]);
 
+  // The coverage view hides (not unmounts) the editor; Ace needs a resize when
+  // the workspace re-appears or it renders at zero height.
+  useEffect(() => {
+    if (view !== "workspace") return undefined;
+    const id = window.setTimeout(() => editorInstanceRef.current?.resize(), 0);
+    return () => window.clearTimeout(id);
+  }, [view]);
+
   const fetchPracticeStore = async (selectId = null) => {
     try {
       const res = await fetch("/api/practice");
@@ -475,6 +570,10 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     setSelectedProblem(problem);
     setNotes(problem.notes || "");
     setReflection(problem.reflection || "");
+    setApproachDraft(approachFromProblem(problem));
+    setInsight(problem.insight || "");
+    setEditingApproach(false);
+    setReviewMode(false);
     setRunResults(null);
     setCompilerStatus(getIdleCompilerStatus(language));
     setSidePanelMode("description");
@@ -653,6 +752,14 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
   // Compile & Run
   const handleCompileAndRun = async (mode = "run") => {
     if (!selectedProblem || running) return;
+    // Classify-before-code: a fresh attempt can't be submitted until the approach
+    // is filled. Running tests stays open so you can still check your work.
+    if (mode === "submit" && !selectedProblem.solved && !reviewMode && !isApproachComplete(approachDraft)) {
+      setSidePanelMode("description");
+      setEditingApproach(true);
+      setCompilerStatus("Classify first: name the pattern, write a 3-sentence approach, and state time & space before submitting.");
+      return;
+    }
     const language = selectedLanguageRef.current;
     setRunning(true);
     setCompilerStatus(mode === "submit"
@@ -740,6 +847,8 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
       draft: getCode(),
       notes,
       reflection,
+      approach: approachDraft,
+      insight,
       solutionRevealed: selectedProblem.solutionRevealed || sidePanelMode === "solution",
     };
 
@@ -761,6 +870,77 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     } catch (err) {
       console.error(err);
     }
+  };
+
+  // Persist just the classify-before-code approach + insight (no editor draft),
+  // so the gate state and the review insight survive a reload. Returns the saved
+  // problem, or null. Does not touch the editor buffer.
+  const saveApproach = async (problem = selectedProblem, approach = approachDraft, insightText = insight) => {
+    if (!problem) return null;
+    try {
+      const res = await fetch(`/api/practice/problems/${encodeURIComponent(problem.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approach: { ...approach, updatedAt: new Date().toISOString() },
+          insight: insightText,
+        }),
+      });
+      if (!res.ok) return null;
+      const saved = await res.json();
+      setStore((prev) => (prev ? { ...prev, problems: prev.problems.map((x) => (x.id === saved.id ? saved : x)) } : prev));
+      setProblems((items) => items.map((item) => (item.id === saved.id ? saved : item)));
+      setSelectedProblem(saved);
+      return saved;
+    } catch (err) {
+      console.error("Failed to save approach", err);
+      return null;
+    }
+  };
+
+  // Lock the approach in: persist it, collapse the form, and start the clock so
+  // the solve is timed from the moment the plan is committed.
+  const lockInApproach = async () => {
+    if (!isApproachComplete(approachDraft)) return;
+    await saveApproach();
+    setEditingApproach(false);
+    if (!timerRunning) startTimerFresh();
+    setCompilerStatus("Approach locked in. Editor unlocked for submission — timer running.");
+  };
+
+  // Re-solve a due problem from blank: load the starter (not the saved draft),
+  // hide the reference solution, run the timer, and show only the saved insight.
+  const handleStartReview = (problem) => {
+    handleSelectProblem(problem);
+    setReviewMode(true);
+    setSidePanelMode("description");
+    const language = selectedLanguageRef.current;
+    if (editorInstanceRef.current) {
+      editorInstanceRef.current.setValue(getLanguageStarter(problem, language), -1);
+      editorInstanceRef.current.clearSelection();
+    }
+    startTimerFresh();
+    setCompilerStatus("Review · re-solve from blank. Reference solution hidden; focus timer running.");
+  };
+
+  const exitReview = () => {
+    setReviewMode(false);
+    setTimerRunning(false);
+    if (selectedProblem) handleSelectProblem(selectedProblem);
+    setCompilerStatus("Exited review.");
+  };
+
+  // From a coverage card: jump into the workspace and open a weak (unsolved)
+  // problem in that pattern so the user drills the gap, not raw count.
+  const drillPattern = (name) => {
+    const pattern = PATTERN_GROUPS.find((p) => p.name === name);
+    setView("workspace");
+    setStatusFilter("");
+    setOpenPatterns((prev) => ({ ...prev, [name]: true }));
+    if (!pattern) return;
+    const matching = problems.filter((p) => matchesPattern(p, pattern));
+    const target = matching.find((p) => !p.solved) || matching[0];
+    if (target) handleSelectProblem(target);
   };
 
   const handleMarkSolved = async () => {
@@ -866,6 +1046,10 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
 
   const toggleSolutionPanel = () => {
     if (!selectedProblem) return;
+    if (reviewMode && sidePanelMode !== "solution") {
+      setCompilerStatus("Reference solution stays hidden in review mode. Exit review to view it.");
+      return;
+    }
     setSidePanelMode((mode) => (mode === "solution" ? "description" : "solution"));
     setCompilerStatus(sidePanelMode === "solution" ? "Problem description restored." : "Solution opened on the right.");
   };
@@ -1076,6 +1260,130 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     return groups;
   };
 
+  const renderClassifyPanel = () => {
+    if (!selectedProblem) return null;
+    const ready = isApproachComplete(approachDraft);
+    const collapsed = ready && !editingApproach;
+    const setField = (key, value) => setApproachDraft((prev) => ({ ...prev, [key]: value }));
+    return (
+      <div className={`classify-panel ${ready ? "ready" : "locked"}`}>
+        <div className="classify-head">
+          <strong>Classify before you code</strong>
+          <span className={`classify-pill ${ready ? "ready" : ""}`}>{ready ? "Submit unlocked" : "Submit locked"}</span>
+        </div>
+        {collapsed ? (
+          <div className="classify-summary">
+            <p><b>{approachDraft.pattern}</b> · {approachDraft.timeComplexity} time · {approachDraft.spaceComplexity} space</p>
+            <p className="classify-summary-text">{approachDraft.summary}</p>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setEditingApproach(true)}>Edit approach</button>
+          </div>
+        ) : (
+          <div className="classify-form">
+            <label className="classify-field">
+              <span>Pattern</span>
+              <input
+                className="learning-input"
+                list="practice-pattern-list"
+                placeholder="e.g. Sliding Window"
+                value={approachDraft.pattern}
+                onChange={(e) => setField("pattern", e.target.value)}
+              />
+            </label>
+            <datalist id="practice-pattern-list">
+              {PATTERN_GROUPS.map((p) => <option key={p.name} value={p.name} />)}
+            </datalist>
+            <label className="classify-field">
+              <span>Approach — 3 sentences: the idea, the data structure, why it's correct</span>
+              <textarea
+                className="learning-input"
+                rows={3}
+                placeholder="Walk the array once. Keep a running window in a hash map. Shrink from the left when the constraint breaks."
+                value={approachDraft.summary}
+                onChange={(e) => setField("summary", e.target.value)}
+              />
+            </label>
+            <div className="classify-cost">
+              <label className="classify-field">
+                <span>Time</span>
+                <input className="learning-input" placeholder="O(n)" value={approachDraft.timeComplexity} onChange={(e) => setField("timeComplexity", e.target.value)} />
+              </label>
+              <label className="classify-field">
+                <span>Space</span>
+                <input className="learning-input" placeholder="O(1)" value={approachDraft.spaceComplexity} onChange={(e) => setField("spaceComplexity", e.target.value)} />
+              </label>
+            </div>
+            <label className="classify-field">
+              <span>Key insight — one line, shown when this comes back for review</span>
+              <input className="learning-input" placeholder="The trick you don't want to forget." value={insight} onChange={(e) => setInsight(e.target.value)} />
+            </label>
+            <div className="classify-actions">
+              <button type="button" className="btn-primary btn-sm" disabled={!ready} onClick={lockInApproach}>
+                Lock in &amp; start
+              </button>
+              <small>{ready ? "Submit is unlocked." : "Submit unlocks once the pattern, plan, and time/space are filled."}</small>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderReviewBanner = () => {
+    if (!reviewMode || !selectedProblem) return null;
+    const tip = problemInsight(selectedProblem);
+    return (
+      <div className="review-banner">
+        <div className="review-banner-text">
+          <strong>Review · re-solve from blank</strong>
+          <span>{tip ? `Insight: ${tip}` : "No saved insight yet — write one when you solve it."}</span>
+        </div>
+        <button type="button" className="btn-ghost btn-sm" onClick={exitReview}>Exit review</button>
+      </div>
+    );
+  };
+
+  const renderCoverage = () => {
+    const coverage = buildPatternCoverage(problems);
+    const counts = { cold: 0, warm: 0, solid: 0 };
+    coverage.forEach((row) => { counts[row.status] = (counts[row.status] || 0) + 1; });
+    return (
+      <div className="pattern-coverage">
+        <div className="coverage-intro">
+          <div>
+            <h3>Pattern recognition</h3>
+            <p>Drill the cold and warm patterns first — recognition, not raw problem count.</p>
+          </div>
+          <div className="coverage-legend">
+            <span className="status-pill cold">Cold {counts.cold}</span>
+            <span className="status-pill warm">Warm {counts.warm}</span>
+            <span className="status-pill solid">Solid {counts.solid}</span>
+          </div>
+        </div>
+        {coverage.length === 0 ? (
+          <p className="mini-empty">No tagged problems yet. Sync the LeetCode bank to populate patterns.</p>
+        ) : (
+          <div className="coverage-grid">
+            {coverage.map((row) => (
+              <button key={row.name} type="button" className={`coverage-card ${row.status}`} onClick={() => drillPattern(row.name)}>
+                <div className="coverage-card-head">
+                  <strong>{row.name}</strong>
+                  <span className={`status-pill ${row.status}`}>{row.status}</span>
+                </div>
+                <div className="coverage-card-meta">
+                  <span>{row.solved}/{row.total} solved</span>
+                  <span>SRS L{row.bestLevel}</span>
+                </div>
+                <div className="coverage-bar">
+                  <span style={{ width: `${row.total ? Math.round((row.solved / row.total) * 100) : 0}%` }} />
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderDescription = () => {
     if (!selectedProblem) return null;
     let desc = (selectedProblem.description || "").trim();
@@ -1115,11 +1423,15 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     );
   };
 
-  const renderProblemRow = (prob) => (
+  const renderProblemRow = (prob) => {
+    // The "Due" filter is the review queue: opening a row there re-solves from
+    // blank. Every other filter opens normally (unchanged).
+    const reviewQueue = statusFilter === "due";
+    return (
     <button
       key={prob.id}
-      className={`problem-row ${selectedProblem?.id === prob.id ? "active" : ""} ${prob.solved ? "solved" : ""}`}
-      onClick={() => handleSelectProblem(prob)}
+      className={`problem-row ${selectedProblem?.id === prob.id ? "active" : ""} ${prob.solved ? "solved" : ""} ${reviewQueue ? "review-row" : ""}`}
+      onClick={() => (reviewQueue ? handleStartReview(prob) : handleSelectProblem(prob))}
       type="button"
     >
       <div className="problem-row-head">
@@ -1128,7 +1440,9 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
       </div>
       <div className="problem-row-meta">
         <span>{(prob.tags || []).slice(0, 3).join(", ") || "No tags"}</span>
-        {prob.nextReviewAt && <span>Due: {prob.nextReviewAt}</span>}
+        {reviewQueue
+          ? <span className="review-cue">↻ re-solve blank</span>
+          : (prob.nextReviewAt && <span>Due: {prob.nextReviewAt}</span>)}
       </div>
       {(prob.companies || []).length > 0 && (
         <div className="problem-company-tags">
@@ -1141,7 +1455,8 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
         </div>
       )}
     </button>
-  );
+    );
+  };
 
   const renderPatternGroup = (group, index) => {
     const selectedInGroup = group.problems.some((problem) => problem.id === selectedProblem?.id);
@@ -1283,6 +1598,10 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
   const filteredProblems = getFilteredProblems(planProblems || problems);
   const groupedProblems = getGroupedProblems(filteredProblems);
   const testSummary = getConfiguredTestSummary();
+  // Classify-before-code gate: a never-solved problem (outside review) stays
+  // locked for submission until its approach is complete.
+  const freshAttempt = Boolean(selectedProblem && !selectedProblem.solved && !reviewMode);
+  const submitLocked = freshAttempt && !isApproachComplete(approachDraft);
   return (
     <div className="tab-content-container active learning-view">
       <div className="learning-header">
@@ -1290,12 +1609,34 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
           <p className="eyebrow">Interview training</p>
           <h2>LeetCode</h2>
         </div>
+        <div className="practice-view-toggle" role="tablist" aria-label="Practice view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "workspace"}
+            className={view === "workspace" ? "active" : ""}
+            onClick={() => setView("workspace")}
+          >
+            Workspace
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "coverage"}
+            className={view === "coverage" ? "active" : ""}
+            onClick={() => setView("coverage")}
+          >
+            Pattern coverage
+          </button>
+        </div>
       </div>
+
+      {view === "coverage" && renderCoverage()}
 
       <div
         className="practice-layout"
         ref={practiceLayoutRef}
-        style={{ "--practice-sidebar-width": `${sidebarWidth}px` }}
+        style={{ "--practice-sidebar-width": `${sidebarWidth}px`, display: view === "coverage" ? "none" : undefined }}
       >
         {/* Sidebar */}
         <aside className="practice-sidebar">
@@ -1395,10 +1736,11 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
                   <div className="editor-toolbar-actions" aria-label="Editor actions">
                     <IconButton label="Reset starter" icon="codeReset" onClick={useStarterCode} />
                     <IconButton
-                      label={sidePanelMode === "solution" ? "Show description" : "Show solution"}
+                      label={reviewMode ? "Solution hidden in review" : (sidePanelMode === "solution" ? "Show description" : "Show solution")}
                       icon="eye"
                       className={sidePanelMode === "solution" ? "active" : ""}
                       onClick={toggleSolutionPanel}
+                      disabled={reviewMode}
                     />
                     <IconButton label="Save draft" icon="save" onClick={handleSaveDraft} />
                     <IconButton
@@ -1408,11 +1750,11 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
                       disabled={running}
                     />
                     <IconButton
-                      label={running ? "Submitting solution" : "Submit solution"}
+                      label={submitLocked ? "Classify before submitting" : (running ? "Submitting solution" : "Submit solution")}
                       icon="check"
-                      className="primary"
+                      className={`primary ${submitLocked ? "locked" : ""}`}
                       onClick={() => handleCompileAndRun("submit")}
-                      disabled={running}
+                      disabled={running || submitLocked}
                     />
                     <div className="language-toggle" aria-label="Editor language">
                       {PRACTICE_LANGUAGES.map((language) => (
@@ -1554,7 +1896,13 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
                 </div>
 
                 <div className="practice-left-content">
-                  {sidePanelMode === "solution" ? renderSolution() : renderDescription()}
+                  {sidePanelMode === "solution" ? renderSolution() : (
+                    <>
+                      {renderReviewBanner()}
+                      {freshAttempt && renderClassifyPanel()}
+                      {renderDescription()}
+                    </>
+                  )}
                 </div>
               </div>
             </div>
