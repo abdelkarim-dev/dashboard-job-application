@@ -1190,6 +1190,214 @@ print(answer["output"]["message"]["content"][0]["text"])`,
       },
     ],
   },
+  {
+    id: "api-data-realtime",
+    group: "Knowledge",
+    label: "APIs, Real-time & DBs",
+    icon: "🔌",
+    title: "APIs, Real-time & Databases — Choosing the Right Tool",
+    tagline:
+      "Pick the API style, the delivery model, and the datastore from the access pattern — and name the one tradeoff each choice buys you. The senior signal here is matching the verb to the tool, not knowing every tool.",
+    sections: [
+      {
+        heading: "The frame: choose by access pattern, name the tradeoff",
+        card: true,
+        tag: "Read first",
+        body: [
+          "Every choice on this page is the same move: look at how the data is accessed (read-heavy vs write-heavy, point lookup vs join, one-way vs bidirectional, internal vs public) and pick the tool that fits it, then say out loud what that choice costs. That second half — naming the tradeoff unprompted — is what reads as senior. \"I'd use gRPC here\" is a fact; \"I'd use gRPC for the internal hop because it's faster and strictly typed, trading away browser-friendliness and human-readable payloads\" is an architect.",
+          "These choices are not separate from system design — they ARE the API, data-model, and storage steps of the design framework. So treat this page as the deep-dive vocabulary for those steps: when the interviewer says \"how do clients talk to it\" you reach here, and when they say \"where does the data live\" you reach here.",
+        ],
+        callout: {
+          kind: "key",
+          title: "The one habit",
+          text: "For every API/transport/DB you name, follow it immediately with \"…which buys me X and costs me Y.\" One decision, one tradeoff, every time.",
+        },
+      },
+      {
+        heading: "API styles — REST vs gRPC vs GraphQL",
+        body: [
+          "REST is the default web API: resources addressed by URL, manipulated with HTTP verbs, usually JSON over HTTP/1.1. It is ubiquitous, debuggable from a browser or curl, and cacheable by ordinary HTTP infrastructure because a GET is just a GET. The cost is that it's loosely contracted (JSON has no enforced schema unless you bolt on OpenAPI) and chatty — fetching a screen often means several round trips.",
+          "gRPC is a binary RPC framework: you define the service and messages in a .proto file (Protocol Buffers), and it generates strongly-typed client and server stubs. It rides HTTP/2, so it multiplexes calls over one connection and supports streaming in both directions. It is compact and fast and gives you a strict, versioned contract — which is exactly why it shines for internal service-to-service calls in a mesh where latency matters. The cost: it's not natively browser-friendly (needs a proxy like gRPC-Web), the binary payloads aren't human-readable, and standard HTTP caches don't understand it.",
+          "GraphQL is a query language for your API: the client sends one query describing exactly the fields it wants, and the server returns precisely that shape. This kills over-fetching (pulling fields you don't need) and under-fetching (needing N follow-up calls), which is why it's loved for rich, varied front-end and mobile clients. The cost: HTTP caching is hard (it's usually one POST to /graphql, so the URL no longer identifies the response), server complexity rises (resolvers, the N+1 query problem, query-cost limiting to stop a malicious deep query), and observability is harder because every request hits the same endpoint.",
+          "Say the heuristic plainly: REST for public, broadly-consumed, cache-friendly APIs; gRPC for internal, latency-sensitive, strongly-contracted service-to-service hops and streaming; GraphQL when diverse clients need to shape their own data and over/under-fetching is the real pain.",
+        ],
+        table: {
+          headers: ["Dimension", "REST", "gRPC", "GraphQL"],
+          rows: [
+            ["Transport / wire", "HTTP/1.1, usually JSON (text)", "HTTP/2, Protocol Buffers (binary)", "HTTP, JSON; one POST endpoint"],
+            ["Contract", "Loose (OpenAPI optional)", "Strict, codegen'd from .proto", "Strict, typed schema (SDL)"],
+            ["Best fit", "Public / broadly-consumed APIs", "Internal service-to-service, low latency", "Rich/varied clients shaping data"],
+            ["Streaming", "Not native (SSE/WS bolt-on)", "First-class, bidirectional", "Subscriptions (over WS)"],
+            ["Caching", "Easy (HTTP GET semantics)", "Hard (binary, no HTTP cache)", "Hard (POST, no URL identity)"],
+            ["Main cost", "Chatty, untyped by default", "Not browser-native, opaque payloads", "Server complexity, N+1, caching"],
+          ],
+        },
+        callout: {
+          kind: "tip",
+          title: "Which API style?",
+          text: "Browser/third-party clients and you want HTTP caching → REST. Internal microservice mesh where latency and a tight contract matter (and you control both ends) → gRPC. One backend feeding many client shapes (web + iOS + Android) drowning in round trips → GraphQL.",
+        },
+      },
+      {
+        heading: "API design essentials (REST-flavored, mostly transferable)",
+        body: [
+          "These are the cross-cutting concerns an interviewer expects you to volunteer once you've picked a style. They apply to any HTTP API; gRPC bakes some in via its framework.",
+        ],
+        defs: [
+          { term: "Resources & verbs", def: "Model nouns as resources (/orders/123), use HTTP verbs for the action: GET read, POST create, PUT replace, PATCH partial update, DELETE remove. Keep verbs out of URLs (/orders, not /getOrders). GET must be safe (no side effects)." },
+          { term: "Status codes", def: "2xx success (200 OK, 201 Created, 204 No Content), 3xx redirect, 4xx client error (400 bad request, 401 unauthenticated, 403 unauthorized, 404 not found, 409 conflict, 429 too many requests), 5xx server error. Use them honestly — don't return 200 with an error body." },
+          { term: "Idempotency", def: "PUT/DELETE are naturally idempotent; POST is not. For unsafe-to-repeat operations (charge a card), accept a client-supplied Idempotency-Key and dedupe on it so a retried request doesn't double-act. Essential anywhere retries exist." },
+          { term: "Pagination", def: "Never return an unbounded list. Offset/limit is simple but drifts and gets slow deep into the data; cursor/keyset pagination (give me items after this token) is stable under inserts and scales — prefer it for large or live datasets." },
+          { term: "Versioning", def: "Plan for change up front. URI versioning (/v2/...) is explicit and cache-friendly but forks your surface area; header/media-type versioning keeps URLs stable but is easier to get wrong. Add fields, never repurpose or remove them silently (backward compatibility)." },
+          { term: "Rate limiting", def: "Cap requests per client per window to protect against abuse and overload; return 429 with a Retry-After. Token bucket allows bursts, leaky bucket smooths the rate, sliding window counts accurately." },
+          { term: "Auth", def: "Authentication = who you are (OAuth2/OIDC + JWTs, or API keys for service clients); authorization = what you may do (scopes/roles, least privilege). Carry credentials in the Authorization header over TLS — never in the URL." },
+        ],
+      },
+      {
+        heading: "Real-time delivery — polling vs SSE vs WebSockets",
+        body: [
+          "When the client needs fresh data without the user hammering refresh, the question is how the server pushes (or appears to push) updates. There are four rungs, from cheapest/dumbest to richest/most operationally demanding.",
+          "Short polling: the client asks \"anything new?\" on a fixed timer. Trivial to build and stateless, but it wastes requests when nothing changed and adds latency equal to the poll interval. Long polling: the request is held open until there's data (or a timeout), then the client immediately re-requests — near-real-time over plain HTTP, but it ties up a connection per client and is fiddly. Server-Sent Events (SSE): a single long-lived HTTP connection over which the server streams text events to the client; it's one-way (server→client), auto-reconnects, and is dead simple — ideal for live feeds, notifications, dashboards, and streaming LLM tokens. WebSockets: a persistent, full-duplex TCP connection upgraded from HTTP; both sides send anytime with low overhead — the right tool for genuinely bidirectional, interactive, low-latency things (chat, multiplayer, collaborative editing, live trading).",
+          "The decision: if updates flow only server→client, SSE — it's simpler, rides ordinary HTTP, and reconnects for free. Reach for WebSockets only when the client also needs to push frequently and interactively. Polling is the fallback when you can't hold connections (or the update cadence is slow enough that it doesn't matter).",
+        ],
+        table: {
+          headers: ["Mechanism", "Direction", "How it works", "Reach for it when"],
+          rows: [
+            ["Short polling", "Client pulls", "Repeated requests on a timer", "Simplest; slow-changing data, no infra for push"],
+            ["Long polling", "Client pulls (held open)", "Server holds request until data/timeout", "Near-real-time but must stay on plain HTTP"],
+            ["SSE", "Server → client only", "One long-lived HTTP stream of text events", "One-way live feeds, notifications, token streaming"],
+            ["WebSockets", "Bidirectional, full-duplex", "Persistent TCP upgraded from HTTP", "Chat, multiplayer, collab, low-latency two-way"],
+          ],
+        },
+        callout: {
+          kind: "warn",
+          title: "Scaling stateful connections",
+          text: "SSE and WebSockets are stateful — each open connection pins a client to a server, so you can't just round-robin behind a plain load balancer. You need sticky routing, a shared pub/sub backplane (e.g. Redis) so any node can deliver to any client, and a plan for connection limits and reconnect storms. Polling is stateless and scales like any other HTTP endpoint — that simplicity is a real argument for it.",
+        },
+      },
+      {
+        heading: "Database types — what each is for",
+        body: [
+          "There's no \"best\" database, only a best fit for an access pattern. Know the family, the one-line job, and an example engine for each — that's enough to make and defend a choice.",
+        ],
+        defs: [
+          { term: "Relational (SQL)", def: "Structured rows with a fixed schema, joins across tables, and ACID transactions. The default for anything with relationships and strong-consistency needs (orders, payments, users). Engines: PostgreSQL, MySQL, AWS Aurora/RDS." },
+          { term: "Key-value", def: "A giant hash map: get/put by key, blisteringly fast point lookups, no joins. For sessions, caches, feature flags, simple high-throughput lookups. Engines: Redis, Amazon DynamoDB, Memcached." },
+          { term: "Document", def: "Stores self-contained JSON-like documents with flexible schema; good when each record is mostly read/written as a whole and the shape varies. For catalogs, user profiles, content. Engines: MongoDB, DynamoDB, Couchbase." },
+          { term: "Wide-column", def: "Rows keyed by a partition key with sparse, wide columns; built for massive write throughput and horizontal scale with a known query pattern. For time series at scale, event logs, IoT. Engines: Apache Cassandra, ScyllaDB, Google Bigtable." },
+          { term: "Graph", def: "First-class nodes and edges with fast relationship traversal; for data where the connections are the point. For social graphs, recommendations, fraud rings, knowledge graphs. Engines: Neo4j, Amazon Neptune." },
+          { term: "Search", def: "An inverted index for full-text search, relevance ranking, and faceted filtering — not a system of record, but a fast queryable view alongside one. For product/site search, log search. Engines: Elasticsearch/OpenSearch, Apache Solr." },
+          { term: "Time-series", def: "Optimized for append-heavy, timestamped data with time-windowed queries, downsampling, and retention/rollup policies. For metrics, monitoring, sensor data. Engines: InfluxDB, TimescaleDB, Amazon Timestream, Prometheus." },
+        ],
+      },
+      {
+        heading: "Choosing a database — the decision procedure",
+        body: [
+          "Don't pattern-match on hype. Walk the same procedure every time, out loud, and the choice (and its defense) falls out.",
+        ],
+        steps: [
+          "Start from the access patterns: list what you read and write, the read:write ratio, the query shapes (point lookup? join? range scan? full-text? traversal?), and how often each runs. The dominant pattern drives everything.",
+          "State the consistency and scale needs: must reads always see the latest write (money/inventory), or is briefly-stale fine (feed, count)? How big does the data get and how fast do writes arrive — does it outgrow one machine?",
+          "Default to SQL (relational). If you have relationships, joins, ad-hoc queries, or transactions, a managed relational DB is almost always the right starting point — it's flexible, well-understood, and ACID. Don't reach past it without a reason.",
+          "Reach for NoSQL when you have a known, fixed access pattern that must scale horizontally beyond one machine — then pick the family by pattern: key-value/document for point lookups, wide-column for high-write time series, graph for traversals, search for full-text. Design the schema AROUND those queries (especially DynamoDB/Cassandra), not around a tidy normalized model.",
+          "Consistency one-liner: default to eventual consistency (it scales better and is simpler), but insist on strong consistency for anything involving money or inventory, where being wrong for even a second is unacceptable.",
+          "It's fine — and senior — to use more than one: a relational system of record plus a search index plus a cache (polyglot persistence). Name the sync/consistency cost of doing so.",
+        ],
+        callout: {
+          kind: "tip",
+          title: "The rule that scores points",
+          text: "\"Design around access patterns.\" For SQL you can query flexibly later; for NoSQL the schema is the query plan, so the worst trap is modeling the data tidily and discovering it can't answer your real queries without a full scan. Say which patterns you're optimizing for before you pick.",
+        },
+      },
+      {
+        heading: "Tie it back to system design",
+        body: [
+          "In a design round, these are not trivia — they're the API step (how clients talk to the system: REST/gRPC/GraphQL and the real-time transport), the data-model step (the DB family that fits the access pattern), and the storage step (how that DB survives load). When you pick a datastore, immediately name how you'd scale and protect it, because the interviewer will ask anyway.",
+          "Indexing makes a query fast by avoiding a full scan — but each index slows writes and costs space, so index for your read patterns, not reflexively. Sharding (partitioning) splits data across machines by a key when one machine can't hold the data or the write volume; the shard-key choice is critical (a bad key creates a hot shard). Replication copies data to read replicas to absorb read load and survive failures, at the cost of replication lag (brief staleness). Caching keeps hot data in memory (Redis) so you don't re-fetch or recompute — the hard part is invalidation. These are the same building blocks as the System Design Framework page; this page just decides which API and which DB you're scaling.",
+        ],
+        // suggested diagram: client → API (REST/gRPC/GraphQL) → service → [cache] → DB family, with a side branch showing SSE/WebSocket push back to the client. (Diagrams live in a separate file.)
+      },
+    ],
+    keyPoints: [
+      "Pick by access pattern; name one tradeoff per choice — that's the senior signal.",
+      "REST = ubiquitous, cacheable, loosely typed; gRPC = binary/HTTP-2/streaming/strict, best internal service-to-service & low latency; GraphQL = client-shaped queries (no over/under-fetch), pays in caching & server complexity.",
+      "API hygiene to volunteer: resources+verbs, honest status codes, idempotency keys for retried writes, cursor pagination, additive versioning, rate limits (429), auth in the header over TLS.",
+      "Real-time ladder: short poll → long poll → SSE (one-way) → WebSockets (two-way). Server→client only → SSE; truly bidirectional → WebSockets.",
+      "SSE/WebSockets are stateful: need sticky routing + a pub/sub backplane; polling stays stateless.",
+      "DB families: relational (joins/ACID), key-value (fast lookups), document (flexible records), wide-column (high-write time series), graph (traversals), search (full-text index), time-series (metrics).",
+      "SQL by default; go NoSQL for a known access pattern that must scale horizontally, and design the schema around the queries.",
+      "Consistency: default eventual; insist on strong for money/inventory.",
+      "Scaling the DB = indexing (read speed, costs writes), sharding (split by key, beware hot shards), replication (read scale + survival, costs lag), caching (hot data, costs invalidation).",
+      "These choices are the API / data-model / storage steps of the system-design framework.",
+    ],
+    checklist: [
+      "Can state when to pick REST vs gRPC vs GraphQL and the one tradeoff each buys",
+      "Can explain idempotency keys and why POST needs them but PUT/DELETE don't",
+      "Can justify cursor over offset pagination for large or live datasets",
+      "Can rank short poll / long poll / SSE / WebSockets and pick SSE vs WS for a given direction",
+      "Can explain why stateful connections need sticky routing + a pub/sub backplane",
+      "Can name each DB family's job and an example engine in one line",
+      "Can walk the choose-a-database procedure (access pattern → consistency/scale → SQL default → NoSQL when) out loud",
+      "Can give the eventual-vs-strong consistency one-liner and define indexing/sharding/replication/caching",
+    ],
+    quiz: [
+      {
+        q: "Two internal services in your mesh need a fast, strongly-typed, low-latency call (you own both ends). Best API style, and the tradeoff to name?",
+        options: [
+          "REST/JSON — and mention HTTP caching",
+          "gRPC — and mention it's not browser-native and payloads aren't human-readable",
+          "GraphQL — and mention over-fetching",
+          "Long polling — and mention connection cost",
+        ],
+        answer: 1,
+        explain: "Internal, latency-sensitive, both ends under your control → gRPC (binary over HTTP/2, codegen'd contract, streaming). The honest tradeoff: not browser-friendly without a proxy and the payloads are opaque, so it's a poor public API.",
+      },
+      {
+        q: "You need to push a one-way live activity feed from server to browser. SSE or WebSockets?",
+        options: [
+          "WebSockets — you always want full-duplex",
+          "SSE — it's one-way server→client, rides plain HTTP, and auto-reconnects",
+          "Short polling — connections don't scale",
+          "GraphQL subscriptions are the only option",
+        ],
+        answer: 1,
+        explain: "For server→client only, SSE is simpler: one long-lived HTTP stream with built-in reconnection. WebSockets are for when the client also pushes frequently (chat, collab) — overkill for a one-way feed.",
+      },
+      {
+        q: "A high-write workload of timestamped sensor readings, queried mostly by time window at large scale. Which database family?",
+        options: [
+          "A single relational table with a B-tree index on timestamp",
+          "A graph database",
+          "A time-series (or wide-column) store built for append-heavy, time-windowed data",
+          "A full-text search index",
+        ],
+        answer: 2,
+        explain: "Append-heavy, timestamped, time-windowed queries at scale is the textbook time-series case (InfluxDB/Timescale/Timestream), or wide-column (Cassandra). A plain relational table struggles with that write volume and retention/rollup needs.",
+      },
+      {
+        q: "Order data with rich relationships, joins across customers/items, and transactions that must be exactly right. SQL or NoSQL?",
+        options: [
+          "NoSQL — it always scales better",
+          "SQL (relational) — joins + ACID transactions are exactly what it's for; only go NoSQL with a reason",
+          "Either; the choice doesn't matter",
+          "A key-value store, then join in application code",
+        ],
+        answer: 1,
+        explain: "Relationships, joins, and transactional correctness are the relational default. Reach past SQL only when you have a known access pattern that must scale horizontally beyond one machine — not before.",
+      },
+      {
+        q: "A POST endpoint that charges a card may be retried by clients on a flaky network. How do you stop double-charges?",
+        options: [
+          "Return 200 even on failure so clients don't retry",
+          "Make the endpoint a GET",
+          "Accept a client-supplied Idempotency-Key and dedupe on it server-side",
+          "Rate-limit the client to one request per minute",
+        ],
+        answer: 2,
+        explain: "POST isn't idempotent, so a retry can act twice. An idempotency key lets the server recognize the redelivery and return the original result without re-charging — the standard fix wherever retries exist.",
+      },
+    ],
+  },
 ];
 
 // Company-specific intel pages were removed (2026-06-17, per request): the
