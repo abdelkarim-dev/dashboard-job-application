@@ -3,6 +3,7 @@ import {
   evaluateWithLocalGemma,
   generateAnswerWithLocalGemma,
   askLearnTutorWithLocalGemma,
+  generateLearnQuizWithLocalGemma,
   streamLearnTutorWithLocalGemma,
   autofillWithLocalGemma,
   gemmaStatus,
@@ -36,6 +37,13 @@ export const aiRoutes: RouteHandler = async (req, res, url) => {
   if (url.pathname === "/api/learn-ask" && req.method === "POST") {
     const input = await readBody(req);
     const result = await askLearnTutorWithLocalGemma(input);
+    sendJson(res, gemmaStatus(result), result);
+    return true;
+  }
+
+  if (url.pathname === "/api/learn-quiz" && req.method === "POST") {
+    const input = await readBody(req);
+    const result = await generateLearnQuizWithLocalGemma(input);
     sendJson(res, gemmaStatus(result), result);
     return true;
   }

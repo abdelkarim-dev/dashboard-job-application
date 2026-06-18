@@ -4,6 +4,7 @@ import { LearnPrintPortal } from "./PrintView.jsx";
 import { buildToc } from "./toc"; // first TypeScript module (compiled by Vite)
 import { GlossarySegments, JargonCard } from "./GlossaryText.jsx";
 import { splitWithGlossary } from "./glossary.js";
+import ConceptDrill from "./ConceptDrill.jsx";
 
 const PROGRESS_KEY = "learnConceptProgress";
 const CHECKLIST_KEY = "learnChecklistProgress";
@@ -366,6 +367,7 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
   const [checked, setChecked] = useState(() => loadChecklist()[concept.id] || {});
   const [activeId, setActiveId] = useState(null);
   const [printing, setPrinting] = useState(false);
+  const [drilling, setDrilling] = useState(false);
   const articleRef = useRef(null);
 
   // The "On this page" navigator entries (one per titled section + takeaways),
@@ -476,6 +478,14 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
         <div className="learn-concept-actions">
           <button
             type="button"
+            className="learn-drill-btn"
+            onClick={() => setDrilling(true)}
+            title="Quiz yourself on this page (auto-generated)"
+          >
+            🎯 Drill
+          </button>
+          <button
+            type="button"
             className="learn-pdf-btn"
             onClick={() => setPrinting(true)}
             disabled={printing}
@@ -501,6 +511,8 @@ export default function ConceptPage({ concept, navItems = [], onNavigate }) {
           onDone={() => setPrinting(false)}
         />
       )}
+
+      {drilling && <ConceptDrill concept={concept} onClose={() => setDrilling(false)} />}
 
       <div className="learn-concept-body">
         <div className="learn-concept-main">

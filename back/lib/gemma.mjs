@@ -485,6 +485,70 @@ async function askLearnTutorWithLocalGemma(input) {
   });
 }
 
+// Generate a small multiple-choice quiz from a concept page's content. Returns
+// { ok, questions:[{q, options:[...4], answer:index, explain}] }. The client
+// already auto-builds questions from the page; this is the "fresh questions"
+// upgrade that uses the local model when it's running.
+function buildLearnQuizPrompt(input) {
+  const title = String(input?.title || "this topic").slice(0, 160);
+  const count = Math.min(8, Math.max(1, Number(input?.count) || 5));
+  const context = String(input?.context || "").slice(0, 3500);
+  return `You are writing an interview-prep quiz to help a senior engineer study "${title}".
+
+Use ONLY the material below. Write ${count} multiple-choice questions that test understanding (decisions, tradeoffs, definitions), not trivia.
+
+MATERIAL:
+${context}
+
+Rules:
+- Each question has exactly 4 options, exactly one correct.
+- "answer" is the 0-based index of the correct option.
+- "explain" is one short sentence on why it's right.
+- Plain language. No markdown, no preamble.
+
+Return ONLY valid JSON in this schema:
+{ "questions": [ { "q": "string", "options": ["a","b","c","d"], "answer": 0, "explain": "string" } ] }`;
+}
+
+function sanitizeQuizQuestions(parsed) {
+  const list = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  const out = [];
+  for (const item of list) {
+    const q = String(item?.q || "").trim();
+    const options = Array.isArray(item?.options) ? item.options.map((o) => String(o)).filter(Boolean) : [];
+    const answer = Number(item?.answer);
+    if (!q || options.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) continue;
+    out.push({ q, options, answer, explain: String(item?.explain || "").trim() });
+  }
+  return out;
+}
+
+async function generateLearnQuizWithLocalGemma(input) {
+  const prompt = buildLearnQuizPrompt(input);
+  const cacheKey = makeGemmaCacheKey("learn-quiz", { prompt });
+  return runGemmaControlled("writing a quiz", cacheKey, async () => {
+    const providers = [
+      () => tryOllamaText(prompt),
+      () => tryOpenAiCompatibleText(prompt),
+    ];
+    for (const provider of providers) {
+      try {
+        const text = await provider();
+        if (!text) continue;
+        const cleanJson = text.replace(/```json/i, "").replace(/```/g, "").trim();
+        const start = cleanJson.indexOf("{");
+        const end = cleanJson.lastIndexOf("}");
+        const slice = start >= 0 && end > start ? cleanJson.slice(start, end + 1) : cleanJson;
+        const questions = sanitizeQuizQuestions(JSON.parse(slice));
+        if (questions.length) return { ok: true, questions };
+      } catch {
+        // try next provider
+      }
+    }
+    return { ok: false, error: "Local Gemma endpoint was not available for generating a quiz." };
+  });
+}
+
 // Stream a coach answer to onEvent(event) as tokens arrive. Events:
 //   {type:"status",text} | {type:"thinking",text} | {type:"token",text}
 //   {type:"done",answer,cached?} | {type:"busy",text} | {type:"error",text}
@@ -1273,6 +1337,8 @@ export {
   generateAnswerWithLocalGemma,
   askLearnTutorWithLocalGemma,
   buildLearnTutorPrompt,
+  generateLearnQuizWithLocalGemma,
+  buildLearnQuizPrompt,
   streamLearnTutorWithLocalGemma,
   streamOllamaText,
   streamOpenAiCompatibleText,

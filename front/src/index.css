@@ -11531,3 +11531,202 @@ body.pane-resizing {
   .troad-screen { grid-template-columns: 1fr; }
   .troad-screen-when { border-right: none; border-bottom: 1px solid var(--md-outline-variant); padding-bottom: 12px; }
 }
+
+/* ====================================================================== */
+/* Concept drill — interactive auto-generated quiz + flashcards           */
+/* ====================================================================== */
+.learn-drill-btn {
+  border: 1px solid color-mix(in srgb, var(--md-primary) 45%, var(--md-outline-variant));
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, transform .1s ease;
+}
+.learn-drill-btn:hover { transform: translateY(-1px); background: color-mix(in srgb, var(--md-primary) 22%, var(--md-surface)); }
+
+.drill-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--md-on-surface) 52%, transparent);
+  backdrop-filter: blur(3px);
+  animation: drill-fade .18s ease;
+}
+@keyframes drill-fade { from { opacity: 0; } to { opacity: 1; } }
+.drill-panel {
+  width: min(680px, 96vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-surface);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 18px;
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  animation: drill-rise .2s ease;
+}
+@keyframes drill-rise { from { transform: translateY(10px); opacity: .6; } to { transform: translateY(0); opacity: 1; } }
+.drill-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.drill-head h2 { margin: 2px 0 0; font-size: 19px; }
+.drill-eyebrow {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 700;
+  color: var(--md-primary);
+}
+.drill-close {
+  border: none;
+  background: var(--md-surface-2);
+  color: var(--md-on-surface-variant);
+  width: 32px; height: 32px;
+  border-radius: 9px;
+  font-size: 15px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.drill-close:hover { background: var(--md-error-container); color: var(--md-on-error-container); }
+
+.drill-tabs { display: flex; gap: 6px; padding: 12px 20px 0; }
+.drill-tabs button {
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+  color: var(--md-on-surface-variant);
+  border-radius: 9px 9px 0 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.drill-tabs button.active {
+  color: var(--md-primary);
+  border-color: var(--md-primary);
+  border-bottom-color: var(--md-surface);
+  background: var(--md-primary-container);
+}
+.drill-tab-count {
+  font-size: 11px;
+  background: var(--md-surface-2);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-left: 4px;
+}
+.drill-body { padding: 18px 20px 22px; overflow: auto; }
+
+/* Quiz */
+.drill-progress { height: 6px; border-radius: 6px; background: var(--md-surface-2); overflow: hidden; margin-bottom: 10px; }
+.drill-progress-bar { height: 100%; background: var(--md-primary); transition: width .25s ease; }
+.drill-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--md-on-surface-variant); margin-bottom: 10px; }
+.drill-score-live { font-weight: 700; color: var(--md-primary); }
+.drill-q { font-size: 16px; font-weight: 600; margin: 0 0 14px; line-height: 1.45; }
+.drill-options { display: grid; gap: 8px; }
+.drill-option {
+  text-align: left;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
+}
+.drill-option:not(:disabled):hover { border-color: var(--md-primary); }
+.drill-option:disabled { cursor: default; }
+.drill-option.correct { border-color: var(--s-offer); background: var(--s-offer-bg); color: var(--s-offer); font-weight: 600; }
+.drill-option.wrong { border-color: var(--s-rejected); background: var(--s-rejected-bg); color: var(--s-rejected); }
+.drill-explain {
+  margin-top: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--md-surface-2);
+}
+.drill-explain.ok { background: var(--s-offer-bg); color: var(--s-offer); }
+.drill-explain.no { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
+.drill-quiz-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 16px; }
+
+.drill-btn {
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .1s ease, background .12s ease;
+}
+.drill-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.drill-btn:disabled { opacity: .55; cursor: default; }
+.drill-btn.primary { background: var(--md-primary); border-color: var(--md-primary); color: var(--md-on-primary); }
+.drill-btn.ghost { background: transparent; color: var(--md-on-surface-variant); }
+.drill-btn.yes { background: var(--s-offer-bg); border-color: var(--s-offer); color: var(--s-offer); }
+.drill-btn.no { background: var(--md-surface-2); color: var(--md-on-surface-variant); }
+.drill-genstatus { margin: 10px 0 0; font-size: 12px; color: var(--md-on-surface-variant); }
+
+/* Done / score */
+.drill-done { text-align: center; padding: 18px 8px; }
+.drill-score {
+  font-size: 44px;
+  font-weight: 800;
+  margin: 0 auto 6px;
+  width: 110px; height: 110px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  border: 4px solid var(--md-outline-variant);
+}
+.drill-score.good { color: var(--s-offer); border-color: var(--s-offer); }
+.drill-score.ok { color: var(--md-tertiary); border-color: var(--md-tertiary-container); }
+.drill-score.low { color: var(--s-rejected); border-color: var(--s-rejected-bg); }
+.drill-done-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+.drill-empty { color: var(--md-on-surface-variant); text-align: center; padding: 24px; }
+
+/* Flashcards */
+.drill-card {
+  width: 100%;
+  min-height: 180px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--md-surface), var(--md-surface-2));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 26px 22px;
+  cursor: pointer;
+  text-align: center;
+  transition: transform .12s ease, border-color .12s ease;
+}
+.drill-card:hover { border-color: var(--md-primary); }
+.drill-card.flipped { background: var(--md-primary-container); border-color: var(--md-primary); }
+.drill-card-tag {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: 700;
+  color: var(--md-primary);
+}
+.drill-card-text { font-size: 17px; font-weight: 600; line-height: 1.5; color: var(--md-on-surface); }
+.drill-card.flipped .drill-card-text { font-size: 15px; font-weight: 500; }
+.drill-card-hint { font-size: 11px; color: var(--md-on-surface-variant); }
+.drill-rate { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+.drill-flash-hint { text-align: center; font-size: 12px; color: var(--md-on-surface-variant); margin: 12px 0 0; }
+.drill-flash-summary { font-size: 16px; margin-bottom: 4px; }
