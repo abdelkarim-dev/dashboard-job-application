@@ -61,7 +61,11 @@ export default function App() {
   // Active subpage within the Learn hub (e.g. "leetcode", "behavioral", "dry").
   const [learnSub, setLearnSub] = useState(() => parseHash(window.location.hash).sub || DEFAULT_LEARN_SUB);
   const [applications, setApplications] = useState([]);
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
+  // Dark is the only theme the dashboard ships (there's no toggle in the UI).
+  // Force it unconditionally instead of reading localStorage, so a stale "light"
+  // value left over from an older build with a toggle can't strand the app in
+  // light mode. The effect below persists "dark" back, self-healing such values.
+  const [theme] = useState("dark");
   const [dashboardStatusFilter, setDashboardStatusFilter] = useState("");
   // App ID to auto-open in the dashboard panel — set from ?openApp= URL param or postMessage
   const [pendingOpenAppId, setPendingOpenAppId] = useState(null);
