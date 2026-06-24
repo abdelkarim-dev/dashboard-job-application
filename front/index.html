@@ -4,22 +4,96 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Claire — your job hunt copilot</title>
-    <!-- Premium Fonts -->
+
+    <!-- Critical inline CSS: paints the dark shell + a branded loading splash
+         immediately, before index.css and the app bundle download. Kills the
+         white flash and the blank screen during startup. Colors mirror the dark
+         theme (--md-surface-1 / --md-primary) so there's no repaint when the real
+         stylesheet lands. -->
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0;
+        background: #050807;
+        color: #f3f4f6;
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+      }
+      #app-splash .splash-mark {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        font: 700 26px/1 "Outfit", "Inter", sans-serif;
+        background: #34d399;
+        color: #003723;
+        box-shadow: 0 10px 34px rgba(52, 211, 153, 0.32);
+      }
+      #app-splash .splash-spinner {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid #1f312d;
+        border-top-color: #34d399;
+        animation: claire-spin 0.7s linear infinite;
+      }
+      #app-splash .splash-label {
+        color: #a7b3ae;
+        font-size: 0.85rem;
+        letter-spacing: 0.04em;
+      }
+      @keyframes claire-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash .splash-spinner { animation: none; }
+      }
+    </style>
+
+    <!-- Fonts: loaded without blocking first paint. The stylesheet downloads at
+         print priority, then swaps to all on load. <noscript> keeps it working
+         with JS disabled. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    >
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap">
+    </noscript>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Instant branded loading state; React replaces it on first render. -->
+      <div id="app-splash">
+        <div class="splash-mark">C</div>
+        <div class="splash-spinner"></div>
+        <div class="splash-label">Loading Claire…</div>
+      </div>
+    </div>
 
-    <script src="/vendor/ace/ace.js"></script>
-    <script src="/vendor/ace/ext-language_tools.js"></script>
-    <script src="/vendor/ace/mode-python.js"></script>
-    <script src="/vendor/ace/mode-java.js"></script>
-    <script src="/vendor/ace/theme-one_dark.js"></script>
-    <script src="/vendor/ace/snippets/python.js"></script>
-    <script src="/vendor/ace/snippets/java.js"></script>
-    
+    <!-- Ace is only used on the coding/practice pages, so its 7 vendor scripts
+         (~590 kB) are deferred: they no longer block first paint, but classic
+         `defer` scripts still execute in document order before the app module, so
+         window.ace is ready well before any editor mounts. -->
+    <script defer src="/vendor/ace/ace.js"></script>
+    <script defer src="/vendor/ace/ext-language_tools.js"></script>
+    <script defer src="/vendor/ace/mode-python.js"></script>
+    <script defer src="/vendor/ace/mode-java.js"></script>
+    <script defer src="/vendor/ace/theme-one_dark.js"></script>
+    <script defer src="/vendor/ace/snippets/python.js"></script>
+    <script defer src="/vendor/ace/snippets/java.js"></script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

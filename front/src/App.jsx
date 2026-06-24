@@ -1,13 +1,51 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
-import Analytics from "./components/Analytics.jsx";
-import Profile from "./components/Profile.jsx";
+// Dashboard is the default landing view, so it stays in the eager entry chunk.
+// Every other top-level surface is lazy-loaded — Analytics, Profile, Board and
+// the Learn hub (which pulls in all the study/coding code) each split into their
+// own chunk and load on demand, keeping the initial download to just the
+// dashboard.
 import Dashboard from "./components/Dashboard.jsx";
-import InterviewBoard from "./components/InterviewBoard.jsx";
 
-// The Learn hub owns every study surface (LeetCode, Study Plans, SOLID Lab,
-// Clean Architecture, System Design) plus the concept reading pages, so it pulls
-// in all the learning code — lazy-load it so the dashboard landing stays light.
+const Analytics = lazy(() => import("./components/Analytics.jsx"));
+const Profile = lazy(() => import("./components/Profile.jsx"));
+const InterviewBoard = lazy(() => import("./components/InterviewBoard.jsx"));
 const Learn = lazy(() => import("./components/Learn.jsx"));
+
+// Shown while a lazy route chunk is fetched. Reuses the `claire-spin` keyframe
+// from index.html's critical CSS, so it animates without depending on the main
+// stylesheet (and degrades to a static ring if that keyframe is ever absent).
+function RouteFallback() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 12,
+        minHeight: "60vh",
+        color: "var(--md-on-surface-variant, #a7b3ae)",
+        fontSize: ".9rem",
+        letterSpacing: ".03em",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          border: "2px solid var(--md-outline-variant, #1f312d)",
+          borderTopColor: "var(--md-primary, #34d399)",
+          animation: "claire-spin .7s linear infinite",
+          display: "inline-block",
+        }}
+      />
+      Loading…
+    </div>
+  );
+}
 
 const REMINDERS_KEY = "jobHuntReminders";
 
@@ -412,7 +450,8 @@ export default function App() {
           </nav>
         </header>
 
-        {/* Content View Switching */}
+        {/* Content View Switching — one Suspense boundary covers every lazy route. */}
+        <Suspense fallback={<RouteFallback />}>
         {activeTab === "analytics" && (
           <Analytics
             applications={applications}
@@ -424,19 +463,17 @@ export default function App() {
         )}
 
         {activeTab === "learn" && (
-          <Suspense fallback={<div className="learning-empty"><strong>Loading…</strong></div>}>
-            <Learn
-              sub={learnSub}
-              onNavigate={navigateLearn}
-              onTrainPlan={handleTrainPlan}
-              practiceProps={{
-                timerState,
-                setTimerState,
-                activePlan,
-                onExitPlan: () => setActivePlan(null),
-              }}
-            />
-          </Suspense>
+          <Learn
+            sub={learnSub}
+            onNavigate={navigateLearn}
+            onTrainPlan={handleTrainPlan}
+            practiceProps={{
+              timerState,
+              setTimerState,
+              activePlan,
+              onExitPlan: () => setActivePlan(null),
+            }}
+          />
         )}
 
         {activeTab === "profile" && <Profile />}
@@ -458,6 +495,7 @@ export default function App() {
             onStatusFilterOverrideHandled={() => setDashboardStatusFilter("")}
           />
         )}
+        </Suspense>
       </main>
     </div>
   );
