@@ -38,7 +38,12 @@ function createAllowedOriginChecker({ port, extraOrigins = [] } = {}) {
       if (EXTENSION_PROTOCOLS.has(parsed.protocol)) return true;
       if (!["http:", "https:"].includes(parsed.protocol)) return false;
       if (!LOOPBACK_HOSTS.has(parsed.hostname)) return false;
-      return parsed.port === appPort || parsed.port === "5173";
+      // Any loopback origin is the user's own machine — there is no cross-site
+      // threat, since a remote page can never present a loopback Origin. Don't
+      // pin the port: Vite auto-increments (5173 → 5174 → …) when another dev
+      // server already holds 5173, and the dashboard's writes (PUT/POST/DELETE)
+      // carry that drifted Origin. Pinning it to 8787/5173 here 403s those.
+      return true;
     } catch {
       return false;
     }
