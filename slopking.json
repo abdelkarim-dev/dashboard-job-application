@@ -1,0 +1,66 @@
+{
+  "$schema": "./slopking.schema.json",
+  "manifestVersion": 1,
+
+  "id": "claire",
+  "name": "Claire — Job Hunt Cockpit",
+  "description": "Local job-hunt tracker: applications pipeline, interview board, analytics, coding/SOLID practice, study plans, and a Learn hub. Runs entirely on the user's machine — no cloud, no auth, SQLite-backed.",
+  "version": "0.1.0",
+  "tags": ["job-search", "local-only", "sqlite", "react"],
+
+  "host": "127.0.0.1",
+  "port": 8787,
+  "baseUrl": "http://127.0.0.1:8787",
+
+  "health": {
+    "path": "/api/health",
+    "expectJson": { "ok": true, "app": "Claire" }
+  },
+
+  "run": {
+    "cwd": ".",
+    "dev": {
+      "cmd": "npm run dev",
+      "note": "Vite (the UI) may auto-increment past 5173 if another dev server holds it; the API + the URL slopking embeds always stay on 8787."
+    },
+    "prod": {
+      "build": "npm run build",
+      "cmd": "npm start"
+    }
+  },
+
+  "embed": {
+    "type": "url",
+    "default": "http://127.0.0.1:8787/#/dashboard",
+    "deepLink": "http://127.0.0.1:8787/?openApp={applicationId}#/dashboard",
+    "views": [
+      { "id": "dashboard",    "label": "Pipeline",        "url": "http://127.0.0.1:8787/#/dashboard" },
+      { "id": "board",        "label": "Interview Board",  "url": "http://127.0.0.1:8787/#/board" },
+      { "id": "analytics",    "label": "Analytics",        "url": "http://127.0.0.1:8787/#/analytics" },
+      { "id": "practice",     "label": "Practice",         "url": "http://127.0.0.1:8787/#/leetcode" },
+      { "id": "study-plans",  "label": "Study Plans",      "url": "http://127.0.0.1:8787/#/study-plans" },
+      { "id": "system-design","label": "System Design",    "url": "http://127.0.0.1:8787/#/system-design" },
+      { "id": "learn",        "label": "Learn",            "url": "http://127.0.0.1:8787/#/learn" },
+      { "id": "profile",      "label": "Profile",          "url": "http://127.0.0.1:8787/#/profile" }
+    ]
+  },
+
+  "ai": {
+    "provider": "local-gemma",
+    "transport": "http",
+    "baseUrl": "http://127.0.0.1:8787",
+    "note": "Self-hosted Gemma proxy (targets Ollama :11434 or an OpenAI-compatible server :1234). Single-flight + short TTL cache. slopking can delegate to these endpoints instead of running its own model.",
+    "endpoints": [
+      { "id": "evaluate-job",     "method": "POST", "path": "/api/evaluate-job" },
+      { "id": "generate-answer",  "method": "POST", "path": "/api/generate-answer" },
+      { "id": "learn-ask",        "method": "POST", "path": "/api/learn-ask" },
+      { "id": "learn-ask-stream", "method": "POST", "path": "/api/learn-ask-stream", "streaming": true },
+      { "id": "learn-quiz",       "method": "POST", "path": "/api/learn-quiz" }
+    ]
+  },
+
+  "links": {
+    "repo": "job-hunt-cockpit",
+    "agentDoc": "CLAUDE.md"
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slopking.local/slopking.schema.json",
+  "title": "Slopking dashboard manifest",
+  "description": "Contract for a single dashboard that the slopking hub launches and embeds. Drop one slopking.json at the root of each dashboard repo. This file is the runtime/operational view of the dashboard — distinct from CLAUDE.md, which is the coding-agent's view.",
+  "type": "object",
+  "required": ["manifestVersion", "id", "name", "baseUrl", "health", "run"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "manifestVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Manifest format version. Bump only when the contract changes incompatibly."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Stable, unique slug. slopking keys its registry on this."
+    },
+    "name": { "type": "string", "description": "Human label shown in slopking's UI." },
+    "description": { "type": "string", "description": "One or two lines. Reuse the 'What this is' blurb from CLAUDE.md — not the dev sections." },
+    "version": { "type": "string", "description": "Dashboard app version (e.g. from package.json)." },
+    "tags": { "type": "array", "items": { "type": "string" } },
+
+    "host": { "type": "string", "default": "127.0.0.1" },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "baseUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "Origin the API + UI are served from once running, e.g. http://127.0.0.1:8787."
+    },
+
+    "health": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "description": "How slopking decides the dashboard is up. It polls baseUrl + path.",
+      "properties": {
+        "path": { "type": "string", "pattern": "^/", "description": "Health endpoint path, e.g. /api/health." },
+        "expectStatus": { "type": "integer", "default": 200 },
+        "expectJson": { "type": "object", "description": "Optional JSON subset that must match the health response body." }
+      }
+    },
+
+    "run": {
+      "type": "object",
+      "required": ["dev"],
+      "additionalProperties": false,
+      "description": "How slopking starts the dashboard. cmd is run with cwd resolved relative to the manifest's directory.",
+      "properties": {
+        "cwd": { "type": "string", "default": ".", "description": "Working dir relative to the manifest file." },
+        "dev": { "$ref": "#/$defs/runMode" },
+        "prod": { "$ref": "#/$defs/runMode" }
+      }
+    },
+
+    "embed": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "How slopking shows the dashboard (Electron BrowserView / iframe / external).",
+      "properties": {
+        "type": { "type": "string", "enum": ["url", "iframe", "external"] },
+        "default": { "type": "string", "format": "uri", "description": "Landing URL when the dashboard is opened." },
+        "deepLink": { "type": "string", "description": "URL template with {placeholders} for deep links, e.g. .../?openApp={applicationId}#/dashboard." },
+        "views": {
+          "type": "array",
+          "description": "Named entry points slopking can list as tabs/shortcuts.",
+          "items": {
+            "type": "object",
+            "required": ["id", "url"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "url": { "type": "string", "format": "uri" }
+            }
+          }
+        }
+      }
+    },
+
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. Declares an AI capability the dashboard already exposes, so slopking can delegate instead of hosting its own model.",
+      "properties": {
+        "provider": { "type": "string", "description": "Free-form, e.g. local-gemma, openai, none." },
+        "transport": { "type": "string", "enum": ["http", "ws", "stdio"] },
+        "baseUrl": { "type": "string", "format": "uri" },
+        "note": { "type": "string" },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "method", "path"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "method": { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE"] },
+              "path": { "type": "string", "pattern": "^/" },
+              "streaming": { "type": "boolean", "default": false }
+            }
+          }
+        }
+      }
+    },
+
+    "links": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Pointers for humans / coding agents. agentDoc is where an AG that EDITS this repo should look (e.g. CLAUDE.md) — kept separate from the runtime metadata above.",
+      "properties": {
+        "repo": { "type": "string" },
+        "agentDoc": { "type": "string" }
+      }
+    }
+  },
+
+  "$defs": {
+    "runMode": {
+      "type": "object",
+      "required": ["cmd"],
+      "additionalProperties": false,
+      "properties": {
+        "build": { "type": "string", "description": "Optional one-time build step run before cmd." },
+        "cmd": { "type": "string", "description": "Long-running command that serves the dashboard." },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}
