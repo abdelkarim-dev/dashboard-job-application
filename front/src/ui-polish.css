@@ -1,0 +1,69 @@
+/* ui-polish.css — additive UX/a11y polish layered on top of index.css.
+ *
+ * Deliberately uses unique class names (.ui-skel*) and element-level rules only,
+ * so it never conflicts with index.css regardless of bundle order. Imported from
+ * App.jsx. Two things index.css doesn't already cover:
+ *   1. a CONSISTENT keyboard focus ring across every interactive control, and
+ *   2. skeleton loading placeholders so first paint doesn't flash empty->data.
+ */
+
+/* 1. Accessibility: a single, consistent focus-visible ring for keyboard users.
+ * index.css only styles :focus-visible on a handful of elements; this fills the
+ * gaps (sidebar/topbar nav, filter chips, cards, form controls) without ever
+ * showing on mouse click. Components that already define their own
+ * :focus-visible win on specificity, so nothing existing is overridden. */
+:where(button, a, [role="button"], [role="tab"], input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--md-primary, #34d399);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 2. Skeleton loading placeholders (shown on first data load). */
+.ui-skel-wrap {
+  padding: 22px 0 0;
+  animation: ui-skel-fade 0.2s ease both;
+}
+.ui-skel-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.ui-skel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--md-surface-2, #101716);
+  border: 1px solid var(--md-outline-variant, #1f312d);
+}
+.ui-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.06),
+    transparent
+  );
+  animation: ui-skel-shimmer 1.25s ease-in-out infinite;
+}
+.ui-skel-stat { flex: 1 1 120px; height: 74px; }
+.ui-skel-chip { width: 84px; height: 30px; border-radius: 999px; }
+.ui-skel-card { flex: 1 1 280px; height: 132px; }
+.ui-skel-card.tall { height: 150px; }
+
+@keyframes ui-skel-shimmer {
+  100% { transform: translateX(100%); }
+}
+@keyframes ui-skel-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Respect reduced-motion: keep the placeholders, drop the shimmer/fade. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-skel::after { animation: none; }
+  .ui-skel-wrap { animation: none; }
+}

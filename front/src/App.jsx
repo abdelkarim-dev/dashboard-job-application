@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
+import "./ui-polish.css";
 // Dashboard is the default landing view, so it stays in the eager entry chunk.
 // Every other top-level surface is lazy-loaded — Analytics, Profile, Board and
 // the Learn hub (which pulls in all the study/coding code) each split into their
@@ -43,6 +44,36 @@ function RouteFallback() {
         }}
       />
       Loading…
+    </div>
+  );
+}
+
+// Shown on the data-driven tabs during the very first applications fetch, so the
+// landing doesn't flash an empty state ("No applications yet" / all-zeros) before
+// the real data arrives. Shimmer + reduced-motion handling live in ui-polish.css.
+function DashboardSkeleton() {
+  return (
+    <div className="ui-skel-wrap" role="status" aria-live="polite" aria-label="Loading your data">
+      <div className="ui-skel-row">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="ui-skel ui-skel-stat" />
+        ))}
+      </div>
+      <div className="ui-skel-row">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="ui-skel ui-skel-chip" />
+        ))}
+      </div>
+      <div className="ui-skel-row">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="ui-skel ui-skel-card" />
+        ))}
+      </div>
+      <div className="ui-skel-row">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="ui-skel ui-skel-card tall" />
+        ))}
+      </div>
     </div>
   );
 }
@@ -99,6 +130,9 @@ export default function App() {
   // Active subpage within the Learn hub (e.g. "leetcode", "behavioral", "dry").
   const [learnSub, setLearnSub] = useState(() => parseHash(window.location.hash).sub || DEFAULT_LEARN_SUB);
   const [applications, setApplications] = useState([]);
+  // False until the first /api/applications fetch settles — gates the skeleton so
+  // the landing never flashes an empty state before real data loads.
+  const [appsLoaded, setAppsLoaded] = useState(false);
   // Dark is the only theme the dashboard ships (there's no toggle in the UI).
   // Force it unconditionally instead of reading localStorage, so a stale "light"
   // value left over from an older build with a toggle can't strand the app in
@@ -313,6 +347,8 @@ export default function App() {
       }
     } catch (err) {
       console.error("Server offline, retaining existing application cache.", err);
+    } finally {
+      setAppsLoaded(true);
     }
   };
 
@@ -450,8 +486,15 @@ export default function App() {
           </nav>
         </header>
 
-        {/* Content View Switching — one Suspense boundary covers every lazy route. */}
+        {/* Content View Switching — one Suspense boundary covers every lazy route.
+            On first load, the data-driven tabs show a skeleton until applications
+            arrive, so the landing never flashes an empty state. */}
         <Suspense fallback={<RouteFallback />}>
+        {!appsLoaded &&
+        (activeTab === "newdashboard" || activeTab === "analytics" || activeTab === "interviewboard") ? (
+          <DashboardSkeleton />
+        ) : (
+          <>
         {activeTab === "analytics" && (
           <Analytics
             applications={applications}
@@ -494,6 +537,8 @@ export default function App() {
             statusFilterOverride={dashboardStatusFilter}
             onStatusFilterOverrideHandled={() => setDashboardStatusFilter("")}
           />
+        )}
+          </>
         )}
         </Suspense>
       </main>
