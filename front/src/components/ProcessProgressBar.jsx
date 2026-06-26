@@ -52,13 +52,17 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
     : current ? (current.state === "scheduled" ? "Scheduled" : current.state === "failed" ? "Did not pass" : "Up next")
     : "";
   const stateKey = view.complete ? "done" : view.waiting ? "waiting" : (current?.state || "pending");
+  // On the compact card, the bar + "n/N · stage" carry it — only surface a state
+  // pill when it adds something (scheduled/waiting/done/failed), not the default
+  // "Up next". The panel always shows it.
+  const showState = stateLabel && (variant === "panel" || stateKey !== "pending");
 
   return (
     <div className={`ppb ppb--${variant}`} onClick={(e) => e.stopPropagation()}>
       <div className="ppb-head">
         <span className="ppb-count" title={view.processName}>{position}/{view.total}</span>
         {current && <span className="ppb-current">{current.name}</span>}
-        {stateLabel && <span className={`ppb-state ppb-state--${stateKey}`}>{stateLabel}</span>}
+        {showState && <span className={`ppb-state ppb-state--${stateKey}`}>{stateLabel}</span>}
         {current && !view.complete && onChange && (
           editingDate ? (
             <input
