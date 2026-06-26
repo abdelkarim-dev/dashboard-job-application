@@ -174,19 +174,23 @@
 .ipx-flow { display: flex; align-items: flex-start; gap: 0; min-height: 132px; padding-top: 2px; }
 .ipx-flow-empty { color: var(--md-on-surface-variant); font-size: 0.85rem; align-self: center; padding: 0 8px; }
 
-/* Connector between nodes */
+/* Connector between nodes — a quiet neutral line aligned to the card header row
+   (margin-top), so it visually links the cards without clashing with their
+   coloured top borders. (NB: keep margin as one shorthand so the top offset
+   isn't clobbered.) */
 .ipx-conn {
-  align-self: flex-start; margin-top: 27px; flex-shrink: 0;
-  width: 30px; height: 2px;
-  background: linear-gradient(90deg, var(--md-outline-variant), color-mix(in srgb, var(--md-primary) 50%, var(--md-outline-variant)));
-  position: relative; margin: 0 2px;
+  align-self: flex-start; flex-shrink: 0;
+  width: 28px; height: 2px;
+  margin: 27px 3px 0;
+  background: var(--md-outline-variant);
+  position: relative;
 }
 .ipx-conn::after {
   content: ""; position: absolute; right: -1px; top: 50%; transform: translateY(-50%);
-  border-left: 6px solid color-mix(in srgb, var(--md-primary) 55%, var(--md-outline-variant));
-  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--md-outline);
+  border-top: 3px solid transparent; border-bottom: 3px solid transparent;
 }
-.ipx-conn--end { width: 22px; opacity: 0.5; }
+.ipx-conn--end { width: 20px; opacity: 0.45; }
 
 /* Node card (leaf) */
 .ipx-node {
@@ -280,10 +284,14 @@
   background: transparent; border: none; border-bottom: 1px dashed transparent; padding: 1px 0;
 }
 .ipx-chip-name:focus { outline: none; border-bottom-color: var(--node-color); }
+/* Secondary control — the round NAME is the anchor; the type stays quiet until
+   hovered/focused so it doesn't read as duplicate information. */
 .ipx-chip-type {
   flex: 1; min-width: 0; font-size: 0.68rem; color: var(--md-on-surface-variant);
-  background: var(--md-surface-3); border: 1px solid var(--md-outline-variant); border-radius: 6px; padding: 3px 5px;
+  background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 5px;
+  cursor: pointer; transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
+.ipx-chip-type:hover, .ipx-chip-type:focus-visible { background: var(--md-surface-3); border-color: var(--md-outline-variant); color: var(--md-on-surface); }
 .ipx-add-round {
   font-size: 0.72rem; font-weight: 600; color: var(--md-on-surface-variant);
   background: transparent; border: 1px dashed var(--md-outline-variant); border-radius: 8px; padding: 5px; cursor: pointer;
