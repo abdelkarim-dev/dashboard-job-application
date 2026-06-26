@@ -314,18 +314,37 @@ export function processViewForApp(app, store) {
   });
 
   const probeApp = { processId: probe.processId, processSteps: steps, stepProgress: progress, currentStepId: currentId };
-  const doneCount = leafView.filter((l) => l.state === "done").length;
-  const currentLeaf = leafView.find((l) => l.id === currentId) || null;
+
+  // "Applied" is the implicit first stage of EVERY process — an application is
+  // Applied before any defined round runs. Prepend it (display-only; never part
+  // of the editor or persisted steps) so an Applied card reads "1/N · Applied",
+  // not "1/N · <first interview round>". It is done once the app has moved past
+  // Applied (a later phase, or any round started).
+  const status = app && app.status;
+  const PHASES_PAST_APPLIED = new Set(["Recruiter Screen", "Online Assessment", "Interview", "Offer"]);
+  const appliedDone = status !== "Saved"
+    && (PHASES_PAST_APPLIED.has(status) || leafView.some((l) => l.state === "done" || l.state === "scheduled"));
+  const appliedLeaf = {
+    id: "__applied__", name: "Applied", type: "applied", phase: "Applied", synthetic: true,
+    state: appliedDone ? "done" : "pending", scheduledAt: "", completedAt: "", isCurrent: false,
+  };
+
+  const allLeaves = [appliedLeaf, ...leafView];
+  let curIdx = allLeaves.findIndex((l) => l.state !== "done" && l.state !== "failed");
+  if (curIdx === -1) curIdx = allLeaves.length - 1;
+  allLeaves.forEach((l, i) => { l.index = i; l.isCurrent = i === curIdx; });
+  const currentLeaf = allLeaves[curIdx] || null;
+  const doneCount = allLeaves.filter((l) => l.state === "done").length;
 
   return {
     hasAssigned: assigned,
     processId,
     processName,
     accent,
-    groups,
-    leaves: leafView,
+    groups: [{ ...appliedLeaf, isGroup: false }, ...groups],
+    leaves: allLeaves,
     doneCount,
-    total: leafView.length,
+    total: allLeaves.length,
     currentIndex: currentLeaf ? currentLeaf.index : -1,
     currentLeaf,
     waiting: assigned ? isProcessWaiting(app) : false,

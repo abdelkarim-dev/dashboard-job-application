@@ -162,10 +162,21 @@ test("processViewForApp uses the assigned process with real progress", () => {
   const view = processViewForApp(app, STORE);
   assert.equal(view.hasAssigned, true);
   assert.equal(view.processName, "Toast");
-  assert.equal(view.total, 2);
-  assert.equal(view.doneCount, 1);
+  // +1 for the implicit "Applied" stage prepended to every view.
+  assert.equal(view.total, 3);
+  assert.equal(view.doneCount, 2); // Applied + t1
+  assert.equal(view.leaves[0].name, "Applied");
   assert.equal(view.leaves[0].state, "done");
   assert.equal(view.currentLeaf.id, "t2");
+});
+
+test("processViewForApp shows an Applied card AT the Applied stage (not the first round)", () => {
+  const view = processViewForApp({ status: "Applied" }, STORE); // unassigned
+  assert.equal(view.total, 5); // Applied + rec + r1 + r2 + off
+  assert.equal(view.currentIndex, 0);
+  assert.equal(view.currentLeaf.name, "Applied");
+  assert.equal(view.currentLeaf.synthetic, true);
+  assert.equal(view.doneCount, 0); // nothing passed yet — including Applied
 });
 
 test("processViewForApp falls back to the default process for an unassigned app", () => {
@@ -173,8 +184,9 @@ test("processViewForApp falls back to the default process for an unassigned app"
   const view = processViewForApp(app, STORE);
   assert.equal(view.hasAssigned, false);
   assert.equal(view.processName, "Standard");
-  assert.equal(view.total, 4); // rec + r1 + r2 + off (flattened)
-  // status Interview -> recruiter done, first Interview leaf (r1) current
+  assert.equal(view.total, 5); // Applied + rec + r1 + r2 + off (flattened)
+  assert.equal(view.leaves[0].name, "Applied");
+  // status Interview -> Applied + recruiter done, first Interview leaf (r1) current
   assert.equal(view.leaves.find((l) => l.id === "rec").state, "done");
   assert.equal(view.leaves.find((l) => l.id === "r1").isCurrent, true);
   // grouped structure is preserved for layout (the Onsite Loop group with 2 children)
@@ -184,6 +196,6 @@ test("processViewForApp falls back to the default process for an unassigned app"
 
 test("processViewForApp positions an unassigned Offer app as fully done", () => {
   const view = processViewForApp({ status: "Offer" }, STORE);
-  assert.equal(view.doneCount, 4);
+  assert.equal(view.doneCount, 5); // Applied + 4 rounds
   assert.equal(view.complete, true);
 });

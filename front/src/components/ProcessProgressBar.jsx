@@ -63,7 +63,7 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
         <span className="ppb-count" title={view.processName}>{position}/{view.total}</span>
         {current && <span className="ppb-current">{current.name}</span>}
         {showState && <span className={`ppb-state ppb-state--${stateKey}`}>{stateLabel}</span>}
-        {current && !view.complete && onChange && (
+        {current && !current.synthetic && !view.complete && onChange && (
           editingDate ? (
             <input
               type="date"
@@ -80,7 +80,7 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
             </button>
           )
         )}
-        {current && !view.complete && onChange && current.state !== "done" && (
+        {current && !current.synthetic && !view.complete && onChange && current.state !== "done" && (
           <button type="button" className="ppb-pass" onClick={markPassed} disabled={saving} aria-label="Mark this stage passed" title="Mark this stage passed">✓</button>
         )}
       </div>
