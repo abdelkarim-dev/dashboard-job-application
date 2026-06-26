@@ -1,0 +1,127 @@
+/* Stage-aware process progress bar. Scoped under .ppb-*. Two densities: --card
+   (compact, on dashboard cards) and --panel (fuller, in the side panel). */
+
+.ppb { display: flex; flex-direction: column; gap: 7px; }
+.ppb--card { gap: 5px; }
+
+.ppb-track { display: flex; align-items: center; gap: 0; flex-wrap: wrap; row-gap: 8px; }
+
+/* Connector between stage nodes */
+.ppb-link {
+  flex: 0 0 auto; width: 14px; height: 3px; border-radius: 999px;
+  background: var(--md-outline-variant);
+  transition: background 0.3s ease;
+}
+.ppb--panel .ppb-link { width: 20px; }
+.ppb-link.is-filled { background: linear-gradient(90deg, var(--s-offer-dot, #34d399), color-mix(in srgb, var(--s-offer-dot, #34d399) 60%, var(--md-primary))); }
+
+/* ── Stage node ── */
+.ppb-node {
+  flex: 0 0 auto; position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  transition: transform 0.14s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.ppb-node--leaf {
+  width: 22px; height: 22px;
+  border: 1.5px solid var(--md-outline-variant);
+  background: var(--md-surface-3);
+  color: var(--md-on-surface-variant);
+  font-size: 0.62rem;
+}
+.ppb--panel .ppb-node--leaf { width: 30px; height: 30px; font-size: 0.78rem; }
+.ppb-node-icon { line-height: 1; }
+
+/* Leaf states */
+.ppb-node--done {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--s-offer-dot, #34d399) 92%, white), var(--s-offer-dot, #34d399));
+  border-color: transparent; color: #042018; font-weight: 700;
+}
+.ppb-node--scheduled {
+  background: color-mix(in srgb, var(--s-oa-dot, #38bdf8) 22%, var(--md-surface-3));
+  border-color: var(--s-oa-dot, #38bdf8); color: var(--s-oa-dot, #38bdf8);
+}
+.ppb-node--failed {
+  background: color-mix(in srgb, var(--s-rejected-dot, #f87171) 22%, var(--md-surface-3));
+  border-color: var(--s-rejected-dot, #f87171); color: var(--s-rejected-dot, #f87171);
+}
+.ppb-node--pending { background: var(--md-surface-1); }
+
+/* Current stage — accent ring + glow + gentle pulse */
+.ppb-node.is-current {
+  border-color: var(--node-color, var(--md-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-color, var(--md-primary)) 24%, transparent);
+  color: var(--node-color, var(--md-primary));
+  animation: ppb-pulse 2s ease-in-out infinite;
+}
+.ppb-node--leaf.is-current { background: color-mix(in srgb, var(--node-color, var(--md-primary)) 14%, var(--md-surface-2)); }
+@keyframes ppb-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-color, var(--md-primary)) 22%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-color, var(--md-primary)) 10%, transparent); }
+}
+
+/* Group node (e.g. Onsite Loop) */
+.ppb-node--group {
+  gap: 5px; padding: 0 9px; height: 22px; border-radius: 999px;
+  border: 1.5px solid var(--md-outline-variant); background: var(--md-surface-3);
+  color: var(--md-on-surface-variant); font-size: 0.62rem;
+}
+.ppb--panel .ppb-node--group { height: 30px; padding: 0 11px; font-size: 0.72rem; }
+.ppb-node--group.ppb-node--done { background: color-mix(in srgb, var(--s-offer-dot, #34d399) 18%, var(--md-surface-3)); border-color: color-mix(in srgb, var(--s-offer-dot, #34d399) 55%, transparent); color: var(--s-offer-dot, #34d399); }
+.ppb-node--group.ppb-node--active { border-color: color-mix(in srgb, var(--md-primary) 45%, transparent); }
+.ppb-group-icon { font-size: 0.72rem; }
+.ppb-group-pips { display: inline-flex; gap: 2px; }
+.ppb-pip { width: 5px; height: 5px; border-radius: 50%; background: var(--md-outline); }
+.ppb-pip--done { background: var(--s-offer-dot, #34d399); }
+.ppb-pip--scheduled { background: var(--s-oa-dot, #38bdf8); }
+.ppb-pip--failed { background: var(--s-rejected-dot, #f87171); }
+.ppb-pip.is-current { background: var(--md-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-primary) 30%, transparent); }
+.ppb-group-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.ppb-node-label {
+  position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+  font-size: 0.6rem; color: var(--md-on-surface-variant); white-space: nowrap; max-width: 72px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.ppb--panel .ppb-track { margin-bottom: 16px; }
+
+/* ── Caption ── */
+.ppb-caption { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ppb-current {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0;
+  font-size: 0.72rem; font-weight: 600; color: var(--md-on-surface);
+}
+.ppb--panel .ppb-current { font-size: 0.82rem; }
+.ppb-current-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.ppb-state {
+  font-size: 0.62rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  background: var(--md-surface-3); color: var(--md-on-surface-variant);
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.ppb-state--done { color: var(--s-offer-dot, #34d399); background: var(--s-offer-bg, rgba(52,211,153,0.12)); }
+.ppb-state--scheduled { color: var(--s-oa-dot, #38bdf8); background: var(--s-oa-bg, rgba(56,189,248,0.12)); }
+.ppb-state--failed { color: var(--s-rejected-dot, #f87171); background: var(--s-rejected-bg, rgba(248,113,113,0.12)); }
+.ppb-state--waiting { color: #f5a524; background: rgba(245,165,36,0.14); }
+
+.ppb-datechip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.66rem; font-weight: 600; cursor: pointer;
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--md-outline-variant); background: var(--md-surface-1); color: var(--md-on-surface-variant);
+  transition: all 0.14s ease;
+}
+.ppb-datechip:hover:not(:disabled) { color: var(--s-oa-dot, #38bdf8); border-color: color-mix(in srgb, var(--s-oa-dot, #38bdf8) 50%, transparent); }
+.ppb-datechip:disabled { opacity: 0.5; cursor: default; }
+.ppb-dateinput {
+  font-size: 0.68rem; color: var(--md-on-surface);
+  background: var(--md-surface-1); border: 1px solid var(--s-oa-dot, #38bdf8); border-radius: 7px; padding: 2px 6px;
+}
+.ppb-pass {
+  width: 20px; height: 20px; display: grid; place-items: center;
+  font-size: 0.7rem; font-weight: 700; cursor: pointer;
+  border-radius: 50%; border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-1); color: var(--md-on-surface-variant);
+  transition: all 0.14s ease;
+}
+.ppb-pass:hover:not(:disabled) { color: #042018; background: var(--s-offer-dot, #34d399); border-color: transparent; }
+.ppb-pass:disabled { opacity: 0.5; cursor: default; }

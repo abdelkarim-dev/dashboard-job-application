@@ -124,29 +124,34 @@ function GroupCard({ step, onChange, onRemove, onMove, canLeft, canRight, onDrop
           const meta = stepType(child.type);
           return (
             <div key={child.id} className="ipx-chip" style={{ "--node-color": meta.color || "var(--md-primary)" }}>
-              <span className="ipx-chip-idx">{idx + 1}</span>
-              <span className="ipx-chip-icon" aria-hidden="true">{meta.icon}</span>
-              <input
-                className="ipx-chip-name"
-                value={child.name}
-                onChange={(e) => setChild(idx, { ...child, name: e.target.value, _renamed: true })}
-                aria-label="Round name"
-              />
-              <select
-                className="ipx-chip-type"
-                value={child.type}
-                onChange={(e) => {
-                  const type = e.target.value;
-                  const autoName = !child._renamed || child.name === stepType(child.type).label;
-                  setChild(idx, { ...child, type, name: autoName ? stepType(type).label : child.name });
-                }}
-                aria-label="Round type"
-              >
-                {STEP_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
-              </select>
-              <button type="button" className="ipx-mini" onClick={() => moveChild(idx, -1)} disabled={idx === 0} aria-label="Move up">↑</button>
-              <button type="button" className="ipx-mini" onClick={() => moveChild(idx, 1)} disabled={idx === children.length - 1} aria-label="Move down">↓</button>
-              <button type="button" className="ipx-mini ipx-mini--danger" onClick={() => removeChild(idx)} aria-label="Remove round">✕</button>
+              <div className="ipx-chip-row">
+                <span className="ipx-chip-idx">{idx + 1}</span>
+                <span className="ipx-chip-icon" aria-hidden="true">{meta.icon}</span>
+                <input
+                  className="ipx-chip-name"
+                  value={child.name}
+                  onChange={(e) => setChild(idx, { ...child, name: e.target.value, _renamed: true })}
+                  placeholder="Round name"
+                  aria-label="Round name"
+                />
+                <button type="button" className="ipx-mini ipx-mini--danger" onClick={() => removeChild(idx)} aria-label="Remove round">✕</button>
+              </div>
+              <div className="ipx-chip-row ipx-chip-row--meta">
+                <select
+                  className="ipx-chip-type"
+                  value={child.type}
+                  onChange={(e) => {
+                    const type = e.target.value;
+                    const autoName = !child._renamed || child.name === stepType(child.type).label;
+                    setChild(idx, { ...child, type, name: autoName ? stepType(type).label : child.name });
+                  }}
+                  aria-label="Round type"
+                >
+                  {STEP_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
+                </select>
+                <button type="button" className="ipx-mini" onClick={() => moveChild(idx, -1)} disabled={idx === 0} aria-label="Move up">↑</button>
+                <button type="button" className="ipx-mini" onClick={() => moveChild(idx, 1)} disabled={idx === children.length - 1} aria-label="Move down">↓</button>
+              </div>
             </div>
           );
         })}
@@ -412,39 +417,46 @@ export default function InterviewProcesses() {
           <h2 className="ipx-title">Interview Processes</h2>
           <span className="ipx-subtitle">Design a company's interview path as a flow, then assign it to applications.</span>
         </div>
-        <button type="button" className="ipx-new" onClick={createDraft}>＋ New process</button>
       </div>
 
       {loadError && <div className="ipx-loaderror">{loadError}</div>}
 
-      {/* Process tabs */}
-      <div className="ipx-tabs" role="tablist" aria-label="Processes">
-        {tabs.map((p) => {
-          const count = flattenSteps(p.steps).length;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              role="tab"
-              aria-selected={p.id === selectedId}
-              className={`ipx-tab ${p.id === selectedId ? "is-active" : ""}`}
-              style={{ "--accent": accentColor(p.accent) }}
-              onClick={() => selectProcess(p.id)}
-            >
-              <span className="ipx-tab-dot" aria-hidden="true" />
-              <span className="ipx-tab-name">{p.name || "Untitled"}{p._isNew ? " •" : ""}</span>
-              {p.isDefault && <span className="ipx-tab-default" title="Default — inherited by all unassigned applications">★</span>}
-              <span className="ipx-tab-count">{count}</span>
-            </button>
-          );
-        })}
-        {loaded && tabs.length === 0 && !loadError && (
-          <span className="ipx-tabs-empty">No processes yet — create your first one.</span>
-        )}
-      </div>
+      <div className="ipx-workspace">
+        {/* Left: process list */}
+        <aside className="ipx-sidebar" aria-label="Processes">
+          <div className="ipx-sidebar-head">
+            <span>Processes</span>
+            <button type="button" className="ipx-new-mini" onClick={createDraft} title="New process" aria-label="New process">＋</button>
+          </div>
+          <div className="ipx-sidebar-list">
+            {tabs.map((p) => {
+              const count = flattenSteps(p.steps).length;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  aria-selected={p.id === selectedId}
+                  className={`ipx-pitem ${p.id === selectedId ? "is-active" : ""}`}
+                  style={{ "--accent": accentColor(p.accent) }}
+                  onClick={() => selectProcess(p.id)}
+                >
+                  <span className="ipx-pitem-dot" aria-hidden="true" />
+                  <span className="ipx-pitem-body">
+                    <span className="ipx-pitem-name">{p.name || "Untitled"}{p._isNew ? " •" : ""}</span>
+                    <span className="ipx-pitem-meta">{count} step{count === 1 ? "" : "s"}{p.isDefault ? " · default" : ""}</span>
+                  </span>
+                  {p.isDefault && <span className="ipx-pitem-star" title="Default — inherited by all unassigned applications">★</span>}
+                </button>
+              );
+            })}
+            {loaded && tabs.length === 0 && !loadError && (
+              <span className="ipx-sidebar-empty">No processes yet.</span>
+            )}
+          </div>
+          <button type="button" className="ipx-sidebar-new" onClick={createDraft}>＋ New process</button>
+        </aside>
 
-      {draft && (
-        <div className="ipx-editor">
+        {draft ? (
           <div className="ipx-editor-main">
             <div className="ipx-editor-head" style={{ "--accent": accentColor(draft.accent) }}>
               <span className="ipx-accent-dot" aria-hidden="true" />
@@ -509,18 +521,20 @@ export default function InterviewProcesses() {
             </div>
           </div>
 
-          <Palette onAdd={addComponent} />
-        </div>
-      )}
-
-      {loaded && !draft && !loadError && (
-        <div className="ipx-empty">
-          <div className="ipx-empty-icon">🧭</div>
-          <strong>No process selected</strong>
-          <p>Pick a process above, or create a new one to design its interview flow.</p>
-          <button type="button" className="ipx-new" onClick={createDraft}>＋ New process</button>
-        </div>
-      )}
+        ) : (
+          <div className="ipx-editor-placeholder">
+            {loaded && !loadError && (
+              <div className="ipx-empty">
+                <div className="ipx-empty-icon">🧭</div>
+                <strong>No process selected</strong>
+                <p>Pick a process on the left, or create a new one to design its interview flow.</p>
+                <button type="button" className="ipx-new" onClick={createDraft}>＋ New process</button>
+              </div>
+            )}
+          </div>
+        )}
+        {draft && <Palette onAdd={addComponent} />}
+      </div>
     </div>
   );
 }

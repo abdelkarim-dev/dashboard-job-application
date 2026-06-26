@@ -215,6 +215,33 @@ function syntheticProgress(leaves, status) {
   return prog;
 }
 
+// Materialize the store's default process onto an application (positioned at its
+// current canonical status) — used when an unassigned card is interacted with
+// (e.g. a date is set), so the inherited default becomes a real, persisted
+// snapshot. Returns the process-field patch, or null when there's no default.
+export function adoptDefaultProcess(app, store) {
+  const def = getDefaultProcess(store);
+  if (!def || !Array.isArray(def.steps)) return null;
+  const steps = JSON.parse(JSON.stringify(def.steps));
+  const stepProgress = syntheticProgress(flattenSteps(steps), app && app.status);
+  const probe = { processId: def.id, processSteps: steps, stepProgress };
+  return {
+    processId: def.id,
+    processName: def.name || "",
+    processSteps: steps,
+    stepProgress,
+    currentStepId: deriveCurrentStepId(probe),
+  };
+}
+
+// Ensure an app has a concrete process snapshot: returns the app unchanged when
+// one is assigned, else a shallow copy with the default process adopted.
+export function ensureProcess(app, store) {
+  if (hasProcess(app)) return app;
+  const patch = adoptDefaultProcess(app, store);
+  return patch ? { ...app, ...patch } : app;
+}
+
 // Unified, render-ready view of an application's process — the assigned one, or
 // (when none is assigned) the store's default process positioned from the app's
 // canonical status. Returns null when there's no process to show at all.

@@ -10,8 +10,9 @@ import {
   localDateString,
   daysSinceCurrentStage,
 } from "../lib/metrics.mjs";
-import { hasProcess, isProcessWaiting, processSummary } from "../lib/process.mjs";
+import { hasProcess, isProcessWaiting, processSummary, getDefaultProcess } from "../lib/process.mjs";
 import ApplicationProcessPanel from "./ApplicationProcessPanel.jsx";
+import ProcessProgressBar from "./ProcessProgressBar.jsx";
 
 const PIPELINE_FORWARD = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer"];
 
@@ -348,7 +349,7 @@ function StatusPicker({ app, onStatusChange }) {
 }
 
 // ── Side Panel ────────────────────────────────────────────────────────────────
-function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetchApplications }) {
+function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetchApplications, store }) {
   const [editData, setEditData] = useState(() => ({ ...app }));
   const [dirty, setDirty] = useState(false);
   const [evalLoading, setEvalLoading] = useState(false);
@@ -536,26 +537,33 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
           <button className="ndash-panel-close" onClick={onClose} type="button" aria-label="Close">✕</button>
         </div>
 
-        {/* Pipeline labels wrap so the full stage names remain readable. */}
+        {/* When a process applies (assigned, or the inherited default), the stage
+            position shows as the process flow instead of the generic pipeline. */}
         <div className="ndash-pipeline">
-          {PIPELINE_FORWARD.map((status, idx) => {
-            const m = STATUS_META[status];
-            const isActive = editData.status === status;
-            const isPast = statusStep(editData.status) > idx;
-            return (
-              <button
-                key={status}
-                className={`ndash-pipeline-step ${isActive ? "ndash-pipeline-step--active" : ""} ${isPast ? "ndash-pipeline-step--past" : ""} ${saving ? "ndash-pipeline-step--saving" : ""}`}
-                onClick={() => handlePipelineClick(status)}
-                type="button"
-                title={isActive ? `Click to revert to ${PIPELINE_FORWARD[idx - 1] || "Applied"}` : `Set to ${status}`}
-                style={isActive ? { "--step-color": m.color } : {}}
-              >
-                <span className="ndash-pipeline-dot" style={{ background: isActive || isPast ? m.dot : "var(--md-outline-variant)" }} />
-                <span className="ndash-pipeline-label">{m.pipeShort}</span>
-              </button>
-            );
-          })}
+          {(hasProcess(editData) || (store && getDefaultProcess(store))) ? (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ProcessProgressBar app={editData} store={store} onChange={handleProcessChange} variant="panel" saving={saving} />
+            </div>
+          ) : (
+            PIPELINE_FORWARD.map((status, idx) => {
+              const m = STATUS_META[status];
+              const isActive = editData.status === status;
+              const isPast = statusStep(editData.status) > idx;
+              return (
+                <button
+                  key={status}
+                  className={`ndash-pipeline-step ${isActive ? "ndash-pipeline-step--active" : ""} ${isPast ? "ndash-pipeline-step--past" : ""} ${saving ? "ndash-pipeline-step--saving" : ""}`}
+                  onClick={() => handlePipelineClick(status)}
+                  type="button"
+                  title={isActive ? `Click to revert to ${PIPELINE_FORWARD[idx - 1] || "Applied"}` : `Set to ${status}`}
+                  style={isActive ? { "--step-color": m.color } : {}}
+                >
+                  <span className="ndash-pipeline-dot" style={{ background: isActive || isPast ? m.dot : "var(--md-outline-variant)" }} />
+                  <span className="ndash-pipeline-label">{m.pipeShort}</span>
+                </button>
+              );
+            })
+          )}
           <button
             className={`ndash-pipeline-step ndash-pipeline-step--reject ${editData.status === "Rejected" ? "ndash-pipeline-step--active" : ""} ${saving ? "ndash-pipeline-step--saving" : ""}`}
             onClick={() => editData.status === "Rejected" ? handlePipelineClick("Rejected") : onStatusChange("Rejected")}
@@ -733,7 +741,7 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
 }
 
 // ── Role Row (inside company card) ────────────────────────────────────────────
-function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
+function RoleRow({ app, isSelected, onSelect, onQuickStatusChange, store, onProcessPatch }) {
   const meta = getDisplayMeta(app);
   const applied = formatDate(getAppliedDate(app));
   const rejected = app.status === "Rejected"
@@ -774,14 +782,6 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
         <div className="ndc-role-meta">
           {app.location && <span className="ndc-role-meta-item">📍 {app.location}</span>}
           {applied && <span className="ndc-role-meta-item">Applied {applied}</span>}
-          {proc && proc.current && !proc.complete && (
-            <span
-              className="ndc-role-meta-item"
-              title={`${app.processName || "Process"} · step ${proc.currentIndex + 1} of ${proc.total}${proc.waiting ? " · waiting for next step" : ""}`}
-            >
-              🧭 {proc.currentIndex + 1}/{proc.total} · {proc.current.name}{proc.waiting ? " · waiting" : ""}
-            </span>
-          )}
           {daysInStage !== null && daysInStage >= 1 && (
             <span
               className="ndc-role-meta-item"
@@ -800,6 +800,18 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
             <span className="ndc-role-meta-item ndc-role-meta-item--rejected">Rejected {rejected}</span>
           )}
         </div>
+        {/* Stage-aware process progress bar (assigned process, or the inherited
+            default). Lets the user assign a date / mark the stage passed inline. */}
+        {app.status !== "Rejected" && (
+          <div className="ndc-role-progress" style={{ marginTop: 7 }}>
+            <ProcessProgressBar
+              app={app}
+              store={store}
+              onChange={(next) => onProcessPatch && onProcessPatch(app, next)}
+              variant="card"
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -808,7 +820,7 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
 // ── Company Card ──────────────────────────────────────────────────────────────
 const MAX_VISIBLE_ROLES = 3;
 
-function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChange, index = 0 }) {
+function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChange, index = 0, store, onProcessPatch }) {
   const color = companyColor(company);
   const nonRejected = apps.filter((a) => a.status !== "Rejected");
   const bestStep = nonRejected.length ? Math.max(0, ...nonRejected.map((a) => statusStep(a.status))) : -1;
@@ -869,6 +881,8 @@ function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChan
             isSelected={selectedAppId === app.id}
             onSelect={onSelect}
             onQuickStatusChange={onQuickStatusChange}
+            store={store}
+            onProcessPatch={onProcessPatch}
           />
         ))}
         {hiddenCount > 0 && (
@@ -1076,7 +1090,19 @@ export default function Dashboard({
   const [saving, setSaving] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState(() => new Set());
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  // Interview-process store — fetched once so every card can render its assigned
+  // process or the inherited default along its progress bar.
+  const [processStore, setProcessStore] = useState(null);
   const searchRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/interview-processes")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((store) => { if (alive && store) setProcessStore(store); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // "/" focuses the omni search from anywhere on the dashboard.
   useEffect(() => {
@@ -1290,6 +1316,20 @@ export default function Dashboard({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...app, status: newStatus, ...extra }),
+      });
+      if (res.ok && fetchApplications) await fetchApplications();
+    } catch {}
+  }, [fetchApplications]);
+
+  // Persist a full process patch (assign default / set a stage date / mark a
+  // stage passed) coming from a card's progress bar. `nextApp` already carries
+  // the updated process fields + derived status.
+  const handleProcessPatch = useCallback(async (app, nextApp) => {
+    try {
+      const res = await fetch(`/api/applications/${encodeURIComponent(app.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextApp),
       });
       if (res.ok && fetchApplications) await fetchApplications();
     } catch {}
@@ -1527,6 +1567,8 @@ export default function Dashboard({
                         selectedAppId={selectedApp?.id}
                         onSelect={handleSelectApp}
                         onQuickStatusChange={handleQuickStatusChange}
+                        store={processStore}
+                        onProcessPatch={handleProcessPatch}
                         index={idx}
                       />
                     ))}
@@ -1566,6 +1608,8 @@ export default function Dashboard({
                         selectedAppId={selectedApp?.id}
                         onSelect={handleSelectApp}
                         onQuickStatusChange={handleQuickStatusChange}
+                        store={processStore}
+                        onProcessPatch={handleProcessPatch}
                         index={idx}
                       />
                     ))}
@@ -1588,6 +1632,7 @@ export default function Dashboard({
           onSave={handleSave}
           saving={saving}
           fetchApplications={fetchApplications}
+          store={processStore}
         />
       )}
     </div>
