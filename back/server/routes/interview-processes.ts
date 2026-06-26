@@ -17,6 +17,8 @@ export const interviewProcessesRoutes: RouteHandler = async (req, res, url) => {
     const input = await readBody(req);
     const store = await loadInterviewProcessesStore();
     const process = normalizeInterviewProcess(input);
+    // A new default demotes every other process so exactly one stays default.
+    if (process.isDefault) store.processes.forEach((existing: any) => { existing.isDefault = false; });
     store.processes = [process, ...store.processes.filter((existing: any) => existing.id !== process.id)];
     const saved = await saveInterviewProcessesStore(store);
     sendJson(res, 201, saved.processes.find((existing: any) => existing.id === process.id) || process);
@@ -35,9 +37,13 @@ export const interviewProcessesRoutes: RouteHandler = async (req, res, url) => {
     if (req.method === "PUT") {
       const input = await readBody(req);
       const updated = normalizeInterviewProcess({ ...input, id }, store.processes[index]);
+      // Setting this process default demotes the others (single default invariant).
+      if (updated.isDefault) {
+        store.processes.forEach((existing: any) => { existing.isDefault = false; });
+      }
       store.processes[index] = updated;
-      await saveInterviewProcessesStore(store);
-      sendJson(res, 200, updated);
+      const saved = await saveInterviewProcessesStore(store);
+      sendJson(res, 200, saved.processes.find((existing: any) => existing.id === id) || updated);
       return true;
     }
     if (req.method === "DELETE") {

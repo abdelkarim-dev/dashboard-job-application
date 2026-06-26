@@ -11,6 +11,10 @@ import {
   isProcessComplete,
   processSummary,
   applyStepState,
+  flattenSteps,
+  getDefaultProcess,
+  processViewForApp,
+  setStepDate,
 } from "../src/lib/process.mjs";
 
 const STEPS = [
@@ -107,4 +111,79 @@ test("applyStepState to scheduled records the canonical phase without completion
   assert.equal(next.stepProgress.s1.scheduledAt, "2026-07-01T12:00:00.000Z");
   assert.equal(next.stepProgress.s1.completedAt, undefined);
   assert.equal(next.status, "Recruiter Screen");
+});
+
+test("setStepDate flips a pending step to scheduled and stamps the date", () => {
+  const next = setStepDate(appWith({}), "s2", "2026-08-01T12:00:00.000Z");
+  assert.equal(next.stepProgress.s2.state, "scheduled");
+  assert.equal(next.stepProgress.s2.scheduledAt, "2026-08-01T12:00:00.000Z");
+});
+
+// ── Groups (flattening) ───────────────────────────────────────────────────────
+
+const GROUPED_STEPS = [
+  { id: "rec", name: "Recruiter", type: "recruiter", phase: "Recruiter Screen" },
+  { id: "loop", name: "Onsite Loop", type: "group", children: [
+    { id: "r1", name: "Round 1", type: "coding", phase: "Interview" },
+    { id: "r2", name: "Round 2", type: "system_design", phase: "Interview" },
+  ] },
+  { id: "off", name: "Offer", type: "offer", phase: "Offer" },
+];
+
+test("flattenSteps expands inline groups to ordered leaves", () => {
+  assert.deepEqual(flattenSteps(GROUPED_STEPS).map((l) => l.id), ["rec", "r1", "r2", "off"]);
+});
+
+test("derivation flattens groups (status + current operate on leaf rounds)", () => {
+  const app = { processId: "g", processSteps: GROUPED_STEPS, stepProgress: { rec: { state: "done" }, r1: { state: "scheduled" } } };
+  assert.equal(deriveProcessStatus(app), "Interview");
+  assert.equal(deriveCurrentStepId(app), "r1");
+  assert.equal(processSummary(app).total, 4);
+});
+
+// ── Default process + processViewForApp ───────────────────────────────────────
+
+const STORE = {
+  processes: [
+    { id: "p-def", name: "Standard", isDefault: true, accent: "sky", steps: GROUPED_STEPS },
+    { id: "p-toast", name: "Toast", isDefault: false, accent: "amber", steps: [
+      { id: "t1", name: "Recruiter", type: "recruiter", phase: "Recruiter Screen" },
+      { id: "t2", name: "Offer", type: "offer", phase: "Offer" },
+    ] },
+  ],
+};
+
+test("getDefaultProcess returns the flagged default", () => {
+  assert.equal(getDefaultProcess(STORE).id, "p-def");
+});
+
+test("processViewForApp uses the assigned process with real progress", () => {
+  const app = { processId: "p-toast", processName: "Toast", processSteps: STORE.processes[1].steps, stepProgress: { t1: { state: "done" } }, status: "Recruiter Screen" };
+  const view = processViewForApp(app, STORE);
+  assert.equal(view.hasAssigned, true);
+  assert.equal(view.processName, "Toast");
+  assert.equal(view.total, 2);
+  assert.equal(view.doneCount, 1);
+  assert.equal(view.leaves[0].state, "done");
+  assert.equal(view.currentLeaf.id, "t2");
+});
+
+test("processViewForApp falls back to the default process for an unassigned app", () => {
+  const app = { status: "Interview" }; // no processId
+  const view = processViewForApp(app, STORE);
+  assert.equal(view.hasAssigned, false);
+  assert.equal(view.processName, "Standard");
+  assert.equal(view.total, 4); // rec + r1 + r2 + off (flattened)
+  // status Interview -> recruiter done, first Interview leaf (r1) current
+  assert.equal(view.leaves.find((l) => l.id === "rec").state, "done");
+  assert.equal(view.leaves.find((l) => l.id === "r1").isCurrent, true);
+  // grouped structure is preserved for layout (the Onsite Loop group with 2 children)
+  const group = view.groups.find((g) => g.isGroup);
+  assert.ok(group && group.children.length === 2);
+});
+
+test("processViewForApp positions an unassigned Offer app as fully done", () => {
+  const view = processViewForApp({ status: "Offer" }, STORE);
+  assert.equal(view.doneCount, 4);
+  assert.equal(view.complete, true);
 });

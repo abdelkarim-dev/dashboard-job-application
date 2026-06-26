@@ -3,20 +3,26 @@
 // application, which then carries a SNAPSHOT of its steps plus per-step progress
 // so editing a template later never rewrites history already in flight.
 //
-// Each step has a `type` drawn from STEP_TYPES; every type maps to one of the
-// canonical pipeline phases ("Recruiter Screen" / "Online Assessment" /
-// "Interview" / "Offer"). That mapping is what keeps the existing analytics,
-// board, stale detection and CSV export working unchanged: an application's
-// canonical `status` is derived from how far it has advanced through its steps.
+// Steps can be leaves OR inline GROUPS (a "group" step holds an ordered list of
+// child leaf steps — e.g. an "Onsite Loop" containing 5 rounds). Groups nest one
+// level only. For progress/status the tree is FLATTENED to its leaves: progress
+// is keyed by leaf id, and the canonical pipeline `status` derives from how far
+// the application has advanced through those leaves.
 //
-// Stored as a single JSON blob in app_settings ("interviewProcesses"), mirroring
-// the study-plans store.
+// One process is the DEFAULT (isDefault): applications with no explicitly
+// assigned process inherit it for display in the dashboard.
+//
+// Each leaf `type` is drawn from STEP_TYPES; every type maps to one of the
+// canonical pipeline phases ("Recruiter Screen" / "Online Assessment" /
+// "Interview" / "Offer"). That mapping keeps the existing analytics, board,
+// stale detection and CSV export working unchanged.
+//
+// Stored as a single JSON blob in app_settings ("interviewProcesses").
 import { cleanTimestamp } from "../core/dates.mjs";
 import { clean, slugify } from "../core/util.mjs";
 
 // Step-type vocabulary. `phase` is the canonical pipeline stage the step counts
-// as for analytics. Keep this list in sync with front/src/lib/process.mjs
-// (the client mirror used by the management UI and dashboard).
+// as for analytics. Keep this list in sync with front/src/lib/process.mjs.
 const STEP_TYPES = [
   { type: "recruiter",     label: "Recruiter Screen",   phase: "Recruiter Screen",  icon: "📞" },
   { type: "assessment",    label: "Online Assessment",  phase: "Online Assessment", icon: "📝" },
@@ -33,14 +39,11 @@ const STEP_TYPES = [
 ];
 const STEP_TYPE_MAP = new Map(STEP_TYPES.map((entry) => [entry.type, entry]));
 const DEFAULT_STEP_TYPE = "custom";
+const GROUP_TYPE = "group";
 
 const PROCESS_ACCENTS = ["violet", "sky", "amber", "emerald", "rose", "cyan"];
 
 // Per-application step progress states.
-//   pending   — not yet scheduled (the round hasn't been booked)
-//   scheduled — booked / actively in progress (has or will have a date)
-//   done      — completed and passed
-//   failed    — completed but did not pass (often precedes a rejection)
 const STEP_STATES = ["pending", "scheduled", "done", "failed"];
 
 function stepType(type) {
@@ -49,6 +52,24 @@ function stepType(type) {
 
 function stepPhase(type) {
   return stepType(type).phase;
+}
+
+function isGroupStep(step) {
+  return Boolean(step && (step.type === GROUP_TYPE || Array.isArray(step.children)));
+}
+
+// Flatten the (one-level) step tree into its ordered leaf steps — the unit that
+// progress + status derivation operate on. Empty groups contribute nothing.
+function flattenSteps(steps) {
+  const leaves = [];
+  for (const step of Array.isArray(steps) ? steps : []) {
+    if (isGroupStep(step)) {
+      for (const child of Array.isArray(step.children) ? step.children : []) leaves.push(child);
+    } else {
+      leaves.push(step);
+    }
+  }
+  return leaves;
 }
 
 const defaultInterviewProcessesStore = {
@@ -60,10 +81,17 @@ const defaultInterviewProcessesStore = {
       description: "Recruiter screen → online assessment → onsite loop → offer.",
       accent: "sky",
       seeded: true,
+      isDefault: true,
       steps: [
         { id: "std-recruiter", name: "Recruiter Screen", type: "recruiter" },
         { id: "std-assessment", name: "Online Assessment", type: "assessment" },
-        { id: "std-loop", name: "Onsite Loop", type: "loop" },
+        {
+          id: "std-loop", name: "Onsite Loop", type: GROUP_TYPE, children: [
+            { id: "std-loop-1", name: "Coding", type: "coding" },
+            { id: "std-loop-2", name: "System Design", type: "system_design" },
+            { id: "std-loop-3", name: "Behavioral", type: "behavioral" },
+          ],
+        },
         { id: "std-offer", name: "Offer", type: "offer" },
       ],
     },
@@ -73,14 +101,19 @@ const defaultInterviewProcessesStore = {
       description: "Recruiter → coding challenge → 5-round loop → hiring manager → offer.",
       accent: "amber",
       seeded: true,
+      isDefault: false,
       steps: [
         { id: "toast-recruiter", name: "Recruiter Screen", type: "recruiter" },
         { id: "toast-coding", name: "Coding Challenge", type: "assessment" },
-        { id: "toast-loop-1", name: "Loop 1 — Coding", type: "coding" },
-        { id: "toast-loop-2", name: "Loop 2 — Coding", type: "coding" },
-        { id: "toast-loop-3", name: "Loop 3 — System Design", type: "system_design" },
-        { id: "toast-loop-4", name: "Loop 4 — Behavioral", type: "behavioral" },
-        { id: "toast-loop-5", name: "Loop 5 — Values & Craft", type: "loop" },
+        {
+          id: "toast-loop", name: "Onsite Loop", type: GROUP_TYPE, children: [
+            { id: "toast-loop-1", name: "Loop 1 — Coding", type: "coding" },
+            { id: "toast-loop-2", name: "Loop 2 — Coding", type: "coding" },
+            { id: "toast-loop-3", name: "Loop 3 — System Design", type: "system_design" },
+            { id: "toast-loop-4", name: "Loop 4 — Behavioral", type: "behavioral" },
+            { id: "toast-loop-5", name: "Loop 5 — Values & Craft", type: "loop" },
+          ],
+        },
         { id: "toast-manager", name: "Hiring Manager", type: "manager" },
         { id: "toast-offer", name: "Offer", type: "offer" },
       ],
@@ -90,33 +123,49 @@ const defaultInterviewProcessesStore = {
 
 // ── Template normalization ────────────────────────────────────────────────────
 
-function normalizeProcessStep(input = {}, index = 0) {
+function makeUniqueId(candidate, seen) {
+  let id = candidate;
+  let suffix = 1;
+  while (seen.has(id)) {
+    id = `${candidate}-${suffix}`;
+    suffix += 1;
+  }
+  seen.add(id);
+  return id;
+}
+
+function normalizeLeafStep(input = {}, index = 0) {
   const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  const name = clean(source.name) || stepType(source.type).label;
   const type = STEP_TYPE_MAP.has(clean(source.type)) ? clean(source.type) : DEFAULT_STEP_TYPE;
-  const slug = slugify(name);
-  const id = clean(source.id) || `step-${slug}-${index}`;
+  const name = clean(source.name) || stepType(type).label;
+  const id = clean(source.id) || `step-${slugify(name)}-${index}`;
   return { id, name, type, phase: stepPhase(type) };
+}
+
+// A single top-level step: either a group (with leaf children) or a leaf.
+function normalizeProcessStep(input = {}, index = 0, allowGroups = true) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  if (allowGroups && isGroupStep(source)) {
+    const name = clean(source.name) || "Onsite Loop";
+    const id = clean(source.id) || `group-${slugify(name)}-${index}`;
+    const children = (Array.isArray(source.children) ? source.children : [])
+      .map((child, childIndex) => normalizeLeafStep(child, childIndex));
+    return { id, name, type: GROUP_TYPE, children };
+  }
+  return normalizeLeafStep(source, index);
 }
 
 function normalizeProcessSteps(value) {
   const list = Array.isArray(value) ? value : [];
   const seen = new Set();
-  const steps = [];
-  list.forEach((raw, index) => {
+  return list.map((raw, index) => {
     const step = normalizeProcessStep(raw, index);
-    // Disambiguate duplicate ids (e.g. two "Coding Interview" steps) so per-step
-    // progress never collides.
-    let id = step.id;
-    let suffix = 1;
-    while (seen.has(id)) {
-      id = `${step.id}-${suffix}`;
-      suffix += 1;
+    step.id = makeUniqueId(step.id, seen);
+    if (step.type === GROUP_TYPE && Array.isArray(step.children)) {
+      step.children = step.children.map((child) => ({ ...child, id: makeUniqueId(child.id, seen) }));
     }
-    seen.add(id);
-    steps.push({ ...step, id });
+    return step;
   });
-  return steps;
 }
 
 function normalizeInterviewProcess(input = {}, existing = {}) {
@@ -137,6 +186,7 @@ function normalizeInterviewProcess(input = {}, existing = {}) {
     description: String(source.description ?? base.description ?? ""),
     accent,
     seeded: Boolean(source.seeded ?? base.seeded ?? false),
+    isDefault: Boolean(source.isDefault ?? base.isDefault ?? false),
     steps,
     createdAt: cleanTimestamp(source.createdAt) || cleanTimestamp(base.createdAt) || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -165,7 +215,20 @@ function normalizeInterviewProcessesStore(input = {}) {
     seen.add(process.id);
     return true;
   });
+  // Exactly one default. First flagged wins; if none flagged, the first process
+  // becomes the default so unassigned applications always inherit something.
+  let defaultSeen = false;
+  for (const process of deduped) {
+    if (process.isDefault && !defaultSeen) defaultSeen = true;
+    else process.isDefault = false;
+  }
+  if (!defaultSeen && deduped.length) deduped[0].isDefault = true;
   return { version: 1, processes: deduped };
+}
+
+function getDefaultProcess(store) {
+  const processes = store && Array.isArray(store.processes) ? store.processes : [];
+  return processes.find((process) => process.isDefault) || processes[0] || null;
 }
 
 // ── Per-application process state ─────────────────────────────────────────────
@@ -183,7 +246,7 @@ function normalizeStepProgressEntry(value) {
 
 // Builds the per-application process snapshot + progress from the (possibly
 // partial) input, falling back to the existing stored value. Returns the empty
-// shape when no process is assigned.
+// shape when no process is assigned. Progress is keyed by LEAF step ids.
 function normalizeApplicationProcess(input = {}, existing = {}) {
   const inProcessId = input.processId !== undefined ? clean(input.processId) : undefined;
   const processId = inProcessId !== undefined ? inProcessId : clean(existing.processId);
@@ -193,21 +256,22 @@ function normalizeApplicationProcess(input = {}, existing = {}) {
 
   const rawSteps = input.processSteps !== undefined ? input.processSteps : existing.processSteps;
   const processSteps = normalizeProcessSteps(rawSteps);
-  const stepIds = new Set(processSteps.map((step) => step.id));
+  const leafIds = new Set(flattenSteps(processSteps).map((step) => step.id));
 
   const rawProgress = input.stepProgress !== undefined ? input.stepProgress : existing.stepProgress;
   const stepProgress = {};
   if (rawProgress && typeof rawProgress === "object" && !Array.isArray(rawProgress)) {
     for (const [stepId, entry] of Object.entries(rawProgress)) {
-      if (!stepIds.has(stepId)) continue; // drop progress for steps no longer present
+      if (!leafIds.has(stepId)) continue; // drop progress for steps no longer present
       stepProgress[stepId] = normalizeStepProgressEntry(entry);
     }
   }
 
   const inCurrent = input.currentStepId !== undefined ? clean(input.currentStepId) : clean(existing.currentStepId);
-  const currentStepId = stepIds.has(inCurrent)
+  const firstLeaf = flattenSteps(processSteps)[0];
+  const currentStepId = leafIds.has(inCurrent)
     ? inCurrent
-    : (deriveCurrentStepId(processSteps, stepProgress) || (processSteps[0]?.id ?? ""));
+    : (deriveCurrentStepId({ processSteps, stepProgress }) || (firstLeaf ? firstLeaf.id : ""));
 
   return {
     processId,
@@ -218,31 +282,33 @@ function normalizeApplicationProcess(input = {}, existing = {}) {
   };
 }
 
-// The "current" step is the first one not yet done/failed (i.e. the next thing
-// to happen), or the last step when everything is resolved.
-function deriveCurrentStepId(steps, progress) {
-  for (const step of steps) {
-    const state = progress[step.id]?.state;
-    if (state !== "done" && state !== "failed") return step.id;
+// The "current" leaf is the first one not yet done/failed, or the last leaf when
+// everything is resolved. Accepts either an app-like ({processSteps,stepProgress})
+// or a process snapshot.
+function deriveCurrentStepId(p) {
+  const leaves = flattenSteps(p && p.processSteps);
+  const progress = (p && p.stepProgress) || {};
+  for (const leaf of leaves) {
+    const state = progress[leaf.id]?.state;
+    if (state !== "done" && state !== "failed") return leaf.id;
   }
-  return steps.length ? steps[steps.length - 1].id : "";
+  return leaves.length ? leaves[leaves.length - 1].id : "";
 }
 
 // Canonical pipeline status implied by a process snapshot: the phase of the
-// furthest step that has been scheduled or completed. Returns "" when nothing
-// has started yet (caller keeps the existing status, typically "Applied"), or
-// "Offer" once the offer step is done.
+// furthest leaf that has been scheduled or completed. "" when nothing started,
+// "Offer" once an offer leaf is done.
 function deriveProcessStatus(p) {
-  if (!p || !p.processId || !Array.isArray(p.processSteps) || !p.processSteps.length) return "";
+  const leaves = flattenSteps(p && p.processSteps);
+  if (!p || !p.processId || !leaves.length) return "";
   const progress = p.stepProgress || {};
   let phase = "";
   let offerDone = false;
-  for (const step of p.processSteps) {
-    const state = progress[step.id]?.state;
-    const phaseOfStep = step.phase || stepPhase(step.type);
-    // Advance on scheduled/done — except never promote to the terminal "Offer"
-    // phase on a merely-scheduled offer round (an offer must be *received*, i.e.
-    // marked done, to count as an Offer).
+  for (const leaf of leaves) {
+    const state = progress[leaf.id]?.state;
+    const phaseOfStep = leaf.phase || stepPhase(leaf.type);
+    // Advance on scheduled/done — except never promote to terminal "Offer" on a
+    // merely-scheduled offer round (an offer must be marked done to count).
     if (state === "done" || (state === "scheduled" && phaseOfStep !== "Offer")) phase = phaseOfStep;
     if (phaseOfStep === "Offer" && state === "done") offerDone = true;
   }
@@ -250,19 +316,17 @@ function deriveProcessStatus(p) {
   return phase;
 }
 
-// "Waiting" = a round was completed but the next one isn't booked yet, and the
-// process isn't finished — the ball is in the company's court. False when
-// something is currently scheduled, when nothing has happened, or when every
-// step is resolved.
+// "Waiting" = a round was completed but the next isn't booked yet and the
+// process isn't finished. False when something is scheduled, nothing has
+// happened, every leaf is resolved, or the most-recent resolved leaf failed.
 function isProcessWaiting(p) {
-  if (!p || !p.processId || !Array.isArray(p.processSteps) || !p.processSteps.length) return false;
+  const leaves = flattenSteps(p && p.processSteps);
+  if (!p || !p.processId || !leaves.length) return false;
   const progress = p.stepProgress || {};
-  const states = p.processSteps.map((step) => progress[step.id]?.state || "pending");
+  const states = leaves.map((leaf) => progress[leaf.id]?.state || "pending");
   if (states.some((state) => state === "scheduled")) return false;
   if (!states.some((state) => state === "done")) return false;
   if (states.every((state) => state === "done" || state === "failed")) return false;
-  // If the most-recently resolved round was a failure, the app isn't "waiting on
-  // the company for the next step" — it likely fell out. Don't claim Waiting.
   const lastResolved = states.filter((state) => state === "done" || state === "failed").pop();
   if (lastResolved === "failed") return false;
   return true;
@@ -274,13 +338,18 @@ export {
   STEP_STATES,
   PROCESS_ACCENTS,
   DEFAULT_STEP_TYPE,
+  GROUP_TYPE,
   defaultInterviewProcessesStore,
   stepType,
   stepPhase,
+  isGroupStep,
+  flattenSteps,
+  normalizeLeafStep,
   normalizeProcessStep,
   normalizeProcessSteps,
   normalizeInterviewProcess,
   normalizeInterviewProcessesStore,
+  getDefaultProcess,
   normalizeStepProgressEntry,
   normalizeApplicationProcess,
   deriveCurrentStepId,

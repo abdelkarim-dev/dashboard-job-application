@@ -15,6 +15,8 @@ import {
   deriveProcessStatus,
   isProcessWaiting,
   stepPhase,
+  flattenSteps,
+  getDefaultProcess,
 } from "../lib/domain/interviewProcesses.mjs";
 import { normalizeApplication } from "../lib/domain/applications.mjs";
 
@@ -26,8 +28,56 @@ test("normalizeInterviewProcessesStore seeds example processes on first run", ()
   const ids = store.processes.map((p) => p.id);
   assert.ok(ids.includes("proc-toast"), "ships the Toast example process");
   const toast = store.processes.find((p) => p.id === "proc-toast");
-  // recruiter + coding + 5 loop rounds + manager + offer = 9 steps
-  assert.equal(toast.steps.length, 9);
+  // 5 top-level: recruiter + coding + [Onsite Loop group] + manager + offer
+  assert.equal(toast.steps.length, 5);
+  // flattened: recruiter + coding + 5 loop rounds + manager + offer = 9 leaves
+  assert.equal(flattenSteps(toast.steps).length, 9);
+  const loop = toast.steps.find((s) => s.type === "group");
+  assert.ok(loop && loop.children.length === 5, "the Onsite Loop is an inline group of 5 rounds");
+});
+
+test("normalizeInterviewProcessesStore enforces exactly one default process", () => {
+  const seeded = normalizeInterviewProcessesStore(null);
+  assert.equal(seeded.processes.filter((p) => p.isDefault).length, 1);
+  assert.equal(getDefaultProcess(seeded).id, "proc-standard", "Standard is the seeded default");
+
+  // Multiple flagged -> only the first survives.
+  const many = normalizeInterviewProcessesStore({
+    processes: [
+      { id: "a", name: "A", isDefault: true, steps: [] },
+      { id: "b", name: "B", isDefault: true, steps: [] },
+    ],
+  });
+  assert.deepEqual(many.processes.map((p) => p.isDefault), [true, false]);
+
+  // None flagged -> the first becomes default.
+  const none = normalizeInterviewProcessesStore({
+    processes: [{ id: "a", name: "A", steps: [] }, { id: "b", name: "B", steps: [] }],
+  });
+  assert.equal(none.processes[0].isDefault, true);
+});
+
+test("normalizeProcessStep supports inline groups with flattenable leaf children", () => {
+  const process = normalizeInterviewProcess({
+    name: "Grouped",
+    steps: [
+      { name: "Recruiter", type: "recruiter" },
+      { name: "Onsite Loop", type: "group", children: [
+        { name: "Round 1", type: "coding" },
+        { name: "Round 2", type: "system_design" },
+      ] },
+      { name: "Offer", type: "offer" },
+    ],
+  });
+  assert.equal(process.steps.length, 3);
+  const group = process.steps[1];
+  assert.equal(group.type, "group");
+  assert.equal(group.children.length, 2);
+  const leaves = flattenSteps(process.steps);
+  assert.deepEqual(leaves.map((l) => l.name), ["Recruiter", "Round 1", "Round 2", "Offer"]);
+  // All leaf + group ids are globally unique (so per-leaf progress never collides).
+  const allIds = [process.steps[0].id, group.id, ...group.children.map((c) => c.id), process.steps[2].id];
+  assert.equal(new Set(allIds).size, allIds.length);
 });
 
 test("normalizeInterviewProcessesStore respects an explicit empty board", () => {
@@ -170,6 +220,28 @@ test("isProcessWaiting is true between a finished round and the next booking", (
     false,
     "most recent round failed — not waiting on the company"
   );
+});
+
+test("derivation flattens groups: status/current operate on leaf rounds", () => {
+  const steps = [
+    { id: "rec", name: "Recruiter", type: "recruiter" },
+    { id: "loop", name: "Onsite Loop", type: "group", children: [
+      { id: "r1", name: "Round 1", type: "coding", phase: "Interview" },
+      { id: "r2", name: "Round 2", type: "system_design", phase: "Interview" },
+    ] },
+    { id: "off", name: "Offer", type: "offer", phase: "Offer" },
+  ];
+  const p = { processId: "g", processSteps: steps };
+  // Recruiter done, first loop round scheduled -> status is Interview, current is r1.
+  const prog = { rec: { state: "done" }, r1: { state: "scheduled" } };
+  assert.equal(deriveProcessStatus({ ...p, stepProgress: prog }), "Interview");
+  // current step is the first unresolved leaf (r1 is scheduled => still unresolved).
+  const norm = normalizeApplicationProcess({ processId: "g", processSteps: steps, stepProgress: prog }, {});
+  assert.equal(norm.currentStepId, "r1");
+  // Progress is keyed by leaf ids only (group id is never a progress key).
+  assert.equal(norm.stepProgress.loop, undefined);
+  // Finishing every leaf round, including offer, yields Offer.
+  assert.equal(deriveProcessStatus({ ...p, stepProgress: { rec: { state: "done" }, r1: { state: "done" }, r2: { state: "done" }, off: { state: "done" } } }), "Offer");
 });
 
 // ── normalizeApplication integration ──────────────────────────────────────────
