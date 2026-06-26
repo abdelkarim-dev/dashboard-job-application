@@ -95,7 +95,9 @@ export function deriveProcessStatus(app) {
   for (const step of app.processSteps) {
     const state = stepState(app, step.id);
     const phaseOfStep = step.phase || stepPhase(step.type);
-    if (state === "scheduled" || state === "done") phase = phaseOfStep;
+    // Advance on scheduled/done — but never promote to terminal "Offer" on a
+    // merely-scheduled offer round (an offer must be marked done to count).
+    if (state === "done" || (state === "scheduled" && phaseOfStep !== "Offer")) phase = phaseOfStep;
     if (phaseOfStep === "Offer" && state === "done") offerDone = true;
   }
   if (offerDone) return "Offer";
@@ -111,6 +113,9 @@ export function isProcessWaiting(app) {
   if (states.some((state) => state === "scheduled")) return false;
   if (!states.some((state) => state === "done")) return false;
   if (states.every((state) => state === "done" || state === "failed")) return false;
+  // A failed most-recent round isn't "waiting on the company" — don't claim it.
+  const lastResolved = states.filter((state) => state === "done" || state === "failed").pop();
+  if (lastResolved === "failed") return false;
   return true;
 }
 

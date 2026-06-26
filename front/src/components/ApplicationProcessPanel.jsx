@@ -108,6 +108,7 @@ export default function ApplicationProcessPanel({ app, onChange, saving }) {
 
   const summary = processSummary(app);
   const pct = summary.total ? Math.round((summary.doneCount / summary.total) * 100) : 0;
+  const endedOnFailure = summary.complete && app.processSteps.some((s) => (app.stepProgress || {})[s.id]?.state === "failed");
 
   return (
     <div className="apx-panel">
@@ -124,7 +125,9 @@ export default function ApplicationProcessPanel({ app, onChange, saving }) {
         <div className="apx-waiting">⏳ Waiting — last round passed, next step not booked yet.</div>
       )}
       {summary.complete && (
-        <div className="apx-complete">✓ Process complete.</div>
+        endedOnFailure
+          ? <div className="apx-ended">Process ended — a round was not passed.</div>
+          : <div className="apx-complete">✓ Process complete.</div>
       )}
 
       <ol className="apx-steps">

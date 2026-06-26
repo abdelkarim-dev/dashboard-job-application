@@ -55,10 +55,16 @@ function ProcessCard({ process, onSaved, onDeleted, autoFocus }) {
   const setField = (key, value) => mutate((d) => { d[key] = value; return d; });
 
   const setStep = (idx, key, value) => mutate((d) => {
-    d.steps[idx][key] = value;
-    // Renaming follows the type's default label until the user types a custom name.
-    if (key === "type" && (!d.steps[idx]._renamed)) d.steps[idx].name = stepType(value).label;
-    if (key === "name") d.steps[idx]._renamed = true;
+    const step = d.steps[idx];
+    if (key === "type") {
+      // Only let the name follow the type when it's still the (auto-derived)
+      // default label — never clobber a name the user typed themselves.
+      const wasAutoName = !step.name || step.name === stepType(step.type).label;
+      step.type = value;
+      if (wasAutoName) step.name = stepType(value).label;
+    } else {
+      step[key] = value;
+    }
     return d;
   });
 

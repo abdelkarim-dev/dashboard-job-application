@@ -147,6 +147,13 @@ test("deriveProcessStatus reports the furthest scheduled/done phase", () => {
   assert.equal(deriveProcessStatus({ ...base, stepProgress: { s4: { state: "done" } } }), "Offer");
 });
 
+test("deriveProcessStatus does NOT report Offer when the offer round is only scheduled", () => {
+  const base = { processId: "x", processSteps: TOAST_STEPS };
+  // Offer merely scheduled (not received) must not flip the app to terminal Offer.
+  assert.equal(deriveProcessStatus({ ...base, stepProgress: { s4: { state: "scheduled" } } }), "");
+  assert.equal(deriveProcessStatus({ ...base, stepProgress: { s1: { state: "done" }, s4: { state: "scheduled" } } }), "Recruiter Screen");
+});
+
 test("isProcessWaiting is true between a finished round and the next booking", () => {
   const base = { processId: "x", processSteps: TOAST_STEPS };
   assert.equal(isProcessWaiting({ ...base, stepProgress: {} }), false, "nothing done yet");
@@ -157,6 +164,11 @@ test("isProcessWaiting is true between a finished round and the next booking", (
     isProcessWaiting({ ...base, stepProgress: { s1: { state: "done" }, s2: { state: "done" }, s3: { state: "done" }, s4: { state: "done" } } }),
     false,
     "fully resolved"
+  );
+  assert.equal(
+    isProcessWaiting({ ...base, stepProgress: { s1: { state: "done" }, s2: { state: "failed" } } }),
+    false,
+    "most recent round failed — not waiting on the company"
   );
 });
 
@@ -198,6 +210,21 @@ test("normalizeApplication lets an explicit status override the derived one", ()
     stepProgress: { s1: { state: "done" } },
   });
   assert.equal(app.status, "Interview");
+});
+
+test("normalizeApplication does not let process step state demote a terminal Rejected status", () => {
+  const existing = normalizeApplication({
+    company: "Toast",
+    role: "Eng",
+    status: "Rejected",
+    processId: "proc-toast",
+    processSteps: TOAST_STEPS,
+    stepProgress: { s1: { state: "done" } },
+  });
+  assert.equal(existing.status, "Rejected");
+  // A status-omitted update advancing a step must NOT resurrect the app from Rejected.
+  const updated = normalizeApplication({ stepProgress: { s1: { state: "done" }, s3: { state: "scheduled" } } }, existing);
+  assert.equal(updated.status, "Rejected");
 });
 
 test("normalizeApplication keeps existing process snapshot across an unrelated edit", () => {

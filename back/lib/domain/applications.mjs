@@ -83,8 +83,12 @@ function normalizeApplication(input, existing = {}) {
   // When a process is assigned and the caller did not explicitly set a status,
   // let the furthest-reached step drive the canonical pipeline status — the steps
   // stay the source of truth while analytics/board keep working off `status`. An
-  // explicit status (status picker, board drag, manual edit) always wins.
-  const derivedProcessStatus = input.status === undefined ? deriveProcessStatus(applicationProcess) : "";
+  // explicit status (status picker, board drag, manual edit) always wins, and a
+  // terminal status (Rejected/Offer) is never silently demoted by step state.
+  const derivedProcessStatus =
+    input.status === undefined && previousStatus !== "Rejected" && previousStatus !== "Offer"
+      ? deriveProcessStatus(applicationProcess)
+      : "";
   // Empty dateApplied is meaningful: "saved but not yet applied". Don't auto-fill today.
   let dateApplied = cleanStageDate(input.dateApplied ?? existing.dateApplied ?? "");
   const status = simplifyStatus(input.status || derivedProcessStatus || existing.status || "Applied");

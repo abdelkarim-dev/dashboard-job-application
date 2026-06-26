@@ -59,11 +59,17 @@ test("deriveProcessStatus tracks the furthest scheduled/done phase", () => {
   assert.equal(deriveProcessStatus(appWith({ s4: { state: "done" } })), "Offer");
 });
 
+test("deriveProcessStatus does not report Offer when the offer round is only scheduled", () => {
+  assert.equal(deriveProcessStatus(appWith({ s4: { state: "scheduled" } })), "");
+  assert.equal(deriveProcessStatus(appWith({ s1: { state: "done" }, s4: { state: "scheduled" } })), "Recruiter Screen");
+});
+
 test("isProcessWaiting flags the gap between rounds", () => {
   assert.equal(isProcessWaiting(appWith({})), false);
   assert.equal(isProcessWaiting(appWith({ s1: { state: "scheduled" } })), false);
   assert.equal(isProcessWaiting(appWith({ s1: { state: "done" } })), true);
   assert.equal(isProcessWaiting(appWith({ s1: { state: "done" }, s2: { state: "scheduled" } })), false);
+  assert.equal(isProcessWaiting(appWith({ s1: { state: "done" }, s2: { state: "failed" } })), false, "failed last round is not waiting");
 });
 
 test("isProcessComplete when every step is resolved", () => {

@@ -239,8 +239,12 @@ function deriveProcessStatus(p) {
   let offerDone = false;
   for (const step of p.processSteps) {
     const state = progress[step.id]?.state;
-    if (state === "scheduled" || state === "done") phase = step.phase || stepPhase(step.type);
-    if ((step.phase || stepPhase(step.type)) === "Offer" && state === "done") offerDone = true;
+    const phaseOfStep = step.phase || stepPhase(step.type);
+    // Advance on scheduled/done — except never promote to the terminal "Offer"
+    // phase on a merely-scheduled offer round (an offer must be *received*, i.e.
+    // marked done, to count as an Offer).
+    if (state === "done" || (state === "scheduled" && phaseOfStep !== "Offer")) phase = phaseOfStep;
+    if (phaseOfStep === "Offer" && state === "done") offerDone = true;
   }
   if (offerDone) return "Offer";
   return phase;
@@ -257,6 +261,10 @@ function isProcessWaiting(p) {
   if (states.some((state) => state === "scheduled")) return false;
   if (!states.some((state) => state === "done")) return false;
   if (states.every((state) => state === "done" || state === "failed")) return false;
+  // If the most-recently resolved round was a failure, the app isn't "waiting on
+  // the company for the next step" — it likely fell out. Don't claim Waiting.
+  const lastResolved = states.filter((state) => state === "done" || state === "failed").pop();
+  if (lastResolved === "failed") return false;
   return true;
 }
 
