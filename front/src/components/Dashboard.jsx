@@ -8,7 +8,10 @@ import {
   weeklyApplicationCounts,
   formatNextActionDue,
   localDateString,
+  daysSinceCurrentStage,
 } from "../lib/metrics.mjs";
+import { hasProcess, isProcessWaiting, processSummary } from "../lib/process.mjs";
+import ApplicationProcessPanel from "./ApplicationProcessPanel.jsx";
 
 const PIPELINE_FORWARD = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer"];
 
@@ -22,6 +25,9 @@ const STATUS_META = {
   "REJECTED_ATS":      { short: "Rejected ATS",       pipeShort: "Rejected ATS",       color: "var(--s-ats)",       bg: "var(--s-ats-bg)",       dot: "var(--s-ats-dot)",       step: -1 },
   "Stalled":           { short: "Stalled",            pipeShort: "Stalled",            color: "var(--s-stalled)",   bg: "var(--s-stalled-bg)",   dot: "var(--s-stalled-dot)",   step: 0 },
   "AppliedToday":      { short: "Applied Today",       pipeShort: "Applied Today",      color: "var(--md-tertiary)",  bg: "color-mix(in srgb, var(--md-tertiary) 12%, transparent)", dot: "var(--md-tertiary)", step: 0 },
+  // Derived overlay: a process-tracked app sitting between rounds (last round
+  // passed, next not booked). Amber, distinct from the cool pipeline stages.
+  "Waiting":           { short: "Waiting",             pipeShort: "Waiting",            color: "#f5a524",            bg: "rgba(245, 165, 36, 0.14)", dot: "#f5a524",            step: 0 },
 };
 
 const STAGE_DATE_STATUSES = new Set(["Online Assessment", "Recruiter Screen", "Interview"]);
@@ -131,6 +137,9 @@ function isDisplayStalled(app) {
 }
 
 function getDisplayStatus(app) {
+  // "Waiting" overlays an in-flight process sitting between rounds. It wins over
+  // Stalled (you're mid-process, not idle) but never over a rejection.
+  if (app.status !== "Rejected" && isProcessWaiting(app)) return "Waiting";
   if (isDisplayStalled(app)) return "Stalled";
   if (isAtsRejection(app)) return "REJECTED_ATS";
   return app.status;
@@ -139,6 +148,7 @@ function getDisplayStatus(app) {
 function matchesDisplayFilter(app, filter) {
   if (filter === "All") return true;
   if (filter === "Today") return isAppliedToday(app) && app.status !== "Rejected";
+  if (filter === "Waiting") return getDisplayStatus(app) === "Waiting";
   if (filter === "Stalled") return isDisplayStalled(app);
   if (filter === "REJECTED_ATS") return getDisplayStatus(app) === "REJECTED_ATS";
   if (filter === "Rejected") return app.status === "Rejected" && !isAtsRejection(app);
@@ -432,6 +442,14 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
     onSave(next);
   };
 
+  // Interview-process assignment / step advancement. The panel hands back the
+  // whole next app (process fields + derived status); persist immediately, the
+  // same way stage-passed does.
+  const handleProcessChange = (next) => {
+    setEditData(next);
+    onSave(next);
+  };
+
   const handleDelete = async () => {
     if (!deleteConfirm) { setDeleteConfirm(true); return; }
     setDeleting(true);
@@ -569,8 +587,9 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
           </div>
         )}
 
-        {/* Stage outcome — passed, but next step unknown */}
-        {STAGE_DATE_STATUSES.has(editData.status) && (
+        {/* Stage outcome — passed, but next step unknown. Hidden for process-
+            tracked apps, which use the richer interview-process tracker below. */}
+        {!hasProcess(editData) && STAGE_DATE_STATUSES.has(editData.status) && (
           (editData.stagePassedAt || {})[editData.status] ? (
             <div className="ndash-stage-outcome ndash-stage-outcome--passed">
               <span className="ndash-stage-outcome-badge">
@@ -596,6 +615,12 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
             </div>
           )
         )}
+
+        {/* Interview process tracker — assign a reusable process, then advance
+            through its company-specific rounds (with a Waiting state between). */}
+        <div className="ndash-panel-field">
+          <ApplicationProcessPanel app={editData} onChange={handleProcessChange} saving={saving} />
+        </div>
 
         {/* Core fields */}
         <div className="ndash-panel-grid">
@@ -718,6 +743,11 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
   // Stage passed but next step unknown — the user did their part, the ball is
   // in the company's court.
   const stagePassed = (app.stagePassedAt || {})[app.status];
+  const proc = hasProcess(app) ? processSummary(app) : null;
+  // Days the application has sat in its current stage — i.e. how long it has been
+  // stalled. Null for terminal apps (Offer/Rejected) or when no usable timestamp.
+  const isTerminal = app.status === "Rejected" || app.status === "Offer";
+  const daysInStage = isTerminal ? null : daysSinceCurrentStage(app);
 
   return (
     <div
@@ -744,7 +774,24 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
         <div className="ndc-role-meta">
           {app.location && <span className="ndc-role-meta-item">📍 {app.location}</span>}
           {applied && <span className="ndc-role-meta-item">Applied {applied}</span>}
-          {stagePassed && (
+          {proc && proc.current && !proc.complete && (
+            <span
+              className="ndc-role-meta-item"
+              title={`${app.processName || "Process"} · step ${proc.currentIndex + 1} of ${proc.total}${proc.waiting ? " · waiting for next step" : ""}`}
+            >
+              🧭 {proc.currentIndex + 1}/{proc.total} · {proc.current.name}{proc.waiting ? " · waiting" : ""}
+            </span>
+          )}
+          {daysInStage !== null && daysInStage >= 1 && (
+            <span
+              className="ndc-role-meta-item"
+              style={{ color: stale ? "var(--s-stalled-dot)" : undefined, fontWeight: stale ? 600 : undefined }}
+              title={stale ? `Idle in this stage for ${daysInStage} days (10+ = stalled)` : `${daysInStage} days in current stage`}
+            >
+              {stale ? "⚠ " : "⏳ "}{daysInStage}d {stale ? "stalled" : "in stage"}
+            </span>
+          )}
+          {!proc && stagePassed && (
             <span className="ndc-role-meta-item ndc-role-meta-item--passed" title={`Passed ${formatDate(stagePassed)} — awaiting next step`}>
               ✓ Passed · awaiting next step
             </span>
@@ -1322,6 +1369,7 @@ export default function Dashboard({
     { label: "Phone Interview", value: "Recruiter Screen" },
     { label: "Loop Interview", value: "Interview" },
     { label: "Offer", value: "Offer" },
+    { label: "Waiting", value: "Waiting" },
     { label: "Stalled", value: "Stalled" },
     { label: "Rejected ATS", value: "REJECTED_ATS" },
     { label: "Rejected", value: "Rejected" },
