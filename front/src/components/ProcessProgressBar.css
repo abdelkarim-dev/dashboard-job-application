@@ -20,10 +20,11 @@
 .ppb--panel .ppb-current { font-size: 0.88rem; }
 .ppb-state {
   flex-shrink: 0;
-  font-size: 0.6rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  font-size: 0.58rem; font-weight: 700; padding: 2px 6px; border-radius: 999px;
   background: var(--md-surface-3); color: var(--md-on-surface);
-  text-transform: uppercase; letter-spacing: 0.03em;
+  text-transform: uppercase; letter-spacing: 0.02em;
 }
+.ppb--panel .ppb-state { font-size: 0.62rem; padding: 2px 8px; }
 .ppb-state--done { color: var(--s-offer-dot, #34d399); background: var(--s-offer-bg, rgba(52,211,153,0.12)); }
 .ppb-state--scheduled { color: var(--s-oa-dot, #38bdf8); background: var(--s-oa-bg, rgba(56,189,248,0.12)); }
 .ppb-state--failed { color: var(--s-rejected-dot, #f87171); background: var(--s-rejected-bg, rgba(248,113,113,0.12)); }
