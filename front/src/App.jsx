@@ -1,15 +1,14 @@
 import React, { lazy, Suspense, useState, useEffect } from "react";
 import "./ui-polish.css";
 // Dashboard is the default landing view, so it stays in the eager entry chunk.
-// Every other top-level surface is lazy-loaded — Analytics, Profile, Board and
-// the Learn hub (which pulls in all the study/coding code) each split into their
-// own chunk and load on demand, keeping the initial download to just the
+// Every other top-level surface is lazy-loaded — Analytics, Profile, Processes
+// and the Learn hub (which pulls in all the study/coding code) each split into
+// their own chunk and load on demand, keeping the initial download to just the
 // dashboard.
 import Dashboard from "./components/Dashboard.jsx";
 
 const Analytics = lazy(() => import("./components/Analytics.jsx"));
 const Profile = lazy(() => import("./components/Profile.jsx"));
-const InterviewBoard = lazy(() => import("./components/InterviewBoard.jsx"));
 const InterviewProcesses = lazy(() => import("./components/InterviewProcesses.jsx"));
 const Learn = lazy(() => import("./components/Learn.jsx"));
 
@@ -101,7 +100,6 @@ const LEGACY_LEARN_HASH = {
 function parseHash(hash) {
   if (hash === "#/analytics") return { tab: "analytics" };
   if (hash === "#/profile") return { tab: "profile" };
-  if (hash === "#/board" || hash === "#/interview-board") return { tab: "interviewboard" };
   if (hash === "#/processes" || hash === "#/interview-processes") return { tab: "processes" };
   if (hash === "#/dashboard") return { tab: "newdashboard" };
   if (hash === "#/learn") return { tab: "learn", sub: DEFAULT_LEARN_SUB };
@@ -311,7 +309,6 @@ export default function App() {
   const TAB_HASHES = {
     analytics: "analytics",
     profile: "profile",
-    interviewboard: "board",
     processes: "processes",
     newdashboard: "dashboard",
     learn: "learn",
@@ -404,14 +401,6 @@ export default function App() {
             <span>Dashboard</span>
           </button>
           <button
-            className={`sidebar-nav-btn ${activeTab === "interviewboard" ? "active" : ""}`}
-            onClick={() => handleTabChange("interviewboard")}
-            type="button"
-          >
-            <span className="sidebar-nav-icon">▦</span>
-            <span>Board</span>
-          </button>
-          <button
             className={`sidebar-nav-btn ${activeTab === "processes" ? "active" : ""}`}
             onClick={() => handleTabChange("processes")}
             type="button"
@@ -467,13 +456,6 @@ export default function App() {
               ✦ Dashboard
             </button>
             <button
-              className={`tab-btn ${activeTab === "interviewboard" ? "active" : ""}`}
-              onClick={() => handleTabChange("interviewboard")}
-              type="button"
-            >
-              ▦ Board
-            </button>
-            <button
               className={`tab-btn ${activeTab === "processes" ? "active" : ""}`}
               onClick={() => handleTabChange("processes")}
               type="button"
@@ -509,7 +491,7 @@ export default function App() {
             arrive, so the landing never flashes an empty state. */}
         <Suspense fallback={<RouteFallback />}>
         {!appsLoaded &&
-        (activeTab === "newdashboard" || activeTab === "analytics" || activeTab === "interviewboard") ? (
+        (activeTab === "newdashboard" || activeTab === "analytics") ? (
           <DashboardSkeleton />
         ) : (
           <>
@@ -540,13 +522,6 @@ export default function App() {
         {activeTab === "profile" && <Profile />}
 
         {activeTab === "processes" && <InterviewProcesses />}
-
-        {activeTab === "interviewboard" && (
-          <InterviewBoard
-            applications={applications}
-            fetchApplications={fetchApplications}
-          />
-        )}
 
         {activeTab === "newdashboard" && (
           <Dashboard
