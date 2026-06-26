@@ -33,6 +33,11 @@ export interface ApplicationRow {
   level: string | null;
   source: string | null;
   interviewDate: string | null;
+  processId: string | null;
+  processName: string | null;
+  processSteps: string | null;
+  stepProgress: string | null;
+  currentStepId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,6 +71,11 @@ export interface ApplicationInput {
   level?: string;
   source?: string;
   interviewDate?: string;
+  processId?: string;
+  processName?: string;
+  processSteps?: unknown;
+  stepProgress?: unknown;
+  currentStepId?: string;
 }
 
 export interface PracticeSettings {

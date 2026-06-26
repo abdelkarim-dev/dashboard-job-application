@@ -3,6 +3,7 @@
 // inference and CSV/JSON export.
 import { cleanStageDate, cleanTimestamp, dateFromLegacyUtcMidnightTimestamp, dateOnlyToTimestamp, getLocalDateString } from "../core/dates.mjs";
 import { choice, clampScore, clean, makeId } from "../core/util.mjs";
+import { normalizeApplicationProcess, deriveProcessStatus } from "./interviewProcesses.mjs";
 
 const PIPELINE_STATUSES = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer", "Rejected"];
 
@@ -77,9 +78,16 @@ function normalizeApplication(input, existing = {}) {
     sanitizeJobIdentityValue(input.role) ||
     sanitizeJobIdentityValue(existing.role);
   const previousStatus = existing.status ? simplifyStatus(existing.status) : "";
+  // Per-application interview process (assigned template snapshot + step progress).
+  const applicationProcess = normalizeApplicationProcess(input, existing);
+  // When a process is assigned and the caller did not explicitly set a status,
+  // let the furthest-reached step drive the canonical pipeline status — the steps
+  // stay the source of truth while analytics/board keep working off `status`. An
+  // explicit status (status picker, board drag, manual edit) always wins.
+  const derivedProcessStatus = input.status === undefined ? deriveProcessStatus(applicationProcess) : "";
   // Empty dateApplied is meaningful: "saved but not yet applied". Don't auto-fill today.
   let dateApplied = cleanStageDate(input.dateApplied ?? existing.dateApplied ?? "");
-  const status = simplifyStatus(input.status || existing.status || "Applied");
+  const status = simplifyStatus(input.status || derivedProcessStatus || existing.status || "Applied");
   // Same fix as oaDeadline: an explicit empty string from the drawer clears
   // the value; only missing input falls back to existing.
   let appliedAt = input.appliedAt !== undefined
@@ -199,6 +207,14 @@ function normalizeApplication(input, existing = {}) {
       : Array.isArray(existing.attachments)
       ? existing.attachments
       : [],
+    // Interview-process tracking: which reusable process is assigned, a snapshot
+    // of its ordered steps, per-step progress, and the current step. Empty when
+    // no process is assigned (the default).
+    processId: applicationProcess.processId,
+    processName: applicationProcess.processName,
+    processSteps: applicationProcess.processSteps,
+    stepProgress: applicationProcess.stepProgress,
+    currentStepId: applicationProcess.currentStepId,
     createdAt: existing.createdAt || input.createdAt || now,
     updatedAt: now,
   };

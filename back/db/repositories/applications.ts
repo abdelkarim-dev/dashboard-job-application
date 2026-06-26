@@ -14,11 +14,16 @@ export async function sqlLoadApplications() {
     level: r.level || "",
     source: r.source || "Manual",
     interviewDate: r.interviewDate || "",
+    processId: r.processId || "",
+    processName: r.processName || "",
+    currentStepId: r.currentStepId || "",
     stageDates: JSON.parse(r.stageDates || "{}"),
     stageDateTimes: JSON.parse(r.stageDateTimes || "{}"),
     stagePassedAt: JSON.parse(r.stagePassedAt || "{}"),
     evaluation: JSON.parse(r.evaluation || "null"),
     attachments: JSON.parse(r.attachments || "[]"),
+    processSteps: JSON.parse(r.processSteps || "[]"),
+    stepProgress: JSON.parse(r.stepProgress || "{}"),
   }));
 }
 
@@ -28,8 +33,8 @@ export async function sqlSaveApplications(apps: ApplicationInput[]) {
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO applications (
       id, company, role, status, dateApplied, appliedAt, rejectedAt, location,
-      salary, equity, oaDeadline, oaCompletedAt, stagePassedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, level, source, interviewDate, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      salary, equity, oaDeadline, oaCompletedAt, stagePassedAt, priority, nextAction, nextActionAt, skills, "group", sourceUrl, notes, description, stageDates, stageDateTimes, evaluation, attachments, level, source, interviewDate, processId, processName, processSteps, stepProgress, currentStepId, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec("BEGIN TRANSACTION");
@@ -64,6 +69,11 @@ export async function sqlSaveApplications(apps: ApplicationInput[]) {
         app.level || "",
         app.source || "Manual",
         app.interviewDate || "",
+        app.processId || "",
+        app.processName || "",
+        JSON.stringify(app.processSteps || []),
+        JSON.stringify(app.stepProgress || {}),
+        app.currentStepId || "",
         new Date().toISOString()
       );
     }

@@ -6,6 +6,7 @@ import { applicationsRoutes } from "./routes/applications";
 import { solidRoutes } from "./routes/solid";
 import { practiceRoutes } from "./routes/practice";
 import { studyPlanRoutes } from "./routes/study-plans";
+import { interviewProcessesRoutes } from "./routes/interview-processes";
 import { learningRoutes } from "./routes/learning";
 import { calendarRoutes } from "./routes/calendar";
 import { aiRoutes } from "./routes/ai";
@@ -21,6 +22,7 @@ const routes: RouteHandler[] = [
   solidRoutes,
   practiceRoutes,
   studyPlanRoutes,
+  interviewProcessesRoutes,
   learningRoutes,
   calendarRoutes,
   aiRoutes,

@@ -6,6 +6,7 @@ import { sqlDeleteApplication, sqlLoadApplications, sqlLoadCoursesStore, sqlLoad
 import { migrateApplications } from "../domain/applications.mjs";
 import { mergeSeededPracticeProblems, normalizeCourseStore, normalizePracticeStore, normalizeSystemDesignStore } from "../domain/practice.mjs";
 import { normalizeStudyPlansStore } from "../domain/studyPlans.mjs";
+import { normalizeInterviewProcessesStore } from "../domain/interviewProcesses.mjs";
 import { defaultCoursesStore, defaultPracticeStore, defaultSystemDesignStore } from "../domain/problems.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -120,6 +121,21 @@ async function saveStudyPlansStore(store) {
   return normalized;
 }
 
+// Interview processes live in app_settings under "interviewProcesses" as a JSON
+// blob, mirroring the study-plans store.
+const INTERVIEW_PROCESSES_SETTING_KEY = "interviewProcesses";
+
+async function loadInterviewProcessesStore() {
+  const raw = await sqlLoadSetting(INTERVIEW_PROCESSES_SETTING_KEY);
+  return normalizeInterviewProcessesStore(raw);
+}
+
+async function saveInterviewProcessesStore(store) {
+  const normalized = normalizeInterviewProcessesStore(store);
+  await sqlSaveSetting(INTERVIEW_PROCESSES_SETTING_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
 export {
   dataDir,
   practiceFile,
@@ -139,4 +155,6 @@ export {
   saveSystemDesignStore,
   loadStudyPlansStore,
   saveStudyPlansStore,
+  loadInterviewProcessesStore,
+  saveInterviewProcessesStore,
 };

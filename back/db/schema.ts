@@ -57,6 +57,13 @@ export function createSchema(): void {
   ensureColumn("applications", "level", "TEXT");
   ensureColumn("applications", "source", "TEXT");
   ensureColumn("applications", "interviewDate", "TEXT");
+  // Per-application interview process: assigned template id + name, a JSON
+  // snapshot of its ordered steps, per-step progress, and the current step id.
+  ensureColumn("applications", "processId", "TEXT");
+  ensureColumn("applications", "processName", "TEXT");
+  ensureColumn("applications", "processSteps", "TEXT");
+  ensureColumn("applications", "stepProgress", "TEXT");
+  ensureColumn("applications", "currentStepId", "TEXT");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS profile (
