@@ -158,14 +158,18 @@ function normalizeProcessStep(input = {}, index = 0, allowGroups = true) {
 function normalizeProcessSteps(value) {
   const list = Array.isArray(value) ? value : [];
   const seen = new Set();
-  return list.map((raw, index) => {
-    const step = normalizeProcessStep(raw, index);
-    step.id = makeUniqueId(step.id, seen);
-    if (step.type === GROUP_TYPE && Array.isArray(step.children)) {
-      step.children = step.children.map((child) => ({ ...child, id: makeUniqueId(child.id, seen) }));
-    }
-    return step;
-  });
+  return list
+    .map((raw, index) => {
+      const step = normalizeProcessStep(raw, index);
+      step.id = makeUniqueId(step.id, seen);
+      if (step.type === GROUP_TYPE && Array.isArray(step.children)) {
+        step.children = step.children.map((child) => ({ ...child, id: makeUniqueId(child.id, seen) }));
+      }
+      return step;
+    })
+    // Drop empty groups: a group with no leaf children would flatten to nothing
+    // and could never advance the pipeline, yet still show as a stage.
+    .filter((step) => !(step.type === GROUP_TYPE && (!step.children || step.children.length === 0)));
 }
 
 function normalizeInterviewProcess(input = {}, existing = {}) {

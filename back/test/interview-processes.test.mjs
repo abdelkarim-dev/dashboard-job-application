@@ -57,6 +57,19 @@ test("normalizeInterviewProcessesStore enforces exactly one default process", ()
   assert.equal(none.processes[0].isDefault, true);
 });
 
+test("normalizeProcessSteps drops an empty group (it would be an inert stage)", () => {
+  const process = normalizeInterviewProcess({
+    name: "Has empty group",
+    steps: [
+      { name: "Recruiter", type: "recruiter" },
+      { name: "Empty Loop", type: "group", children: [] },
+      { name: "Offer", type: "offer" },
+    ],
+  });
+  assert.equal(process.steps.length, 2, "the empty group is pruned");
+  assert.deepEqual(process.steps.map((s) => s.type), ["recruiter", "offer"]);
+});
+
 test("normalizeProcessStep supports inline groups with flattenable leaf children", () => {
   const process = normalizeInterviewProcess({
     name: "Grouped",

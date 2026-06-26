@@ -171,12 +171,12 @@
   overflow-x: auto;
   scrollbar-width: thin;
 }
-.ipx-flow { display: flex; align-items: center; gap: 0; min-height: 132px; }
+.ipx-flow { display: flex; align-items: flex-start; gap: 0; min-height: 132px; padding-top: 2px; }
 .ipx-flow-empty { color: var(--md-on-surface-variant); font-size: 0.85rem; align-self: center; padding: 0 8px; }
 
 /* Connector between nodes */
 .ipx-conn {
-  align-self: center; flex-shrink: 0;
+  align-self: flex-start; margin-top: 27px; flex-shrink: 0;
   width: 30px; height: 2px;
   background: linear-gradient(90deg, var(--md-outline-variant), color-mix(in srgb, var(--md-primary) 50%, var(--md-outline-variant)));
   position: relative; margin: 0 2px;
@@ -214,16 +214,20 @@
   background: transparent; border: none; border-bottom: 1px dashed transparent; padding: 1px 0;
 }
 .ipx-node-name:focus { outline: none; border-bottom-color: var(--node-color); }
+/* Type select is a secondary control — subtle until hovered/focused, so the
+   step name stays the visual anchor. */
 .ipx-node-type {
-  font-size: 0.74rem; color: var(--md-on-surface);
-  background: var(--md-surface-1); border: 1px solid var(--md-outline-variant); border-radius: 7px; padding: 4px 6px; width: 100%;
+  font-size: 0.72rem; color: var(--md-on-surface-variant);
+  background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 3px 4px; width: 100%; max-width: 100%;
+  cursor: pointer; transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
-.ipx-node-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.ipx-node-type:hover, .ipx-node-type:focus-visible { background: var(--md-surface-1); border-color: var(--md-outline-variant); color: var(--md-on-surface); }
+.ipx-node-actions { display: flex; align-items: center; gap: 6px; }
 .ipx-node-phase {
-  font-size: 0.62rem; color: var(--md-on-surface-variant);
+  font-size: 0.64rem; color: var(--md-on-surface-variant);
   background: var(--md-surface-1); border-radius: 999px; padding: 2px 7px; white-space: nowrap;
 }
-.ipx-node-btns { display: flex; gap: 2px; }
+.ipx-node-btns { display: flex; gap: 2px; margin-left: auto; }
 
 .ipx-mini {
   width: 22px; height: 22px; display: grid; place-items: center;
@@ -359,6 +363,18 @@
 .ipx-empty-icon { font-size: 2.4rem; }
 .ipx-empty strong { color: var(--md-on-surface); font-size: 1.05rem; }
 .ipx-empty p { margin: 0 0 8px; max-width: 380px; font-size: 0.85rem; }
+
+/* Keyboard focus rings (a11y) — the controls previously had hover-only states. */
+.ipx-mini:focus-visible, .ipx-palette-item:focus-visible, .ipx-accent:focus-visible,
+.ipx-pitem:focus-visible, .ipx-default-toggle:focus-visible, .ipx-add-round:focus-visible,
+.ipx-new-mini:focus-visible, .ipx-sidebar-new:focus-visible, .ipx-new:focus-visible,
+.ipx-save:focus-visible, .ipx-delete:focus-visible {
+  outline: 2px solid var(--md-primary); outline-offset: 2px;
+}
+/* Hover hint that inline text fields are editable. */
+.ipx-name:hover, .ipx-node-name:hover, .ipx-group-name:hover, .ipx-chip-name:hover {
+  border-bottom-color: color-mix(in srgb, var(--node-color, var(--md-primary)) 40%, transparent);
+}
 
 @media (max-width: 980px) {
   .ipx-workspace { flex-direction: column; }

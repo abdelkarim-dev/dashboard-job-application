@@ -542,7 +542,15 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
         <div className="ndash-pipeline">
           {(hasProcess(editData) || (store && getDefaultProcess(store))) ? (
             <div style={{ flex: 1, minWidth: 0 }}>
-              <ProcessProgressBar app={editData} store={store} onChange={handleProcessChange} variant="panel" saving={saving} />
+              {/* Read-only (no onChange) for terminal Rejected / not-yet-applied
+                  Saved, so ticking a stage can't un-reject or pre-advance them. */}
+              <ProcessProgressBar
+                app={editData}
+                store={store}
+                onChange={(editData.status === "Rejected" || editData.status === "Saved") ? undefined : handleProcessChange}
+                variant="panel"
+                saving={saving}
+              />
             </div>
           ) : (
             PIPELINE_FORWARD.map((status, idx) => {
@@ -801,8 +809,9 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange, store, onProc
           )}
         </div>
         {/* Stage-aware process progress bar (assigned process, or the inherited
-            default). Lets the user assign a date / mark the stage passed inline. */}
-        {app.status !== "Rejected" && (
+            default). Lets the user assign a date / mark the stage passed inline.
+            Hidden for Rejected (terminal) and Saved (not yet applied) cards. */}
+        {app.status !== "Rejected" && app.status !== "Saved" && (
           <div className="ndc-role-progress" style={{ marginTop: 7 }}>
             <ProcessProgressBar
               app={app}

@@ -61,7 +61,7 @@ function LeafCard({ step, onChange, onRemove, onMove, canLeft, canRight, compact
         {STEP_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
       </select>
       <div className="ipx-node-actions">
-        <span className="ipx-node-phase">{meta.phase}</span>
+        {meta.phase !== step.name && <span className="ipx-node-phase">{meta.phase}</span>}
         <span className="ipx-node-btns">
           <button type="button" className="ipx-mini" onClick={() => onMove(-1)} disabled={!canLeft} title="Move left" aria-label="Move left">‹</button>
           <button type="button" className="ipx-mini" onClick={() => onMove(1)} disabled={!canRight} title="Move right" aria-label="Move right">›</button>
@@ -351,6 +351,8 @@ export default function InterviewProcesses() {
     if (!draft) return;
     if (!draft.name.trim()) { setSaveError("Give the process a name."); return; }
     if (!draft.steps.length) { setSaveError("Add at least one step."); return; }
+    const emptyGroup = draft.steps.find((s) => s.type === GROUP_TYPE && (!s.children || s.children.length === 0));
+    if (emptyGroup) { setSaveError(`"${emptyGroup.name || "Group"}" needs at least one round — add one or remove the group.`); return; }
     setSaving(true); setSaveError("");
     try {
       const isNew = draft._isNew || !processes.some((p) => p.id === draft.id && !p._isNew);

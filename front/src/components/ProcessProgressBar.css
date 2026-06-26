@@ -5,6 +5,12 @@
 .ppb--card { gap: 5px; }
 
 .ppb-track { display: flex; align-items: center; gap: 0; flex-wrap: wrap; row-gap: 8px; }
+/* On a compact card keep the bar a single linear strip (no mid-bar wrap) with
+   tighter nodes/links so long processes still fit. */
+.ppb--card .ppb-track { flex-wrap: nowrap; overflow: hidden; }
+.ppb--card .ppb-node--leaf { width: 18px; height: 18px; }
+.ppb--card .ppb-node--group { height: 18px; padding: 0 7px; }
+.ppb--card .ppb-link { width: 10px; }
 
 /* Connector between stage nodes */
 .ppb-link {
@@ -59,6 +65,10 @@
   0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--node-color, var(--md-primary)) 22%, transparent); }
   50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--node-color, var(--md-primary)) 10%, transparent); }
 }
+/* The pulse is too noisy across many dashboard cards; keep it only in the panel,
+   and honor reduced-motion everywhere (static accent ring remains). */
+.ppb--card .ppb-node.is-current { animation: none; }
+@media (prefers-reduced-motion: reduce) { .ppb-node.is-current { animation: none; } }
 
 /* Group node (e.g. Onsite Loop) */
 .ppb-node--group {
@@ -95,7 +105,7 @@
 .ppb-current-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .ppb-state {
   font-size: 0.62rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
-  background: var(--md-surface-3); color: var(--md-on-surface-variant);
+  background: var(--md-surface-3); color: var(--md-on-surface);
   text-transform: uppercase; letter-spacing: 0.03em;
 }
 .ppb-state--done { color: var(--s-offer-dot, #34d399); background: var(--s-offer-bg, rgba(52,211,153,0.12)); }
@@ -125,3 +135,20 @@
 }
 .ppb-pass:hover:not(:disabled) { color: #042018; background: var(--s-offer-dot, #34d399); border-color: transparent; }
 .ppb-pass:disabled { opacity: 0.5; cursor: default; }
+
+.ppb-datechip:focus-visible, .ppb-pass:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+
+/* On dense dashboard cards, the date + pass affordances stay quiet until the row
+   is hovered or focused (matches the card's other quick actions). The side panel
+   (.ppb--panel) keeps them always visible. */
+.ndc-role-row .ppb-datechip,
+.ndc-role-row .ppb-pass {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.ndc-role-row:hover .ppb-datechip,
+.ndc-role-row:focus-within .ppb-datechip,
+.ndc-role-row:hover .ppb-pass,
+.ndc-role-row:focus-within .ppb-pass {
+  opacity: 1;
+}

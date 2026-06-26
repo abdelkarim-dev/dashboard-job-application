@@ -95,7 +95,7 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
           )
         )}
         {current && !view.complete && onChange && current.state !== "done" && (
-          <button type="button" className="ppb-pass" onClick={markPassed} disabled={saving} title="Mark this stage passed">✓</button>
+          <button type="button" className="ppb-pass" onClick={markPassed} disabled={saving} aria-label="Mark this stage passed" title="Mark this stage passed">✓</button>
         )}
       </div>
     </div>

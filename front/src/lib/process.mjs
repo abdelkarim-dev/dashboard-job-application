@@ -179,7 +179,9 @@ export function applyStepState(app, stepId, state, { scheduledAt, completedAt } 
   const next = { ...app, stepProgress };
   next.currentStepId = deriveCurrentStepId(next);
   const derived = deriveProcessStatus(next);
-  if (derived) next.status = derived;
+  // Never let step progress demote a terminal status — a Rejected/Offer app must
+  // not be silently un-rejected / un-offered by ticking a stage.
+  if (derived && app.status !== "Rejected" && app.status !== "Offer") next.status = derived;
   return next;
 }
 
