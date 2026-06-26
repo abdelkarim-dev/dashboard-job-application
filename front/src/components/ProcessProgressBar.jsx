@@ -116,7 +116,6 @@ function LeafNode({ node, variant }) {
       title={`${node.name} · ${labelFor(node.state)}${node.scheduledAt ? " · " + formatShort(node.scheduledAt) : ""}`}
     >
       <span className="ppb-node-icon" aria-hidden="true">{node.state === "done" ? "✓" : node.state === "failed" ? "✕" : meta.icon}</span>
-      {variant === "panel" && <span className="ppb-node-label">{node.name}</span>}
     </span>
   );
 }
@@ -136,7 +135,6 @@ function GroupNode({ node, variant }) {
         ))}
       </span>
       <span className="ppb-group-count">{done}/{total}</span>
-      {variant === "panel" && <span className="ppb-node-label">{node.name}</span>}
     </span>
   );
 }

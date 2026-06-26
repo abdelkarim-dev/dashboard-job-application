@@ -83,7 +83,7 @@
   font-size: 0.6rem; color: var(--md-on-surface-variant); white-space: nowrap; max-width: 72px;
   overflow: hidden; text-overflow: ellipsis;
 }
-.ppb--panel .ppb-track { margin-bottom: 16px; }
+.ppb--panel .ppb-track { margin-bottom: 2px; }
 
 /* ── Caption ── */
 .ppb-caption { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
