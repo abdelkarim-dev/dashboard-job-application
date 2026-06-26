@@ -10,6 +10,7 @@ import Dashboard from "./components/Dashboard.jsx";
 const Analytics = lazy(() => import("./components/Analytics.jsx"));
 const Profile = lazy(() => import("./components/Profile.jsx"));
 const InterviewBoard = lazy(() => import("./components/InterviewBoard.jsx"));
+const InterviewProcesses = lazy(() => import("./components/InterviewProcesses.jsx"));
 const Learn = lazy(() => import("./components/Learn.jsx"));
 
 // Shown while a lazy route chunk is fetched. Reuses the `claire-spin` keyframe
@@ -101,6 +102,7 @@ function parseHash(hash) {
   if (hash === "#/analytics") return { tab: "analytics" };
   if (hash === "#/profile") return { tab: "profile" };
   if (hash === "#/board" || hash === "#/interview-board") return { tab: "interviewboard" };
+  if (hash === "#/processes" || hash === "#/interview-processes") return { tab: "processes" };
   if (hash === "#/dashboard") return { tab: "newdashboard" };
   if (hash === "#/learn") return { tab: "learn", sub: DEFAULT_LEARN_SUB };
   if (hash.startsWith("#/learn/")) return { tab: "learn", sub: hash.slice("#/learn/".length) || DEFAULT_LEARN_SUB };
@@ -310,6 +312,7 @@ export default function App() {
     analytics: "analytics",
     profile: "profile",
     interviewboard: "board",
+    processes: "processes",
     newdashboard: "dashboard",
     learn: "learn",
   };
@@ -409,6 +412,14 @@ export default function App() {
             <span>Board</span>
           </button>
           <button
+            className={`sidebar-nav-btn ${activeTab === "processes" ? "active" : ""}`}
+            onClick={() => handleTabChange("processes")}
+            type="button"
+          >
+            <span className="sidebar-nav-icon">🧭</span>
+            <span>Processes</span>
+          </button>
+          <button
             className={`sidebar-nav-btn ${activeTab === "analytics" ? "active" : ""}`}
             onClick={() => handleTabChange("analytics")}
             type="button"
@@ -461,6 +472,13 @@ export default function App() {
               type="button"
             >
               ▦ Board
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "processes" ? "active" : ""}`}
+              onClick={() => handleTabChange("processes")}
+              type="button"
+            >
+              🧭 Processes
             </button>
             <button
               className={`tab-btn ${activeTab === "analytics" ? "active" : ""}`}
@@ -520,6 +538,8 @@ export default function App() {
         )}
 
         {activeTab === "profile" && <Profile />}
+
+        {activeTab === "processes" && <InterviewProcesses />}
 
         {activeTab === "interviewboard" && (
           <InterviewBoard
