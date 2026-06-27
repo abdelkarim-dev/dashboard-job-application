@@ -80,6 +80,11 @@
   overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .ppb--panel .ppb-stage { font-size: 0.88rem; }
+.ppb-date {
+  flex-shrink: 0;
+  font-size: 0.7rem; font-weight: 600;
+  color: var(--md-on-surface-variant);
+}
 .ppb-count {
   flex-shrink: 0;
   font-size: 0.68rem; font-weight: 700; font-variant-numeric: tabular-nums;
