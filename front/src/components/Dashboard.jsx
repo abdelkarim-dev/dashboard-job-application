@@ -622,6 +622,9 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
 // per-company interview process lives in the side panel, not on the card. A
 // single hover ✓ advances to the next stage; the panel handles everything else.
 function PipelineStepper({ app, onAdvance, saving }) {
+  // When ✓ advances into a stage that carries a date (OA / Phone / Loop), prompt
+  // for it inline before committing — same as the old status picker did.
+  const [dateValue, setDateValue] = useState(null); // string | null (null = not prompting)
   const total = PIPELINE_FORWARD.length;
   const cur = Math.min(Math.max(0, statusStep(app.status)), total - 1);
   const waiting = isWaiting(app);
@@ -629,6 +632,26 @@ function PipelineStepper({ app, onAdvance, saving }) {
   const stageDate = getStatusPillDate(app);
   const dateLabel = stageDate ? formatDate(stageDate) : "";
   const next = PIPELINE_FORWARD[cur + 1];
+
+  const startAdvance = () => {
+    if (!next) return;
+    if (STAGE_DATE_STATUSES.has(next)) {
+      const existing = app.stageDateTimes?.[next] || (next === "Interview" ? app.interviewDate : "");
+      setDateValue(formatDateForInput(existing) || formatDateForInput(new Date().toISOString()));
+    } else {
+      onAdvance(app, next);
+    }
+  };
+  const confirmAdvance = () => {
+    if (dateValue === null) return;
+    const iso = dateInputToISO(dateValue) || new Date().toISOString();
+    onAdvance(app, next, {
+      stageDateTimes: { ...(app.stageDateTimes || {}), [next]: iso },
+      ...(next === "Interview" ? { interviewDate: iso } : {}),
+    });
+    setDateValue(null);
+  };
+
   return (
     <div className="ppb ppb--card" onClick={(e) => e.stopPropagation()}>
       <div className="ppb-head">
@@ -654,7 +677,20 @@ function PipelineStepper({ app, onAdvance, saving }) {
         </span>
         {next && onAdvance && (
           <span className="ppb-actions">
-            <button type="button" className="ppb-pass" onClick={() => onAdvance(app, next)} disabled={saving} title={`Advance to ${STATUS_META[next].short}`} aria-label={`Advance to ${STATUS_META[next].short}`}>✓</button>
+            {dateValue !== null ? (
+              <input
+                type="date"
+                className="ppb-dateinput"
+                autoFocus
+                value={dateValue}
+                onChange={(e) => setDateValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmAdvance(); if (e.key === "Escape") setDateValue(null); }}
+                onBlur={confirmAdvance}
+                title={`${STATUS_META[next].short} date`}
+              />
+            ) : (
+              <button type="button" className="ppb-pass" onClick={startAdvance} disabled={saving} title={`Advance to ${STATUS_META[next].short}`} aria-label={`Advance to ${STATUS_META[next].short}`}>✓</button>
+            )}
           </span>
         )}
       </div>
@@ -724,8 +760,9 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
             <span className="ndc-role-meta-item ndc-role-meta-item--rejected">Rejected {rejected}</span>
           )}
         </div>
-        {/* Uniform pipeline stepper. Hidden for Rejected/Saved. */}
-        {app.status !== "Rejected" && app.status !== "Saved" && (
+        {/* Uniform pipeline stepper — only once a role has actually moved past
+            Applied (an Applied card is just title + meta; no stepper noise). */}
+        {app.status !== "Rejected" && app.status !== "Saved" && app.status !== "Applied" && (
           <div className="ndc-role-progress" style={{ marginTop: 7 }}>
             <PipelineStepper app={app} onAdvance={onQuickStatusChange} />
           </div>
@@ -939,9 +976,9 @@ export default function Dashboard({
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedApp, setSelectedApp] = useState(null);
   const [saving, setSaving] = useState(false);
-  // Stalled / Ghosted / Closed start collapsed (the "everything else" categories);
-  // In progress + Recently applied stay open. Nothing is hidden — one click away.
-  const [collapsedSections, setCollapsedSections] = useState(() => new Set(["Stalled", "Ghosting", "Rejected"]));
+  // Only "In progress" stays open by default; everything else (Recently applied,
+  // Stalled, Ghosted, Closed) starts collapsed — present, one click away, never hidden.
+  const [collapsedSections, setCollapsedSections] = useState(() => new Set(["Recent", "Stalled", "Ghosting", "Rejected"]));
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   // Interview-process store — fetched once so every card can render its assigned
   // process or the inherited default along its progress bar.
