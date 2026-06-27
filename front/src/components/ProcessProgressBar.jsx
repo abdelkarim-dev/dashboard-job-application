@@ -5,6 +5,7 @@ import {
   ensureProcess,
   setStepDate,
   applyStepState,
+  stepType,
 } from "../lib/process.mjs";
 
 function dateInputToISO(value) {
@@ -24,11 +25,33 @@ function formatShort(value) {
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 }
 
-// A compact, text-first stage progress indicator: "n/N · <current stage>" + a
-// thin fill bar — no per-stage icons. Shows how far an application has advanced
-// along its interview process (the assigned one, or the store's default
-// positioned from canonical status). Assigning a date / marking the stage passed
-// inline on an unassigned card adopts the default process as a real snapshot.
+// Each leaf's dot colour matches the stage colour used everywhere else (the
+// status pill + the picker dropdown), so the stepper reads as the same design
+// language. "Applied" is synthetic (not a real step type) → the applied token.
+function leafColor(leaf) {
+  if (leaf.type === "applied" || leaf.phase === "Applied") return "var(--s-applied-dot, #38bdf8)";
+  return stepType(leaf.type).color;
+}
+
+// Collapse a leaf's raw state + position into the dot's visual state. The
+// CURRENT leaf is where the eye should land: amber while we're Waiting on the
+// company, otherwise the stage's own colour ("you are here / up next").
+function dotState(leaf, waiting) {
+  if (leaf.state === "failed") return "failed";
+  if (leaf.state === "done") return "done";
+  if (leaf.isCurrent) return waiting ? "waiting" : "current";
+  if (leaf.state === "scheduled") return "scheduled";
+  return "pending";
+}
+
+// A per-stage DOT STEPPER: one dot per stage of the interview process, coloured
+// by stage (matching the status pill + picker), past stages filled, the current
+// stage ringed (amber while Waiting). Replaces the old "n/N + gradient bar +
+// WAITING chip", which duplicated the status pill and used unrelated colours.
+// Shows how far an application has advanced along its process (the assigned one,
+// or the store's default positioned from canonical status). Assigning a date /
+// marking the stage passed inline on an unassigned card adopts the default
+// process as a real snapshot.
 export default function ProcessProgressBar({ app, store, onChange, variant = "card", saving }) {
   const [editingDate, setEditingDate] = useState(false);
   const view = processViewForApp(app, store);
@@ -36,7 +59,7 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
 
   const current = view.currentLeaf;
   const position = view.currentIndex >= 0 ? Math.min(view.currentIndex + 1, view.total) : 0;
-  const fillPct = view.complete ? 100 : (view.total ? Math.round((position / view.total) * 100) : 0);
+  const leaves = view.leaves || [];
 
   const commit = (mutate) => {
     if (!onChange) return;
@@ -47,45 +70,71 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
   const setDate = (value) => commit((base) => setStepDate(base, current.id, dateInputToISO(value)));
   const markPassed = () => commit((base) => applyStepState(base, current.id, "done"));
 
-  const stateLabel = view.complete ? (view.statusPhase === "Offer" ? "Offer 🎉" : "Complete")
-    : view.waiting ? "Waiting"
-    : current ? (current.state === "scheduled" ? "Scheduled" : current.state === "failed" ? "Did not pass" : "Up next")
-    : "";
-  const stateKey = view.complete ? "done" : view.waiting ? "waiting" : (current?.state || "pending");
-  // On the compact card, the bar + "n/N · stage" carry it — only surface a state
-  // pill when it adds something (scheduled/waiting/done/failed), not the default
-  // "Up next". The panel always shows it.
-  const showState = stateLabel && (variant === "panel" || stateKey !== "pending");
+  // The stage label carries the words; the dots carry the progress — no separate
+  // status chip (the card's status pill already owns "Waiting"/"Offer"/…).
+  const stageName = view.complete
+    ? (view.statusPhase === "Offer" ? "Offer 🎉" : "Complete")
+    : (current ? current.name : "");
 
   return (
-    <div className={`ppb ppb--${variant}`} onClick={(e) => e.stopPropagation()}>
+    <div className={`ppb ppb--${variant}${view.waiting ? " ppb--waiting" : ""}`} onClick={(e) => e.stopPropagation()}>
       <div className="ppb-head">
-        <span className="ppb-count" title={view.processName}>{position}/{view.total}</span>
-        {current && <span className="ppb-current">{current.name}</span>}
-        {showState && <span className={`ppb-state ppb-state--${stateKey}`}>{stateLabel}</span>}
+        <div
+          className="ppb-steps"
+          role="img"
+          aria-label={`Stage ${position} of ${view.total}${current ? ` — ${current.name}` : ""}${view.waiting ? " — waiting on the company" : ""}`}
+        >
+          {leaves.map((leaf, i) => {
+            const state = dotState(leaf, view.waiting);
+            const prev = leaves[i - 1];
+            const filled = prev && (prev.state === "done" || prev.state === "failed");
+            return (
+              <React.Fragment key={leaf.id}>
+                {i > 0 && (
+                  <span
+                    className={`ppb-conn${filled ? " ppb-conn--done" : ""}`}
+                    style={filled ? { "--conn-color": leafColor(prev) } : undefined}
+                  />
+                )}
+                <span
+                  className={`ppb-dot ppb-dot--${state}`}
+                  style={{ "--dot-color": leafColor(leaf) }}
+                  title={`${leaf.name}${leaf.synthetic ? "" : ""}`}
+                />
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        {stageName && (
+          <span className="ppb-label">
+            <span className="ppb-stage">{stageName}</span>
+            <span className="ppb-count">{position}/{view.total}</span>
+          </span>
+        )}
+
         {current && !current.synthetic && !view.complete && onChange && (
-          editingDate ? (
-            <input
-              type="date"
-              className="ppb-dateinput"
-              autoFocus
-              defaultValue={dateForInput(current.scheduledAt)}
-              onChange={(e) => setDate(e.target.value)}
-              onBlur={() => setEditingDate(false)}
-            />
-          ) : (
-            <button type="button" className="ppb-datechip" onClick={() => setEditingDate(true)} disabled={saving} title="Assign a date for this stage">
-              <span aria-hidden="true">📅</span>
-              {current.scheduledAt ? formatShort(current.scheduledAt) : "Set date"}
-            </button>
-          )
+          <span className="ppb-actions">
+            {editingDate ? (
+              <input
+                type="date"
+                className="ppb-dateinput"
+                autoFocus
+                defaultValue={dateForInput(current.scheduledAt)}
+                onChange={(e) => setDate(e.target.value)}
+                onBlur={() => setEditingDate(false)}
+              />
+            ) : (
+              <button type="button" className="ppb-datechip" onClick={() => setEditingDate(true)} disabled={saving} title="Assign a date for this stage">
+                <span aria-hidden="true">📅</span>
+                {current.scheduledAt ? formatShort(current.scheduledAt) : "Set date"}
+              </button>
+            )}
+            {current.state !== "done" && (
+              <button type="button" className="ppb-pass" onClick={markPassed} disabled={saving} aria-label="Mark this stage passed" title="Mark this stage passed">✓</button>
+            )}
+          </span>
         )}
-        {current && !current.synthetic && !view.complete && onChange && current.state !== "done" && (
-          <button type="button" className="ppb-pass" onClick={markPassed} disabled={saving} aria-label="Mark this stage passed" title="Mark this stage passed">✓</button>
-        )}
-      </div>
-      <div className="ppb-bar" role="img" aria-label={`Stage ${position} of ${view.total}${current ? ` — ${current.name}` : ""}, ${fillPct}% through the process`}>
-        <div className="ppb-bar-fill" style={{ width: `${fillPct}%` }} />
       </div>
     </div>
   );

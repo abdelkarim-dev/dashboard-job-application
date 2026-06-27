@@ -1,37 +1,94 @@
-/* Text-first stage progress indicator. Scoped under .ppb-*. Two densities:
-   --card (compact, on dashboard cards) and --panel (larger, in the side panel).
-   No per-stage icons — just "n/N · current stage" + a thin fill bar. */
+/* Per-stage DOT STEPPER. Scoped under .ppb-*. Two densities: --card (compact, on
+   dashboard cards) and --panel (larger, in the side panel). One dot per stage,
+   coloured by stage to match the status pill + picker dropdown; past stages
+   filled, the current stage ringed (amber while Waiting). No status chip and no
+   gradient bar — the dots carry the progress, the card's pill owns the state. */
 
 .ppb { display: flex; flex-direction: column; gap: 5px; }
 
-.ppb-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.ppb-head {
+  display: flex; align-items: center; gap: 9px;
+  flex-wrap: wrap; min-width: 0;
+}
+
+/* ── Dots + connectors ── */
+.ppb-steps {
+  display: flex; align-items: center;
+  flex: 1 1 110px; min-width: 96px;
+}
+.ppb-dot {
+  --dot-color: var(--md-on-surface-variant, #9aa6a0);
+  flex: 0 0 auto;
+  width: 9px; height: 9px; border-radius: 50%;
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--md-on-surface-variant) 45%, transparent);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+.ppb--panel .ppb-dot { width: 11px; height: 11px; border-width: 2px; }
+
+/* completed / failed stages read as solid */
+.ppb-dot--done   { background: var(--dot-color); border-color: var(--dot-color); }
+.ppb-dot--failed { background: var(--s-rejected-dot, #f87171); border-color: var(--s-rejected-dot, #f87171); }
+
+/* a scheduled-but-not-reached stage: hollow ring in its own colour */
+.ppb-dot--scheduled { border-color: var(--dot-color); background: color-mix(in srgb, var(--dot-color) 22%, transparent); }
+
+/* a future, untouched stage: quiet hollow */
+.ppb-dot--pending { background: transparent; }
+
+/* the current stage — where the eye should land */
+.ppb-dot--current {
+  width: 11px; height: 11px;
+  background: var(--dot-color); border-color: var(--dot-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot-color) 26%, transparent);
+}
+.ppb--panel .ppb-dot--current { width: 13px; height: 13px; }
+
+/* current while Waiting on the company: amber halo, regardless of stage colour */
+.ppb-dot--waiting {
+  width: 11px; height: 11px;
+  background: #f5a524; border-color: #f5a524;
+  box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.26);
+  animation: ppb-pulse 2.4s ease-in-out infinite;
+}
+.ppb--panel .ppb-dot--waiting { width: 13px; height: 13px; }
+@keyframes ppb-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.26); }
+  50%      { box-shadow: 0 0 0 5px rgba(245, 165, 36, 0.10); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppb-dot--waiting { animation: none; }
+}
+
+.ppb-conn {
+  flex: 1 1 auto; min-width: 7px; max-width: 26px;
+  height: 2px; border-radius: 999px;
+  background: color-mix(in srgb, var(--md-on-surface-variant) 22%, transparent);
+  transition: background 0.2s ease;
+}
+.ppb-conn--done { background: color-mix(in srgb, var(--conn-color, var(--md-primary)) 55%, transparent); }
+
+/* ── Stage label ── */
+.ppb-label {
+  flex: 0 1 auto; min-width: 0;
+  display: inline-flex; align-items: baseline; gap: 6px;
+  white-space: nowrap;
+}
+.ppb-stage {
+  font-size: 0.75rem; font-weight: 650; color: var(--md-on-surface);
+  overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.ppb--panel .ppb-stage { font-size: 0.88rem; }
 .ppb-count {
   flex-shrink: 0;
-  font-size: 0.7rem; font-weight: 800; font-variant-numeric: tabular-nums;
-  color: var(--md-on-surface); background: var(--md-surface-3);
-  padding: 1px 7px; border-radius: 6px;
+  font-size: 0.68rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--md-on-surface-variant);
 }
-.ppb--panel .ppb-count { font-size: 0.8rem; padding: 2px 9px; }
-.ppb-current {
-  flex: 1;
-  font-size: 0.75rem; font-weight: 600; color: var(--md-on-surface);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-}
-.ppb--panel .ppb-current { font-size: 0.88rem; }
-.ppb-state {
-  flex-shrink: 0;
-  font-size: 0.58rem; font-weight: 700; padding: 2px 6px; border-radius: 999px;
-  background: var(--md-surface-3); color: var(--md-on-surface);
-  text-transform: uppercase; letter-spacing: 0.02em;
-}
-.ppb--panel .ppb-state { font-size: 0.62rem; padding: 2px 8px; }
-.ppb-state--done { color: var(--s-offer-dot, #34d399); background: var(--s-offer-bg, rgba(52,211,153,0.12)); }
-.ppb-state--scheduled { color: var(--s-oa-dot, #38bdf8); background: var(--s-oa-bg, rgba(56,189,248,0.12)); }
-.ppb-state--failed { color: var(--s-rejected-dot, #f87171); background: var(--s-rejected-bg, rgba(248,113,113,0.12)); }
-.ppb-state--waiting { color: #f5a524; background: rgba(245,165,36,0.14); }
-.ppb-spacer { flex: 1; }
+.ppb--panel .ppb-count { font-size: 0.76rem; }
 
 /* ── Date + pass affordances ── */
+.ppb-actions { flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 .ppb-datechip {
   flex-shrink: 0;
   display: inline-flex; align-items: center; gap: 4px;
@@ -59,25 +116,9 @@
 .ppb-pass:disabled { opacity: 0.5; cursor: default; }
 .ppb-datechip:focus-visible, .ppb-pass:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
 
-/* ── Fill bar ── */
-.ppb-bar { height: 5px; border-radius: 999px; background: var(--md-surface-3); overflow: hidden; }
-.ppb--panel .ppb-bar { height: 7px; }
-.ppb-bar-fill {
-  height: 100%; border-radius: 999px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--md-primary) 65%, var(--s-oa-dot, #38bdf8)), var(--md-primary));
-  transition: width 0.35s ease;
-}
-
 /* On dense dashboard cards the date + pass affordances stay quiet until the row
    is hovered/focused (matches the card's other quick actions). The side panel
    keeps them visible. */
-.ndc-role-row .ppb-datechip,
-.ndc-role-row .ppb-pass {
-  opacity: 0;
-}
-.ndc-role-row:hover .ppb-datechip,
-.ndc-role-row:focus-within .ppb-datechip,
-.ndc-role-row:hover .ppb-pass,
-.ndc-role-row:focus-within .ppb-pass {
-  opacity: 1;
-}
+.ndc-role-row .ppb-actions { opacity: 0; transition: opacity 0.15s ease; }
+.ndc-role-row:hover .ppb-actions,
+.ndc-role-row:focus-within .ppb-actions { opacity: 1; }
