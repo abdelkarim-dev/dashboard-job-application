@@ -9,8 +9,13 @@ import {
   formatNextActionDue,
   localDateString,
   daysSinceCurrentStage,
+  daysWaiting,
+  isGhosting,
+  ageBand,
+  waitingTier,
+  FOLLOWUP_FRESH_DAYS,
 } from "../lib/metrics.mjs";
-import { hasProcess, isProcessWaiting, processSummary, getDefaultProcess } from "../lib/process.mjs";
+import { hasProcess, isWaiting, getDefaultProcess } from "../lib/process.mjs";
 import ApplicationProcessPanel from "./ApplicationProcessPanel.jsx";
 import ProcessProgressBar from "./ProcessProgressBar.jsx";
 
@@ -28,7 +33,10 @@ const STATUS_META = {
   "AppliedToday":      { short: "Applied Today",       pipeShort: "Applied Today",      color: "var(--md-tertiary)",  bg: "color-mix(in srgb, var(--md-tertiary) 12%, transparent)", dot: "var(--md-tertiary)", step: 0 },
   // Derived overlay: a process-tracked app sitting between rounds (last round
   // passed, next not booked). Amber, distinct from the cool pipeline stages.
-  "Waiting":           { short: "Waiting",             pipeShort: "Waiting",            color: "#f5a524",            bg: "rgba(245, 165, 36, 0.14)", dot: "#f5a524",            step: 0 },
+  "Waiting":           { short: "Waiting",             pipeShort: "Waiting",            color: "var(--s-waiting)",   bg: "var(--s-waiting-bg)",   dot: "var(--s-waiting-dot)",   step: 0 },
+  // Derived overlay: gone cold — idle 30+ days with no reply. A quiet grey
+  // archive tier, deliberately cooler than the stalled-orange.
+  "Ghosting":          { short: "Ghosted",             pipeShort: "Ghosted",            color: "var(--s-ghost)",     bg: "var(--s-ghost-bg)",     dot: "var(--s-ghost-dot)",     step: 0 },
 };
 
 const STAGE_DATE_STATUSES = new Set(["Online Assessment", "Recruiter Screen", "Interview"]);
@@ -43,6 +51,8 @@ const STATUS_SHORTCUTS = {
   ats: "REJECTED_ATS",
   rejected_ats: "REJECTED_ATS",
   stalled: "Stalled",
+  waiting: "Waiting",
+  ghosted: "Ghosting", ghosting: "Ghosting", cold: "Ghosting",
 };
 
 const FIELD_ALIASES = {
@@ -133,16 +143,25 @@ function isAtsRejection(app) {
   return daysDiff >= 0 && daysDiff <= 3;
 }
 
+// "Stalled" = a non-terminal app the user is NOT waiting on, idle 10–29 days, at
+// ANY stage (the old Applied-only gate is gone — an OA/Phone/Loop app idle two
+// weeks is just as stalled). 30+ days is "ghosting", a separate tier.
 function isDisplayStalled(app) {
-  return app.status === "Applied" && isStale(app);
+  if (app.status === "Rejected" || app.status === "Offer") return false;
+  if (isWaiting(app)) return false;
+  if (isGhosting(app)) return false;
+  return isStale(app);
 }
 
 function getDisplayStatus(app) {
-  // "Waiting" overlays an in-flight process sitting between rounds. It wins over
-  // Stalled (you're mid-process, not idle) but never over a rejection.
-  if (app.status !== "Rejected" && isProcessWaiting(app)) return "Waiting";
+  // Precedence: terminal → Waiting → Ghosting → Stalled → ATS → raw. Waiting
+  // (ball in the company's court) outranks the cold tiers, so a passed-round app
+  // silent 30+ days stays in the Waiting hero's "going cold" tier and is never
+  // archived as ghosted. Ghosting (30+) outranks Stalled (10–29).
+  if (app.status === "Rejected") return isAtsRejection(app) ? "REJECTED_ATS" : "Rejected";
+  if (isWaiting(app)) return "Waiting";
+  if (isGhosting(app)) return "Ghosting";
   if (isDisplayStalled(app)) return "Stalled";
-  if (isAtsRejection(app)) return "REJECTED_ATS";
   return app.status;
 }
 
@@ -150,7 +169,8 @@ function matchesDisplayFilter(app, filter) {
   if (filter === "All") return true;
   if (filter === "Today") return isAppliedToday(app) && app.status !== "Rejected";
   if (filter === "Waiting") return getDisplayStatus(app) === "Waiting";
-  if (filter === "Stalled") return isDisplayStalled(app);
+  if (filter === "Stalled") return getDisplayStatus(app) === "Stalled";
+  if (filter === "Ghosting") return getDisplayStatus(app) === "Ghosting";
   if (filter === "REJECTED_ATS") return getDisplayStatus(app) === "REJECTED_ATS";
   if (filter === "Rejected") return app.status === "Rejected" && !isAtsRejection(app);
   return app.status === filter;
@@ -232,8 +252,13 @@ function StatusPicker({ app, onStatusChange }) {
   }, [open]);
 
   const displayStatus = getDisplayStatus(app);
-  const meta = STATUS_META[displayStatus] || STATUS_META["Applied"];
   const isAts = displayStatus === "REJECTED_ATS";
+  // The pill shows the REAL stage (e.g. "Loop Interview · Jun 16"); the
+  // Waiting/Ghosting/Stalled overlays are carried once each by the stepper's
+  // current-dot ring, the row's context chip, and the section — never repeated
+  // as a pill label. Terminal apps keep their true status (Rejected / ATS).
+  const pillStatus = app.status === "Rejected" ? displayStatus : app.status;
+  const meta = STATUS_META[pillStatus] || STATUS_META["Applied"];
   const pillDate = getStatusPillDate(app);
   const pillDateLabel = pillDate ? formatDate(pillDate) : null;
 
@@ -750,24 +775,30 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
 
 // ── Role Row (inside company card) ────────────────────────────────────────────
 function RoleRow({ app, isSelected, onSelect, onQuickStatusChange, store, onProcessPatch }) {
-  const meta = getDisplayMeta(app);
+  // The role dot matches the stage colour (so it agrees with the stepper's
+  // current dot) — the amber Waiting state is carried by the stepper ring + chip.
+  const dotColor = (STATUS_META[app.status] || getDisplayMeta(app)).dot;
   const applied = formatDate(getAppliedDate(app));
   const rejected = app.status === "Rejected"
     ? formatDate(app.rejectedAt || app.stageDateTimes?.Rejected)
     : null;
-  const stale = isStale(app);
-  // Stage passed but next step unknown — the user did their part, the ball is
-  // in the company's court.
-  const stagePassed = (app.stagePassedAt || {})[app.status];
-  const proc = hasProcess(app) ? processSummary(app) : null;
-  // Days the application has sat in its current stage — i.e. how long it has been
-  // stalled. Null for terminal apps (Offer/Rejected) or when no usable timestamp.
+
+  // The single context chip, framed by the row's display state. Waiting/Ghosting
+  // are spoken ONCE here (plus the stepper ring) — never duplicated as a pill.
+  const displayStatus = getDisplayStatus(app);
+  const waiting = displayStatus === "Waiting";
+  const ghosted = displayStatus === "Ghosting";
+  const stalledRow = displayStatus === "Stalled";
   const isTerminal = app.status === "Rejected" || app.status === "Offer";
   const daysInStage = isTerminal ? null : daysSinceCurrentStage(app);
+  const dW = waiting ? (daysWaiting(app) ?? 0) : null;
+  const tier = waiting ? waitingTier(app) : null;
+  const waitSuffix = tier === "fresh" ? "heard back" : tier === "cold" ? "no reply in a month" : "follow up";
+  const rowDim = stalledRow || ghosted;
 
   return (
     <div
-      className={`ndc-role-row ${isSelected ? "ndc-role-row--active" : ""} ${stale ? "ndc-role-row--stale" : ""}`}
+      className={`ndc-role-row ${isSelected ? "ndc-role-row--active" : ""} ${rowDim ? "ndc-role-row--stale" : ""}`}
       onClick={() => onSelect(app)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -778,7 +809,7 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange, store, onProc
       role="button"
       tabIndex={0}
     >
-      <span className="ndc-role-dot" style={{ background: meta.dot }} />
+      <span className="ndc-role-dot" style={{ background: dotColor }} />
       <div className="ndc-role-info">
         <div className="ndc-role-head">
           <span className="ndc-role-title">{app.role || "Untitled role"}</span>
@@ -790,18 +821,24 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange, store, onProc
         <div className="ndc-role-meta">
           {app.location && <span className="ndc-role-meta-item">📍 {app.location}</span>}
           {applied && <span className="ndc-role-meta-item">Applied {applied}</span>}
-          {daysInStage !== null && daysInStage >= 1 && (
-            <span
-              className="ndc-role-meta-item"
-              style={{ color: stale ? "var(--s-stalled-dot)" : undefined, fontWeight: stale ? 600 : undefined }}
-              title={stale ? `Idle in this stage for ${daysInStage} days (10+ = stalled)` : `${daysInStage} days in current stage`}
-            >
-              {stale ? "⚠ " : "⏳ "}{daysInStage}d {stale ? "stalled" : "in stage"}
+          {waiting && (
+            <span className="ndc-role-meta-item ndc-role-meta-item--waiting" title="The ball is in their court">
+              ⏳ Waiting {dW}d · {waitSuffix}
             </span>
           )}
-          {!proc && stagePassed && (
-            <span className="ndc-role-meta-item ndc-role-meta-item--passed" title={`Passed ${formatDate(stagePassed)} — awaiting next step`}>
-              ✓ Passed · awaiting next step
+          {ghosted && (
+            <span className="ndc-role-meta-item ndc-role-meta-item--silent" title={`No reply in ${daysInStage} days`}>
+              ❄ {daysInStage}d silent
+            </span>
+          )}
+          {stalledRow && (
+            <span className="ndc-role-meta-item ndc-role-meta-item--idle" title={`Idle ${daysInStage} days in this stage`}>
+              ⏳ idle {daysInStage}d
+            </span>
+          )}
+          {!waiting && !ghosted && !stalledRow && daysInStage !== null && daysInStage >= 1 && (
+            <span className="ndc-role-meta-item" title={`${daysInStage} days in current stage`}>
+              ⏳ {daysInStage}d in stage
             </span>
           )}
           {rejected && (
@@ -832,30 +869,38 @@ const MAX_VISIBLE_ROLES = 3;
 function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChange, index = 0, store, onProcessPatch }) {
   const color = companyColor(company);
   const nonRejected = apps.filter((a) => a.status !== "Rejected");
-  const bestStep = nonRejected.length ? Math.max(0, ...nonRejected.map((a) => statusStep(a.status))) : -1;
-  const bestStatus = nonRejected.length ? (PIPELINE_FORWARD[bestStep] || "Applied") : "Rejected";
+  const isCold = (a) => { const d = getDisplayStatus(a); return d === "Stalled" || d === "Ghosting"; };
 
-  // Use display meta for the company-level badge
-  const allStalled = nonRejected.length > 0 && nonRejected.every(a => isDisplayStalled(a));
-  const companyDisplayStatus = allStalled ? "Stalled" : bestStatus;
-  const bestMeta = STATUS_META[companyDisplayStatus] || STATUS_META["Applied"];
+  // A quiet court summary replaces the old (redundant) "best stage" badge: it
+  // says how many roles are waiting / active / cold — the per-role steppers carry
+  // the stages themselves. Shown only on multi-role cards.
+  const waitingCount = nonRejected.filter((a) => isWaiting(a)).length;
+  const coldCount = nonRejected.filter(isCold).length;
+  const activeCount = nonRejected.length - waitingCount - coldCount;
+  const summaryParts = [];
+  if (waitingCount) summaryParts.push(`${waitingCount} waiting`);
+  if (activeCount) summaryParts.push(`${activeCount} active`);
+  if (coldCount) summaryParts.push(`${coldCount} cold`);
+  const courtSummary = summaryParts.join(" · ");
 
+  // Waiting roles lead (most-overdue first), then by stage; cold roles sink.
   const sortedApps = [...apps].sort((a, b) => {
-    if (isStale(a) && !isStale(b)) return 1;
-    if (!isStale(a) && isStale(b)) return -1;
+    const aw = isWaiting(a), bw = isWaiting(b);
+    if (aw !== bw) return aw ? -1 : 1;
+    if (aw && bw) return (daysWaiting(b) ?? 0) - (daysWaiting(a) ?? 0);
     return statusStep(b.status) - statusStep(a.status);
   });
 
-  // Prominence logic: advanced roles lead, while older applied roles stay tucked
-  // behind the expander. Stalled roles are split into their own section upstream.
-  let prominent, hidden;
-  if (bestStep > 0) {
-    prominent = sortedApps.filter((a) => statusStep(a.status) > 0);
-    hidden = sortedApps.filter((a) => statusStep(a.status) === 0);
-  } else {
-    prominent = sortedApps.slice(0, MAX_VISIBLE_ROLES);
-    hidden = sortedApps.slice(MAX_VISIBLE_ROLES);
-  }
+  // Lead with the live (waiting/active) roles; tuck the cold roles + any overflow
+  // behind the expander. A purely-cold card (Stalled/Ghosted band) shows its
+  // cold roles normally.
+  const liveApps = sortedApps.filter((a) => !isCold(a));
+  const coldApps = sortedApps.filter((a) => isCold(a));
+  const lead = liveApps.length ? liveApps : coldApps;   // primary roles for this band
+  const rest = liveApps.length ? coldApps : [];          // cold roles tucked when there are live ones
+  const orderedAll = [...lead, ...rest];
+  const prominent = lead.slice(0, MAX_VISIBLE_ROLES);
+  const hidden = [...lead.slice(MAX_VISIBLE_ROLES), ...rest];
 
   const hasSelectedHidden = hidden.some((a) => a.id === selectedAppId);
   const [expanded, setExpanded] = useState(false);
@@ -863,7 +908,7 @@ function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChan
     if (hasSelectedHidden) setExpanded(true);
   }, [hasSelectedHidden]);
 
-  const visibleRoles = expanded ? sortedApps : prominent;
+  const visibleRoles = expanded ? orderedAll : prominent;
   const hiddenCount = hidden.length;
 
   return (
@@ -877,10 +922,12 @@ function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChan
           <span className="ndc-company-name">{company}</span>
           <span className="ndc-company-count">{apps.length} {apps.length === 1 ? "role" : "roles"}</span>
         </div>
-        {/* Company-level badge is NOT clickable — only role-level badges are */}
-        <span className="ndc-company-best" style={{ color: bestMeta.color, background: bestMeta.bg }}>
-          {bestMeta.short}
-        </span>
+        {/* A quiet court summary (multi-role only) — not a clickable control. */}
+        {apps.length > 1 && courtSummary && (
+          <span className={`ndc-company-court ${waitingCount > 0 ? "ndc-company-court--waiting" : ""}`}>
+            {courtSummary}
+          </span>
+        )}
       </div>
       <div className="ndc-role-list">
         {visibleRoles.map((app) => (
@@ -1009,52 +1056,94 @@ function QuickAddForm({ onClose, onCreated }) {
 }
 
 // ── Pulse strip: key pipeline numbers + what needs attention today ───────────
-function DashboardPulse({ applications, onOpenApp, onShowStalled }) {
+// The triage bar: the headline counts of whose-court-the-ball-is-in (Your move /
+// Waiting / Offers) + the "Your move" action queue, with quiet reveal toggles for
+// the hidden cold tiers and a collapsed Stats disclosure. Replaces the old
+// vanity-tile Pulse strip.
+function TriageBar({ applications, onOpenApp, onJump, stalledCount, ghostedCount, showStalled, showGhosting, onToggleStalled, onToggleGhosting }) {
+  const [statsOpen, setStatsOpen] = useState(false);
+
+  const attention = useMemo(() => buildAttentionItems(applications), [applications]);
+  const waitingCount = useMemo(() => applications.filter(isWaiting).length, [applications]);
+  const offersCount = useMemo(() => applications.filter((a) => a.status === "Offer").length, [applications]);
+
   const stats = useMemo(() => {
     const active = applications.filter((a) => a.status !== "Rejected");
     const interviewing = active.filter((a) =>
       a.status === "Online Assessment" || a.status === "Recruiter Screen" || a.status === "Interview"
     ).length;
-    const offers = active.filter((a) => a.status === "Offer").length;
     const { responseRate } = computeResponseStats(applications);
     const weekly = weeklyApplicationCounts(applications, { weeks: 1 });
     return {
       active: active.length,
       interviewing,
-      offers,
       responseRate,
       thisWeek: weekly[weekly.length - 1]?.count || 0,
     };
   }, [applications]);
 
-  const attention = useMemo(() => buildAttentionItems(applications), [applications]);
-  const stalledCount = useMemo(() => applications.filter(isDisplayStalled).length, [applications]);
-
-  const tiles = [
+  const statTiles = [
     { label: "active roles", value: stats.active },
     { label: "interviewing", value: stats.interviewing },
-    { label: "offers", value: stats.offers },
+    { label: "offers", value: offersCount },
     { label: "response rate", value: `${stats.responseRate}%` },
     { label: "this week", value: stats.thisWeek },
   ];
 
   return (
-    <div className="ndash-pulse">
-      <div className="ndash-pulse-stats" role="list" aria-label="Pipeline overview">
-        {tiles.map(({ label, value }) => (
-          <div className="ndash-pulse-tile" role="listitem" key={label}>
-            <span className="ndash-pulse-value">{value}</span>
-            <span className="ndash-pulse-label">{label}</span>
-          </div>
-        ))}
+    <div className="ndash-triage">
+      <div className="ndash-triage-bar">
+        <div className="ndash-triage-primary" role="list" aria-label="What needs you">
+          <button type="button" className="ndash-triage-count ndash-triage-count--move" onClick={() => onJump("YourMove")} role="listitem">
+            <span className="ndash-triage-num">{attention.length}</span>
+            <span className="ndash-triage-lbl">Your move</span>
+          </button>
+          <button type="button" className="ndash-triage-count ndash-triage-count--wait" onClick={() => onJump("Waiting")} role="listitem">
+            <span className="ndash-triage-num">{waitingCount}</span>
+            <span className="ndash-triage-lbl">Waiting on them</span>
+          </button>
+          {offersCount > 0 && (
+            <button type="button" className="ndash-triage-count ndash-triage-count--offer" onClick={() => onJump("Offer")} role="listitem">
+              <span className="ndash-triage-num">{offersCount}</span>
+              <span className="ndash-triage-lbl">{offersCount === 1 ? "offer" : "offers"}</span>
+            </button>
+          )}
+        </div>
+        <div className="ndash-triage-toggles">
+          {stalledCount > 0 && (
+            <button type="button" className={`ndash-triage-toggle ${showStalled ? "is-on" : ""}`} onClick={onToggleStalled} aria-pressed={showStalled}>
+              {showStalled ? "Hide" : "Show"} stalled · {stalledCount}
+            </button>
+          )}
+          {ghostedCount > 0 && (
+            <button type="button" className={`ndash-triage-toggle ndash-triage-toggle--ghost ${showGhosting ? "is-on" : ""}`} onClick={onToggleGhosting} aria-pressed={showGhosting}>
+              {showGhosting ? "Hide" : "Show"} ghosted · {ghostedCount}
+            </button>
+          )}
+          <button type="button" className={`ndash-triage-stats-btn ${statsOpen ? "is-open" : ""}`} onClick={() => setStatsOpen((v) => !v)} aria-expanded={statsOpen}>
+            Stats <span className="ndash-triage-stats-caret">▾</span>
+          </button>
+        </div>
       </div>
-      <div className="ndash-pulse-attention">
-        {attention.length === 0 && stalledCount === 0 ? (
-          <span className="ndash-pulse-clear">✓ All caught up — nothing needs attention today</span>
+
+      {statsOpen && (
+        <div className="ndash-pulse-stats" role="list" aria-label="Pipeline overview">
+          {statTiles.map(({ label, value }) => (
+            <div className="ndash-pulse-tile" role="listitem" key={label}>
+              <span className="ndash-pulse-value">{value}</span>
+              <span className="ndash-pulse-label">{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="ndash-triage-move" id="ndash-section-YourMove">
+        {attention.length === 0 ? (
+          <span className="ndash-pulse-clear">✓ Nothing needs you today — the ball's in their court on everything active.</span>
         ) : (
           <>
-            {attention.length > 0 && <span className="ndash-pulse-attn-label">Needs attention</span>}
-            {attention.slice(0, 5).map((item) => (
+            <span className="ndash-pulse-attn-label">Your move</span>
+            {attention.slice(0, 6).map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -1071,17 +1160,58 @@ function DashboardPulse({ applications, onOpenApp, onShowStalled }) {
                 )}
               </button>
             ))}
-            {attention.length > 5 && <span className="ndash-pulse-more">+{attention.length - 5} more</span>}
-            {stalledCount > 0 && (
-              <button type="button" className="ndash-pulse-item ndash-pulse-item--stalled" onClick={onShowStalled}>
-                <span className="ndash-pulse-item-kind">Stalled</span>
-                <span className="ndash-pulse-item-co">{stalledCount} {stalledCount === 1 ? "role" : "roles"} idle 10+ days</span>
+            {attention.length > 6 && (
+              <button type="button" className="ndash-pulse-more" onClick={() => onOpenApp(attention[6].id)}>
+                +{attention.length - 6} more
               </button>
             )}
           </>
         )}
       </div>
     </div>
+  );
+}
+
+// The Waiting hero's body: the cards that need a nudge (idle past the fresh
+// window) shown in full, with a held-back "Just heard back (0–Nd)" subgroup
+// collapsed at the bottom so a recruiter who replied yesterday isn't pestered.
+function WaitingHeroBody({ companies, cardProps }) {
+  const [freshOpen, setFreshOpen] = useState(false);
+  const nudge = companies.filter((g) => g.maxDaysWaiting > FOLLOWUP_FRESH_DAYS);
+  const fresh = companies.filter((g) => g.maxDaysWaiting <= FOLLOWUP_FRESH_DAYS);
+  return (
+    <>
+      {nudge.length > 0 && (
+        <div className="ndc-company-grid">
+          {nudge.map((g, idx) => (
+            <CompanyCard key={g.company} company={g.company} apps={g.apps} index={idx} {...cardProps} />
+          ))}
+        </div>
+      )}
+      {nudge.length === 0 && fresh.length > 0 && (
+        <p className="ndash-hero-allfresh">Nothing overdue — you've recently heard back on everything pending. 👌</p>
+      )}
+      {fresh.length > 0 && (
+        <div className="ndash-waiting-fresh">
+          <button
+            type="button"
+            className={`ndash-waiting-fresh-toggle ${freshOpen ? "is-open" : ""}`}
+            onClick={() => setFreshOpen((v) => !v)}
+            aria-expanded={freshOpen}
+          >
+            <span className="ndash-waiting-fresh-chevron">▸</span>
+            Just heard back (0–{FOLLOWUP_FRESH_DAYS}d) · {fresh.length}
+          </button>
+          {freshOpen && (
+            <div className="ndc-company-grid">
+              {fresh.map((g, idx) => (
+                <CompanyCard key={g.company} company={g.company} apps={g.apps} index={idx} {...cardProps} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1098,6 +1228,10 @@ export default function Dashboard({
   const [selectedApp, setSelectedApp] = useState(null);
   const [saving, setSaving] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState(() => new Set());
+  // The cold tiers are unmounted by default; these reveal them IN PLACE (not via
+  // a destructive statusFilter swap).
+  const [showStalled, setShowStalled] = useState(false);
+  const [showGhosting, setShowGhosting] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   // Interview-process store — fetched once so every card can render its assigned
   // process or the inherited default along its progress bar.
@@ -1155,6 +1289,13 @@ export default function Dashboard({
     onStatusFilterOverrideHandled?.();
   }, [statusFilterOverride, onStatusFilterOverrideHandled]);
 
+  // A deep-link / external override to a hidden cold tier must also reveal its
+  // (otherwise unmounted) section, else the view would render empty.
+  useEffect(() => {
+    if (statusFilter === "Stalled") setShowStalled(true);
+    if (statusFilter === "Ghosting") setShowGhosting(true);
+  }, [statusFilter]);
+
   const { fieldFilters, globalText } = useMemo(() => parseOmniSearch(searchRaw), [searchRaw]);
 
   const removeFilter = useCallback((rawToken) => {
@@ -1194,45 +1335,24 @@ export default function Dashboard({
 
   const searchActive = globalText !== "" || fieldFilters.length > 0;
 
-  // Build company groups. Stalled roles get their own company grouping so they
-  // never disappear inside an active company card.
+  // ONE card per company, routed to a single band by its most-pressing court:
+  //   Offer  >  any-role-Waiting  >  best active stage (In play)  >  all-stalled
+  //   >  all-ghosted.
+  // A mixed company rides in its top band with the lesser (stalled/ghosted) roles
+  // dimmed inside the same card — never split into a second card. This kills the
+  // old activeMap/stalledMap two-cards-per-company behaviour.
   const { companyGroups } = useMemo(() => {
-    const activeMap = new Map();
-    const stalledMap = new Map();
-
-    const addToMap = (map, app) => {
-      const key = app.company || "Unknown";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(app);
-    };
-
+    const byCompany = new Map();
     for (const app of applications) {
       if (!appMatches(app)) continue;
-      const displayStatus = getDisplayStatus(app);
       if (app.status === "Rejected") continue;
       if (!matchesDisplayFilter(app, statusFilter)) continue;
-      if (displayStatus === "Stalled") {
-        addToMap(stalledMap, app);
-      } else {
-        addToMap(activeMap, app);
-      }
+      const key = app.company || "Unknown";
+      if (!byCompany.has(key)) byCompany.set(key, []);
+      byCompany.get(key).push(app);
     }
 
-    const activeGroups = Array.from(activeMap.entries())
-      .map(([company, apps]) => {
-        const nonRejected = apps.filter(a => a.status !== "Rejected");
-        const bestStep = nonRejected.length ? Math.max(0, ...nonRejected.map((a) => statusStep(a.status))) : -1;
-        return {
-          company,
-          apps: [...apps].sort((a, b) => {
-            return statusStep(b.status) - statusStep(a.status);
-          }),
-          bestStep,
-          displayCategory: PIPELINE_FORWARD[Math.max(0, bestStep)] || "Applied",
-        };
-      });
-
-    const getMostRecentDate = (apps) => {
+    const mostRecentDate = (apps) => {
       let max = 0;
       for (const a of apps) {
         const d = parseDateValue(getAppliedDate(a));
@@ -1241,28 +1361,49 @@ export default function Dashboard({
       return max;
     };
 
-    const stalledGroups = Array.from(stalledMap.entries())
-      .map(([company, apps]) => ({
-        company,
-        apps: [...apps].sort((a, b) => String(a.role || "").localeCompare(String(b.role || ""))),
-        bestStep: -0.5,
-        displayCategory: "Stalled",
-        mostRecentDate: getMostRecentDate(apps),
-      }));
+    const groups = Array.from(byCompany.entries()).map(([company, apps]) => {
+      const hasOffer = apps.some((a) => a.status === "Offer");
+      const waitingApps = apps.filter((a) => isWaiting(a));
+      const restApps = apps.filter((a) => a.status !== "Offer" && !isWaiting(a));
+      const activeApps = restApps.filter((a) => ageBand(a) === "active");
+      const restBands = restApps.map((a) => ageBand(a));
 
-    const activeGroupsWithDate = activeGroups.map(g => ({
-      ...g,
-      mostRecentDate: getMostRecentDate(g.apps),
-    }));
+      let band;
+      if (hasOffer) band = "Offer";
+      else if (waitingApps.length) band = "Waiting";
+      else if (activeApps.length) band = "InPlay";
+      else if (restBands.includes("stalled")) band = "Stalled";
+      else band = "Ghosting"; // every remaining role idle 30d+
 
-    const sorted = [...activeGroupsWithDate, ...stalledGroups]
-      .sort((a, b) => {
-        if (b.bestStep !== a.bestStep) return b.bestStep - a.bestStep;
-        return b.mostRecentDate - a.mostRecentDate || a.company.localeCompare(b.company);
+      const activeBestStep = activeApps.length ? Math.max(0, ...activeApps.map((a) => statusStep(a.status))) : 0;
+      const maxDaysWaiting = waitingApps.reduce((m, a) => Math.max(m, daysWaiting(a) ?? 0), 0);
+
+      // Within a card: waiting roles first (most-overdue first), then by stage —
+      // so the dimmed cold roles sink to the bottom.
+      const sortedApps = [...apps].sort((a, b) => {
+        const aw = isWaiting(a), bw = isWaiting(b);
+        if (aw !== bw) return aw ? -1 : 1;
+        if (aw && bw) return (daysWaiting(b) ?? 0) - (daysWaiting(a) ?? 0);
+        return statusStep(b.status) - statusStep(a.status);
       });
 
-    return { companyGroups: sorted };
+      return {
+        company,
+        apps: sortedApps,
+        band,
+        maxDaysWaiting,
+        mostRecentDate: mostRecentDate(apps),
+        // In-play companies bucket by their best ACTIVE stage; other bands key off
+        // the band name for their section.
+        displayCategory: band === "InPlay" ? (PIPELINE_FORWARD[activeBestStep] || "Applied") : band,
+      };
+    });
+
+    return { companyGroups: groups };
   }, [applications, appMatches, statusFilter]);
+
+  const stalledGroupCount = useMemo(() => companyGroups.filter((g) => g.band === "Stalled").length, [companyGroups]);
+  const ghostedGroupCount = useMemo(() => companyGroups.filter((g) => g.band === "Ghosting").length, [companyGroups]);
 
   // Rejected companies (when searched or explicitly filtered).
   const rejectedGroups = useMemo(() => {
@@ -1286,11 +1427,18 @@ export default function Dashboard({
     setSelectedApp((prev) => (prev?.id === app.id ? null : app));
   }, []);
 
-  // Open the side panel for an app surfaced by the pulse strip.
+  // Open the side panel for an app surfaced by the triage queue.
   const handleOpenFromPulse = useCallback((appId) => {
     const app = applications.find((a) => a.id === appId);
     if (app) setSelectedApp(app);
   }, [applications]);
+
+  // Scroll a triage count to its band (the "Your move" list lives in the triage
+  // bar itself; Waiting/Offer scroll to their section).
+  const handleJump = useCallback((key) => {
+    const el = document.getElementById(`ndash-section-${key}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const handleQuickAddCreated = useCallback(async (created) => {
     setQuickAddOpen(false);
@@ -1366,60 +1514,60 @@ export default function Dashboard({
   const totalRoles = companyGroups.reduce((s, g) => s + g.apps.length, 0)
     + rejectedGroups.reduce((s, g) => s + g.apps.length, 0);
 
-  // Group companies into sections:
-  //   Offer → Loop → Phone → OA → Applied Today → Applied → Stalled
-  // "Applied Today" = Applied-status companies applied today, excluded from regular Applied.
+  // The two-court board, top → bottom:
+  //   Offers → WAITING ON THEM (hero) → IN PLAY (by stage) → [Stalled] → [Ghosted]
+  // The cold tiers are unmounted unless their triage toggle reveals them.
   const stageSections = useMemo(() => {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-
-    // Companies applied today that haven't advanced past Applied (Applied or Stalled display) → own section
-    const ADVANCED = new Set(["Online Assessment", "Recruiter Screen", "Interview", "Offer"]);
-    const appliedTodayCompanies = companyGroups.filter(
-      (g) => g.mostRecentDate >= todayStart && !ADVANCED.has(g.displayCategory)
-    );
-    const appliedTodaySet = new Set(appliedTodayCompanies.map((g) => g.company));
-
-    // All other companies (advanced stages, older Applied, older Stalled)
-    const restGroups = companyGroups.filter((g) => !appliedTodaySet.has(g.company));
-
-    const byCategory = new Map();
-    for (const group of restGroups) {
-      const key = group.displayCategory;
-      if (!byCategory.has(key)) byCategory.set(key, []);
-      byCategory.get(key).push(group);
-    }
+    const byBand = (b) => companyGroups.filter((g) => g.band === b);
+    const byWaiting = (a, b) => (b.maxDaysWaiting - a.maxDaysWaiting) || (b.mostRecentDate - a.mostRecentDate) || a.company.localeCompare(b.company);
+    const byRecency = (a, b) => (b.mostRecentDate - a.mostRecentDate) || a.company.localeCompare(b.company);
 
     const sections = [];
-    // Advanced stages first (most → least advanced)
-    for (const key of ["Offer", "Interview", "Recruiter Screen", "Online Assessment"]) {
-      const companies = byCategory.get(key) || [];
-      if (companies.length > 0) sections.push({ status: key, companies });
+
+    // 1. Offers — a live offer trumps everything; header hidden when empty.
+    const offers = byBand("Offer").sort(byRecency);
+    if (offers.length) sections.push({ status: "Offer", companies: offers });
+
+    // 2. THE HERO — who do I chase today, most-overdue first.
+    const waiting = byBand("Waiting").sort(byWaiting);
+    if (waiting.length) sections.push({ status: "Waiting", companies: waiting, hero: true });
+
+    // 3. In play — the calm middle, bucketed by best active stage (most advanced first).
+    const inPlay = byBand("InPlay");
+    const byStage = new Map();
+    for (const g of inPlay) {
+      if (!byStage.has(g.displayCategory)) byStage.set(g.displayCategory, []);
+      byStage.get(g.displayCategory).push(g);
     }
-    // Applied Today sits between OA and regular Applied
-    if (appliedTodayCompanies.length > 0) {
-      sections.push({ status: "AppliedToday", companies: appliedTodayCompanies });
+    for (const key of ["Interview", "Recruiter Screen", "Online Assessment", "Applied"]) {
+      const companies = (byStage.get(key) || []).sort(byRecency);
+      if (companies.length) sections.push({ status: key, companies });
     }
-    // Regular Applied (older)
-    const appliedCompanies = byCategory.get("Applied") || [];
-    if (appliedCompanies.length > 0) sections.push({ status: "Applied", companies: appliedCompanies });
-    // Stalled at the bottom
-    const stalledCompanies = byCategory.get("Stalled") || [];
-    if (stalledCompanies.length > 0) sections.push({ status: "Stalled", companies: stalledCompanies });
+
+    // 4 & 5. Cold tiers — unmounted unless revealed via the triage toggle.
+    if (showStalled) {
+      const stalled = byBand("Stalled").sort(byRecency);
+      if (stalled.length) sections.push({ status: "Stalled", companies: stalled, cold: true });
+    }
+    if (showGhosting) {
+      const ghosted = byBand("Ghosting").sort(byRecency);
+      if (ghosted.length) sections.push({ status: "Ghosting", companies: ghosted, cold: true });
+    }
 
     return sections;
-  }, [companyGroups]);
+  }, [companyGroups, showStalled, showGhosting]);
 
+  // Lens chips. Stalled/Ghosted live in the triage reveal toggles (not here) —
+  // they're orthogonal to the lens, not a destructive view swap.
   const filterChips = [
     { label: "All", value: "All" },
+    { label: "Waiting", value: "Waiting" },
     { label: "Today", value: "Today" },
     { label: "Applied", value: "Applied" },
     { label: "Online Assessment", value: "Online Assessment" },
     { label: "Phone Interview", value: "Recruiter Screen" },
     { label: "Loop Interview", value: "Interview" },
     { label: "Offer", value: "Offer" },
-    { label: "Waiting", value: "Waiting" },
-    { label: "Stalled", value: "Stalled" },
     { label: "Rejected ATS", value: "REJECTED_ATS" },
     { label: "Rejected", value: "Rejected" },
   ];
@@ -1492,11 +1640,17 @@ export default function Dashboard({
         {/* Search tags */}
         <SearchTags fieldFilters={fieldFilters} searchRaw={searchRaw} onRemove={removeFilter} />
 
-        {/* Pulse: key numbers + needs-attention feed */}
-        <DashboardPulse
+        {/* Triage bar: whose-court counts + the "Your move" action queue */}
+        <TriageBar
           applications={applications}
           onOpenApp={handleOpenFromPulse}
-          onShowStalled={() => setStatusFilter("Stalled")}
+          onJump={handleJump}
+          stalledCount={stalledGroupCount}
+          ghostedCount={ghostedGroupCount}
+          showStalled={showStalled}
+          showGhosting={showGhosting}
+          onToggleStalled={() => setShowStalled((v) => !v)}
+          onToggleGhosting={() => setShowGhosting((v) => !v)}
         />
 
         {/* Filter bar */}
@@ -1521,37 +1675,73 @@ export default function Dashboard({
 
         {/* Content */}
         <div className="ndash-content">
-          {companyGroups.length === 0 && rejectedGroups.length === 0 && (
-            applications.length === 0 ? (
+          {stageSections.length === 0 && rejectedGroups.length === 0 && (() => {
+            const filterActive = statusFilter !== "All" || searchActive;
+            const hiddenCold = stalledGroupCount + ghostedGroupCount;
+            if (applications.length === 0) {
+              return (
+                <div className="ndash-empty">
+                  <div className="ndash-empty-icon">🚀</div>
+                  <strong>No applications yet</strong>
+                  <p>Add your first application manually, or capture one from a job posting with the Claire extension.</p>
+                  <button className="ndash-empty-add" type="button" onClick={() => setQuickAddOpen(true)}>
+                    ＋ Add your first application
+                  </button>
+                </div>
+              );
+            }
+            if (filterActive) {
+              return (
+                <div className="ndash-empty">
+                  <div className="ndash-empty-icon">🔍</div>
+                  <strong>No results</strong>
+                  <p>{searchRaw ? `No applications match "${searchRaw}"` : "Nothing in this view."}</p>
+                </div>
+              );
+            }
+            // Default view, nothing active or pending. If cold cards are hidden,
+            // frame the calm as success — not a stark "no results" void.
+            return (
               <div className="ndash-empty">
-                <div className="ndash-empty-icon">🚀</div>
-                <strong>No applications yet</strong>
-                <p>Add your first application manually, or capture one from a job posting with the Claire extension.</p>
-                <button className="ndash-empty-add" type="button" onClick={() => setQuickAddOpen(true)}>
-                  ＋ Add your first application
-                </button>
+                <div className="ndash-empty-icon">🌿</div>
+                <strong>All quiet</strong>
+                <p>Nothing needs you and nothing's mid-flight right now.</p>
+                {hiddenCold > 0 && (
+                  <p className="ndash-empty-reveal">
+                    {stalledGroupCount > 0 && (
+                      <button type="button" onClick={() => setShowStalled(true)}>{stalledGroupCount} stalled</button>
+                    )}
+                    {stalledGroupCount > 0 && ghostedGroupCount > 0 && <span> · </span>}
+                    {ghostedGroupCount > 0 && (
+                      <button type="button" onClick={() => setShowGhosting(true)}>{ghostedGroupCount} ghosted</button>
+                    )}
+                  </p>
+                )}
               </div>
-            ) : (
-              <div className="ndash-empty">
-                <div className="ndash-empty-icon">🔍</div>
-                <strong>No results</strong>
-                <p>{searchRaw ? `No applications match "${searchRaw}"` : "No applications in this view."}</p>
-              </div>
-            )
-          )}
+            );
+          })()}
 
-          {stageSections.map(({ status, companies }) => {
+          {stageSections.map(({ status, companies, hero, cold }) => {
             const m = STATUS_META[status] || STATUS_META["Applied"];
             const sectionRoles = companies.reduce((s, g) => s + g.apps.length, 0);
             const sectionCompanies = companies.length;
             const collapsed = collapsedSections.has(status);
-            const isStallSection = status === "Stalled";
-            const isAppliedTodaySection = status === "AppliedToday";
+            const sectionClass = [
+              "ndash-stage-section",
+              collapsed ? "ndash-stage-section--collapsed" : "",
+              hero ? "ndash-stage-section--waiting" : "",
+              status === "Stalled" ? "ndash-stage-section--stalled" : "",
+              status === "Ghosting" ? "ndash-stage-section--ghosting" : "",
+            ].filter(Boolean).join(" ");
+            const cardProps = {
+              selectedAppId: selectedApp?.id,
+              onSelect: handleSelectApp,
+              onQuickStatusChange: handleQuickStatusChange,
+              store: processStore,
+              onProcessPatch: handleProcessPatch,
+            };
             return (
-              <section
-                key={status}
-                className={`ndash-stage-section ${collapsed ? "ndash-stage-section--collapsed" : ""} ${isStallSection ? "ndash-stage-section--stalled" : ""} ${isAppliedTodaySection ? "ndash-stage-section--today" : ""}`}
-              >
+              <section key={status} id={`ndash-section-${status}`} className={sectionClass}>
                 <div
                   className="ndash-section-header"
                   onClick={() => toggleSection(status)}
@@ -1563,25 +1753,23 @@ export default function Dashboard({
                 >
                   <span className="ndash-section-chevron">▾</span>
                   <span className="ndash-section-dot" style={{ background: m.dot }} />
-                  <span className="ndash-section-label" style={{ color: m.color }}>{m.short || status}</span>
+                  <span className="ndash-section-label" style={{ color: m.color }}>
+                    {hero ? "Waiting on them" : (m.short || status)}
+                  </span>
                   <span className="ndash-section-count">{sectionRoles} {sectionRoles === 1 ? "role" : "roles"} · {companyCountLabel(sectionCompanies)}</span>
+                  {hero && <span className="ndash-section-hint">ball's in their court</span>}
+                  {cold && <span className="ndash-section-hint">hidden by default</span>}
                 </div>
                 <div className="ndash-section-body">
-                  <div className="ndc-company-grid">
-                    {companies.map(({ company, apps }, idx) => (
-                      <CompanyCard
-                        key={company}
-                        company={company}
-                        apps={apps}
-                        selectedAppId={selectedApp?.id}
-                        onSelect={handleSelectApp}
-                        onQuickStatusChange={handleQuickStatusChange}
-                        store={processStore}
-                        onProcessPatch={handleProcessPatch}
-                        index={idx}
-                      />
-                    ))}
-                  </div>
+                  {hero ? (
+                    <WaitingHeroBody companies={companies} cardProps={cardProps} />
+                  ) : (
+                    <div className="ndc-company-grid">
+                      {companies.map((g, idx) => (
+                        <CompanyCard key={g.company} company={g.company} apps={g.apps} index={idx} {...cardProps} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </section>
             );

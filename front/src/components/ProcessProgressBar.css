@@ -48,14 +48,14 @@
 /* current while Waiting on the company: amber halo, regardless of stage colour */
 .ppb-dot--waiting {
   width: 11px; height: 11px;
-  background: #f5a524; border-color: #f5a524;
-  box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.26);
+  background: var(--s-waiting-dot, #f5a524); border-color: var(--s-waiting-dot, #f5a524);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-waiting-dot, #f5a524) 26%, transparent);
   animation: ppb-pulse 2.4s ease-in-out infinite;
 }
 .ppb--panel .ppb-dot--waiting { width: 13px; height: 13px; }
 @keyframes ppb-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.26); }
-  50%      { box-shadow: 0 0 0 5px rgba(245, 165, 36, 0.10); }
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-waiting-dot, #f5a524) 26%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--s-waiting-dot, #f5a524) 10%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) {
   .ppb-dot--waiting { animation: none; }

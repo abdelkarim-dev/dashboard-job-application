@@ -4,6 +4,11 @@
 // the Node test runner (`node --test`), so it must stay free of any React/DOM
 // references. Every time-based helper takes an injectable `now` so the behaviour
 // is deterministic under test.
+//
+// One internal edge: it imports two pure predicates from process.mjs (isWaiting,
+// lastPassedTimestamp). The dependency is one-way — process.mjs imports NOTHING
+// from here — so the graph stays acyclic. Keep it that way.
+import { isWaiting, lastPassedTimestamp } from "./process.mjs";
 
 // Pipeline stages that mean "the application advanced past Applied". A rejection
 // is tracked separately because it is a response but not a positive one.
@@ -65,6 +70,14 @@ export function getRejectedTimestamp(app) {
 // STALE_THRESHOLD_DAYS+ days. Terminal stages (Offer/Rejected) are never stale.
 // Both views import these so "stale" means exactly one thing across the app.
 export const STALE_THRESHOLD_DAYS = 10;
+// A non-terminal app whose current stage has not moved for GHOST_THRESHOLD_DAYS+
+// days is "ghosting" — the company has gone silent. A stricter tier than stale.
+// NOTE: distinct from computeResponseStats' `ghostDays` (default 14), which is a
+// different axis — applied-age in the funnel — and must stay independent.
+export const GHOST_THRESHOLD_DAYS = 30;
+// Within the Waiting set, a reply this fresh shouldn't be chased yet (the
+// nudge-cadence boundary that holds back "just heard back" rows).
+export const FOLLOWUP_FRESH_DAYS = 3;
 export const NON_STALE_STATUSES = new Set(["Rejected", "Offer"]);
 
 // Best timestamp for the stage the application is currently sitting in, falling
@@ -90,6 +103,51 @@ export function isStale(app, { thresholdDays = STALE_THRESHOLD_DAYS, now = new D
   if (!app || NON_STALE_STATUSES.has(app.status)) return false;
   const days = daysSinceCurrentStage(app, now);
   return days !== null && days >= thresholdDays;
+}
+
+// ── Waiting / ghosting tiers (the Two-Court board) ──
+// Whole days since the ball last passed to the company — the age of a Waiting
+// application. Prefers the most-recent completed process round, then the legacy
+// per-stage "passed" flag, then the current-stage timestamp. null when nothing
+// usable. Drives the Waiting hero's sort + nudge cadence.
+export function daysWaiting(app, now = new Date()) {
+  const stamp = lastPassedTimestamp(app)
+    || (app && app.stagePassedAt && app.stagePassedAt[app.status])
+    || getCurrentStageTimestamp(app);
+  const date = parseDateValue(stamp);
+  if (!date) return null;
+  return Math.floor((startOfDay(now).getTime() - startOfDay(date).getTime()) / 86400000);
+}
+
+// "Ghosting": a non-terminal app the user is NOT waiting on (ball is in the
+// company's court via Waiting, which is exempt) that has sat idle for
+// GHOST_THRESHOLD_DAYS+ days. A strict superset condition of isStale.
+export function isGhosting(app, { now = new Date() } = {}) {
+  if (!app || NON_STALE_STATUSES.has(app.status)) return false;
+  if (isWaiting(app)) return false;
+  return isStale(app, { thresholdDays: GHOST_THRESHOLD_DAYS, now });
+}
+
+// Coldness band of an application's CURRENT stage, ignoring the waiting axis:
+// "terminal" (Offer/Rejected), "active" (<10d), "stalled" (10–29d), or
+// "ghosting" (30d+). Built entirely on daysSinceCurrentStage — no parallel math.
+export function ageBand(app, now = new Date()) {
+  if (!app || NON_STALE_STATUSES.has(app.status)) return "terminal";
+  const days = daysSinceCurrentStage(app, now);
+  if (days === null || days < STALE_THRESHOLD_DAYS) return "active";
+  if (days < GHOST_THRESHOLD_DAYS) return "stalled";
+  return "ghosting";
+}
+
+// Nudge cadence for a Waiting application, keyed off daysWaiting: "fresh" (0–3d,
+// held back so a recruiter who just replied isn't pestered), "nudge" (4–9d, the
+// prime follow-up window), "overdue" (10–29d), "cold" (30d+, a month of silence).
+export function waitingTier(app, now = new Date()) {
+  const d = daysWaiting(app, now) ?? 0;
+  if (d <= FOLLOWUP_FRESH_DAYS) return "fresh";
+  if (d < STALE_THRESHOLD_DAYS) return "nudge";
+  if (d < GHOST_THRESHOLD_DAYS) return "overdue";
+  return "cold";
 }
 
 // True if the application ever reached a post-Applied stage — either its current

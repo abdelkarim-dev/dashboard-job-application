@@ -8,6 +8,8 @@ import {
   currentStep,
   deriveProcessStatus,
   isProcessWaiting,
+  isWaiting,
+  lastPassedTimestamp,
   isProcessComplete,
   processSummary,
   applyStepState,
@@ -74,6 +76,31 @@ test("isProcessWaiting flags the gap between rounds", () => {
   assert.equal(isProcessWaiting(appWith({ s1: { state: "done" } })), true);
   assert.equal(isProcessWaiting(appWith({ s1: { state: "done" }, s2: { state: "scheduled" } })), false);
   assert.equal(isProcessWaiting(appWith({ s1: { state: "done" }, s2: { state: "failed" } })), false, "failed last round is not waiting");
+});
+
+test("isWaiting unifies process-waiting and the legacy stagePassedAt flag", () => {
+  // process snapshot sitting between rounds → waiting
+  assert.equal(isWaiting(appWith({ s1: { state: "done" } })), true);
+  assert.equal(isWaiting(appWith({ s1: { state: "done" }, s2: { state: "scheduled" } })), false);
+  // a process-less app that marked its current stage passed → waiting
+  assert.equal(isWaiting({ status: "Online Assessment", stagePassedAt: { "Online Assessment": "2026-05-01T12:00:00Z" } }), true);
+  // the mark is for a different stage than the current one → not waiting
+  assert.equal(isWaiting({ status: "Interview", stagePassedAt: { "Online Assessment": "2026-05-01T12:00:00Z" } }), false);
+  // terminal statuses are never waiting, even with a stray flag
+  assert.equal(isWaiting({ status: "Offer", stagePassedAt: { Offer: "2026-05-01T12:00:00Z" } }), false);
+  assert.equal(isWaiting({ status: "Rejected", stagePassedAt: { Rejected: "2026-05-01T12:00:00Z" } }), false);
+  assert.equal(isWaiting(null), false);
+});
+
+test("lastPassedTimestamp returns the most-recent done leaf's completion", () => {
+  assert.equal(lastPassedTimestamp(appWith({})), "");
+  assert.equal(lastPassedTimestamp({ status: "Applied" }), "", "no process → empty");
+  const ts = lastPassedTimestamp(appWith({
+    s1: { state: "done", completedAt: "2026-05-01T12:00:00Z" },
+    s2: { state: "done", completedAt: "2026-05-10T12:00:00Z" },
+    s3: { state: "scheduled" },
+  }));
+  assert.equal(ts, "2026-05-10T12:00:00Z");
 });
 
 test("isProcessComplete when every step is resolved", () => {

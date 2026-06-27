@@ -69,6 +69,14 @@
   --s-stalled: #92400E;
   --s-stalled-bg: #FEF3C7;
   --s-stalled-dot: #D97706;
+  /* Waiting (ball in the company's court) — amber, distinct from stalled-orange.
+     Ghost (gone cold, 30d+ silent) — a deliberately cool, quiet grey. */
+  --s-waiting: #B45309;
+  --s-waiting-bg: #FEF3C7;
+  --s-waiting-dot: #F59E0B;
+  --s-ghost: #52606D;
+  --s-ghost-bg: #EAEDF0;
+  --s-ghost-dot: #7B8794;
 
   --card-hover-bg: #ffffff;
   --input-focus-bg: #ffffff;
@@ -155,6 +163,14 @@
   --s-stalled: #fb923c;
   --s-stalled-bg: rgba(251,146,60,0.15);
   --s-stalled-dot: #fb923c;
+  /* Waiting (ball in the company's court) — amber. Ghost (30d+ silent) — a
+     muted grey that reads cooler/quieter than the stalled-orange. */
+  --s-waiting: #f5a524;
+  --s-waiting-bg: rgba(245,165,36,0.14);
+  --s-waiting-dot: #f5a524;
+  --s-ghost: #9aa6a0;
+  --s-ghost-bg: rgba(154,166,160,0.12);
+  --s-ghost-dot: #9aa6a0;
 
   --card-hover-bg: rgba(255, 255, 255, 0.04);
   --input-focus-bg: #0f0f15;
@@ -7651,6 +7667,22 @@ body.pane-resizing {
   border-radius: 6px;
   flex-shrink: 0;
 }
+/* Quiet court summary on multi-role cards ("1 waiting · 2 active") — replaces the
+   old redundant best-stage badge. */
+.ndc-company-court {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+  background: var(--md-surface-2);
+  padding: 3px 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.ndc-company-court--waiting {
+  color: var(--s-waiting);
+  background: var(--s-waiting-bg);
+}
 
 /* ── Role rows ───────────────────────────────────── */
 .ndc-role-list {
@@ -8527,6 +8559,98 @@ body.pane-resizing {
   color: var(--md-tertiary);
 }
 
+/* ── Two-court board: Waiting hero + Ghosted archive ── */
+/* The Waiting hero is the focus band: amber accent, a touch bolder, never dimmed. */
+.ndash-stage-section--waiting .ndash-section-label { color: var(--s-waiting) !important; font-weight: 800; }
+.ndash-stage-section--waiting .ndash-section-dot { background: var(--s-waiting) !important; box-shadow: 0 0 7px color-mix(in srgb, var(--s-waiting) 60%, transparent); }
+.ndash-stage-section--waiting .ndash-section-header:hover { background: var(--s-waiting-bg); }
+.ndash-stage-section--waiting .ndash-section-hint { color: var(--s-waiting); opacity: 0.85; }
+
+/* Ghosted is an archive drawer: cool grey, dimmed body, desaturated steppers. */
+.ndash-stage-section--ghosting .ndash-section-label { color: var(--s-ghost) !important; }
+.ndash-stage-section--ghosting .ndash-section-dot { background: var(--s-ghost) !important; }
+.ndash-stage-section--ghosting .ndash-section-header { border-top: 1px solid color-mix(in srgb, var(--s-ghost) 22%, transparent); padding-top: 16px; }
+.ndash-stage-section--ghosting .ndash-section-body { opacity: 0.85; }
+.ndash-stage-section--ghosting .ndc-company-card { filter: saturate(0.55); }
+.ndash-stage-section--ghosting .ppb { filter: grayscale(0.6); }
+
+/* The held-back "Just heard back (0–Nd)" subgroup under the hero. */
+.ndash-hero-allfresh {
+  margin: 2px 4px 10px;
+  font-size: 12.5px;
+  color: var(--md-on-surface-variant);
+}
+.ndash-waiting-fresh { margin-top: 6px; }
+.ndash-waiting-fresh-toggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: none; border: none; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--md-on-surface-variant);
+  padding: 6px 4px;
+}
+.ndash-waiting-fresh-toggle:hover { color: var(--md-on-surface); }
+.ndash-waiting-fresh-chevron { transition: transform 0.18s ease; display: inline-block; }
+.ndash-waiting-fresh-toggle.is-open .ndash-waiting-fresh-chevron { transform: rotate(90deg); }
+.ndash-waiting-fresh .ndc-company-grid { margin-top: 6px; }
+
+/* ── Role meta context chips (one per row, framed by band) ── */
+.ndc-role-meta-item--waiting { color: var(--s-waiting); font-weight: 700; }
+.ndc-role-meta-item--silent  { color: var(--s-ghost); font-weight: 600; }
+.ndc-role-meta-item--idle    { color: var(--md-on-surface-variant); font-weight: 600; }
+
+/* ── Triage bar (replaces the vanity-tile Pulse) ── */
+.ndash-triage {
+  display: flex; flex-direction: column; gap: 12px;
+  margin: 4px 0 8px;
+}
+.ndash-triage-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.ndash-triage-primary { display: flex; align-items: stretch; gap: 10px; }
+.ndash-triage-count {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  background: var(--md-surface-1); border: 1px solid var(--md-outline-variant);
+  border-radius: 12px; padding: 8px 16px 7px; cursor: pointer;
+  transition: transform 0.14s cubic-bezier(0.22,1,0.36,1), border-color 0.14s ease, background 0.14s ease;
+}
+.ndash-triage-count:hover { transform: translateY(-1px); border-color: var(--md-outline); }
+.ndash-triage-num { font-size: 22px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: var(--md-on-surface); }
+.ndash-triage-lbl { font-size: 11px; font-weight: 600; color: var(--md-on-surface-variant); }
+.ndash-triage-count--wait { border-color: color-mix(in srgb, var(--s-waiting) 45%, transparent); background: var(--s-waiting-bg); }
+.ndash-triage-count--wait .ndash-triage-num,
+.ndash-triage-count--wait .ndash-triage-lbl { color: var(--s-waiting); }
+.ndash-triage-count--offer { border-color: color-mix(in srgb, var(--s-offer) 45%, transparent); background: var(--s-offer-bg); }
+.ndash-triage-count--offer .ndash-triage-num,
+.ndash-triage-count--offer .ndash-triage-lbl { color: var(--s-offer); }
+.ndash-triage-count--move .ndash-triage-num { color: var(--md-primary); }
+
+.ndash-triage-toggles { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.ndash-triage-toggle {
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--md-outline-variant); background: transparent; color: var(--md-on-surface-variant);
+  transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+.ndash-triage-toggle:hover { color: var(--s-stalled); border-color: color-mix(in srgb, var(--s-stalled) 45%, transparent); }
+.ndash-triage-toggle.is-on { color: var(--s-stalled); background: var(--s-stalled-bg); border-color: transparent; }
+.ndash-triage-toggle--ghost:hover { color: var(--s-ghost); border-color: color-mix(in srgb, var(--s-ghost) 45%, transparent); }
+.ndash-triage-toggle--ghost.is-on { color: var(--s-ghost); background: var(--s-ghost-bg); }
+.ndash-triage-stats-btn {
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  padding: 5px 10px; border-radius: 999px;
+  border: 1px solid transparent; background: none; color: var(--md-on-surface-variant);
+}
+.ndash-triage-stats-btn:hover { color: var(--md-on-surface); }
+.ndash-triage-stats-caret { display: inline-block; transition: transform 0.18s ease; }
+.ndash-triage-stats-btn.is-open .ndash-triage-stats-caret { transform: rotate(180deg); }
+.ndash-triage-move { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.ndash-empty-reveal { margin-top: 10px; display: flex; gap: 6px; align-items: center; justify-content: center; }
+.ndash-empty-reveal button {
+  background: none; border: none; cursor: pointer; padding: 0;
+  font-size: 13px; font-weight: 600; color: var(--md-primary); text-decoration: underline;
+}
+.ndash-empty-reveal button:hover { opacity: 0.8; }
+
 /* ════════════════════════════════════════════════════
    LIGHT THEME — section header color fixes
    ════════════════════════════════════════════════════ */
@@ -8661,7 +8785,12 @@ body.pane-resizing {
   font-size: 11px;
   color: var(--md-on-surface-variant);
   font-weight: 600;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
 }
+.ndash-pulse-more:hover { color: var(--md-on-surface); }
 
 /* ── Dashboard quick-add ──────────────────────────────────────── */
 .ndash-add-btn {

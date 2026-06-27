@@ -136,6 +136,35 @@ export function isProcessWaiting(app) {
   return true;
 }
 
+// The single, unified "ball is in the company's court" predicate. Reconciles the
+// two disjoint mechanisms: a process snapshot sitting between rounds
+// (isProcessWaiting), AND the legacy per-stage "mark passed" flag
+// (stagePassedAt[status]) used by apps without an assigned process. Terminal
+// statuses are never waiting. Pure — reads only fields already on the app.
+export function isWaiting(app) {
+  if (!app || app.status === "Rejected" || app.status === "Offer") return false;
+  if (isProcessWaiting(app)) return true;
+  return Boolean(app.stagePassedAt && app.stagePassedAt[app.status]);
+}
+
+// ISO timestamp of the most-recently completed process leaf — the moment the
+// ball last passed to the company. "" when there's no process or nothing done.
+// Used by metrics.daysWaiting to age the Waiting hero. Pure.
+export function lastPassedTimestamp(app) {
+  if (!hasProcess(app)) return "";
+  const progress = app.stepProgress || {};
+  let latest = "";
+  for (const leaf of flattenSteps(app.processSteps)) {
+    const entry = progress[leaf.id];
+    if (entry && entry.state === "done" && entry.completedAt) {
+      if (!latest || new Date(entry.completedAt).getTime() > new Date(latest).getTime()) {
+        latest = entry.completedAt;
+      }
+    }
+  }
+  return latest;
+}
+
 export function isProcessComplete(app) {
   if (!hasProcess(app)) return false;
   const progress = app.stepProgress || {};

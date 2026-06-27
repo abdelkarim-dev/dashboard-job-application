@@ -14,6 +14,12 @@ import {
   daysSinceCurrentStage,
   getCurrentStageTimestamp,
   STALE_THRESHOLD_DAYS,
+  GHOST_THRESHOLD_DAYS,
+  FOLLOWUP_FRESH_DAYS,
+  daysWaiting,
+  isGhosting,
+  ageBand,
+  waitingTier,
   NON_STALE_STATUSES,
   weeklyApplicationCounts,
   computeResponseStats,
@@ -115,6 +121,63 @@ test("isStale matches the dashboard definition: active roles idle for the thresh
   assert.equal(isStale({ status: "Offer", appliedAt: "2026-01-01T12:00:00" }, { now: NOW }), false);
   assert.equal(isStale({ status: "Rejected", rejectedAt: "2026-01-01T12:00:00" }, { now: NOW }), false);
   assert.equal(isStale({ status: "Applied" }, { now: NOW }), false);
+});
+
+test("ghosting tier sits above stalled and spans every non-terminal stage", () => {
+  assert.equal(GHOST_THRESHOLD_DAYS, 30);
+  assert.equal(FOLLOWUP_FRESH_DAYS, 3);
+
+  const active = { status: "Recruiter Screen", stageDateTimes: { "Recruiter Screen": "2026-05-29T12:00:00" } }; // 2d
+  const stalled = { status: "Applied", appliedAt: "2026-05-19T12:00:00" };                                       // 12d
+  const ghosted = { status: "Interview", appliedAt: "2026-03-01T12:00:00", stageDateTimes: { Interview: "2026-04-20T12:00:00" } }; // 41d
+
+  assert.equal(ageBand(active, NOW), "active");
+  assert.equal(ageBand(stalled, NOW), "stalled");
+  assert.equal(ageBand(ghosted, NOW), "ghosting");
+  assert.equal(ageBand({ status: "Offer", appliedAt: "2026-01-01T12:00:00" }, NOW), "terminal");
+
+  assert.equal(isGhosting(ghosted, { now: NOW }), true);
+  assert.equal(isGhosting(stalled, { now: NOW }), false, "12d is stalled, not ghosting");
+
+  // Waiting beats ghosting: a passed-round app silent 40+ days stays in the hero,
+  // it is never archived as ghosted.
+  const waitingButOld = {
+    status: "Interview",
+    stageDateTimes: { Interview: "2026-04-20T12:00:00" },
+    stagePassedAt: { Interview: "2026-04-20T12:00:00" },
+  };
+  assert.equal(isGhosting(waitingButOld, { now: NOW }), false);
+});
+
+test("daysWaiting prefers the last passed round, then stagePassedAt, then current stage", () => {
+  // (1) most-recent completed process leaf wins
+  const proc = {
+    status: "Interview",
+    processId: "p",
+    processSteps: [{ id: "a", type: "recruiter" }, { id: "b", type: "assessment" }],
+    stepProgress: {
+      a: { state: "done", completedAt: "2026-05-15T12:00:00" },
+      b: { state: "done", completedAt: "2026-05-25T12:00:00" },
+    },
+  };
+  assert.equal(daysWaiting(proc, NOW), 6);
+
+  // (2) legacy per-stage flag, no process
+  const flagged = { status: "Online Assessment", stagePassedAt: { "Online Assessment": "2026-05-21T12:00:00" } };
+  assert.equal(daysWaiting(flagged, NOW), 10);
+
+  // (3) fall back to the current-stage timestamp
+  const plain = { status: "Recruiter Screen", stageDateTimes: { "Recruiter Screen": "2026-05-29T12:00:00" } };
+  assert.equal(daysWaiting(plain, NOW), 2);
+});
+
+test("waitingTier nudge cadence boundaries land at 3 / 10 / 30 days", () => {
+  const at = (days) => ({ status: "Online Assessment", stagePassedAt: { "Online Assessment": new Date(NOW.getTime() - days * 86400000).toISOString() } });
+  assert.equal(waitingTier(at(1), NOW), "fresh");    // 0–3d held back
+  assert.equal(waitingTier(at(3), NOW), "fresh");
+  assert.equal(waitingTier(at(6), NOW), "nudge");    // 4–9d prime
+  assert.equal(waitingTier(at(12), NOW), "overdue"); // 10–29d
+  assert.equal(waitingTier(at(40), NOW), "cold");    // 30d+ going cold
 });
 
 test("weeklyApplicationCounts buckets recent applications and drops out-of-window ones", () => {
