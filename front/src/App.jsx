@@ -385,9 +385,6 @@ export default function App() {
           <div className="brand-mark" aria-hidden="true">C</div>
           <div>
             <h2>Claire</h2>
-            <p className="sidebar-app-count">
-              {applications.length} {applications.length === 1 ? "role" : "roles"} tracked
-            </p>
           </div>
         </div>
 
@@ -442,9 +439,6 @@ export default function App() {
             <div className="brand-mark" aria-hidden="true">C</div>
             <div>
               <h2>Claire</h2>
-              <p className="sidebar-app-count">
-                {applications.length} {applications.length === 1 ? "role" : "roles"} tracked
-              </p>
             </div>
           </div>
           <nav className="topbar-tabs" aria-label="View switching">

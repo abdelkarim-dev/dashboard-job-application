@@ -9,7 +9,7 @@ import {
   ageBand,
   waitingTier,
 } from "../lib/metrics.mjs";
-import { hasProcess, isWaiting, getDefaultProcess } from "../lib/process.mjs";
+import { hasProcess, isWaiting, getDefaultProcess, deriveProcessStatus } from "../lib/process.mjs";
 import ApplicationProcessPanel from "./ApplicationProcessPanel.jsx";
 import ProcessProgressBar from "./ProcessProgressBar.jsx";
 
@@ -129,6 +129,13 @@ function companyColor(company) {
 }
 
 function statusStep(s) { return STATUS_META[s]?.step ?? -1; }
+
+// The canonical stage to position a card by. When an interview process is
+// assigned it is the single source of truth (so the card and the side panel can
+// never disagree); otherwise the raw status field is used.
+function effectiveStatusOf(app) {
+  return hasProcess(app) ? (deriveProcessStatus(app) || app.status || "Applied") : (app.status || "Applied");
+}
 
 // ── Derived status helpers ────────────────────────────────────────────────────
 
@@ -626,12 +633,17 @@ function PipelineStepper({ app, onAdvance, saving }) {
   // for it inline before committing — same as the old status picker did.
   const [dateValue, setDateValue] = useState(null); // string | null (null = not prompting)
   const total = PIPELINE_FORWARD.length;
-  const cur = Math.min(Math.max(0, statusStep(app.status)), total - 1);
+  // When a company has an assigned interview process, the card position is DERIVED
+  // from that process — so the card never disagrees with the side panel. Inline ✓
+  // advance is only offered for process-less apps (process apps advance in the
+  // panel, which keeps the canonical status in sync).
+  const assigned = hasProcess(app);
+  const cur = Math.min(Math.max(0, statusStep(effectiveStatusOf(app))), total - 1);
   const waiting = isWaiting(app);
   const curMeta = STATUS_META[PIPELINE_FORWARD[cur]] || STATUS_META["Applied"];
   const stageDate = getStatusPillDate(app);
   const dateLabel = stageDate ? formatDate(stageDate) : "";
-  const next = PIPELINE_FORWARD[cur + 1];
+  const next = assigned ? null : PIPELINE_FORWARD[cur + 1];
 
   const startAdvance = () => {
     if (!next) return;
@@ -762,7 +774,7 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
         </div>
         {/* Uniform pipeline stepper — only once a role has actually moved past
             Applied (an Applied card is just title + meta; no stepper noise). */}
-        {app.status !== "Rejected" && app.status !== "Saved" && app.status !== "Applied" && (
+        {app.status !== "Rejected" && app.status !== "Saved" && effectiveStatusOf(app) !== "Applied" && (
           <div className="ndc-role-progress" style={{ marginTop: 7 }}>
             <PipelineStepper app={app} onAdvance={onQuickStatusChange} />
           </div>
@@ -1107,7 +1119,7 @@ export default function Dashboard({
       // "Advanced" = the interview process moved past step 1 (Applied): any role at
       // a later stage, or waiting between rounds. These lead the board and never
       // get tucked away, even when they've gone quiet.
-      const advanced = nonRejected.some((a) => statusStep(a.status) > 0 || isWaiting(a));
+      const advanced = nonRejected.some((a) => statusStep(effectiveStatusOf(a)) > 0 || isWaiting(a));
 
       let band;
       if (advanced) {
