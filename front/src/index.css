@@ -365,15 +365,6 @@ button, input, select, textarea { font: inherit; }
   color: var(--md-on-surface);
 }
 
-.sidebar-app-count {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--md-primary);
-  opacity: 0.85;
-  margin: 0 0 1px;
-  letter-spacing: 0.03em;
-}
-
 .sidebar-nav-btn {
   display: flex;
   align-items: center;

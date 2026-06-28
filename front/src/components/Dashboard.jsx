@@ -787,7 +787,7 @@ function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
 // ── Company Card ──────────────────────────────────────────────────────────────
 const MAX_VISIBLE_ROLES = 3;
 
-function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChange, index = 0, store, onProcessPatch }) {
+function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChange, index = 0 }) {
   const color = companyColor(company);
   const nonRejected = apps.filter((a) => a.status !== "Rejected");
   const isCold = (a) => { const d = getDisplayStatus(a); return d === "Stalled" || d === "Ghosting"; };
@@ -858,8 +858,6 @@ function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChan
             isSelected={selectedAppId === app.id}
             onSelect={onSelect}
             onQuickStatusChange={onQuickStatusChange}
-            store={store}
-            onProcessPatch={onProcessPatch}
           />
         ))}
         {hiddenCount > 0 && (
@@ -1213,20 +1211,6 @@ export default function Dashboard({
     } catch {}
   }, [fetchApplications]);
 
-  // Persist a full process patch (assign default / set a stage date / mark a
-  // stage passed) coming from a card's progress bar. `nextApp` already carries
-  // the updated process fields + derived status.
-  const handleProcessPatch = useCallback(async (app, nextApp) => {
-    try {
-      const res = await fetch(`/api/applications/${encodeURIComponent(app.id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextApp),
-      });
-      if (res.ok && fetchApplications) await fetchApplications();
-    } catch {}
-  }, [fetchApplications]);
-
   const handleSave = useCallback(async (editData) => {
     if (!selectedApp || saving) return;
     setSaving(true);
@@ -1367,8 +1351,6 @@ export default function Dashboard({
               selectedAppId: selectedApp?.id,
               onSelect: handleSelectApp,
               onQuickStatusChange: handleQuickStatusChange,
-              store: processStore,
-              onProcessPatch: handleProcessPatch,
             };
             return (
               <section key={status} id={`ndash-section-${status}`} className={sectionClass}>
@@ -1430,8 +1412,6 @@ export default function Dashboard({
                           selectedAppId={selectedApp?.id}
                           onSelect={handleSelectApp}
                           onQuickStatusChange={handleQuickStatusChange}
-                          store={processStore}
-                          onProcessPatch={handleProcessPatch}
                           index={idx}
                         />
                       ))}
