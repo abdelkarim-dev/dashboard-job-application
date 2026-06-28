@@ -149,6 +149,39 @@ test("ghosting tier sits above stalled and spans every non-terminal stage", () =
   assert.equal(isGhosting(waitingButOld, { now: NOW }), false);
 });
 
+test("staleness ages a process app from its round dates, not the application date", () => {
+  // Applied long ago, but the next round is scheduled in the (near) future:
+  // actively progressing, must NOT be stale/ghosted even though appliedAt is old.
+  const procActive = {
+    status: "Interview",
+    appliedAt: "2026-01-01T12:00:00",
+    processId: "p",
+    processSteps: [{ id: "a", type: "recruiter" }, { id: "b", type: "loop" }],
+    stepProgress: { a: { state: "done", completedAt: "2026-03-01T12:00:00" }, b: { state: "scheduled", scheduledAt: "2026-06-02T12:00:00" } },
+  };
+  assert.equal(isStale(procActive, { now: NOW }), false);
+  assert.equal(isGhosting(procActive, { now: NOW }), false);
+  assert.equal(ageBand(procActive, NOW), "active");
+
+  // A process whose last activity was 90 days ago and nothing is scheduled IS cold.
+  const procCold = {
+    status: "Interview",
+    appliedAt: "2026-01-01T12:00:00",
+    processId: "p",
+    processSteps: [{ id: "a", type: "recruiter" }, { id: "b", type: "loop" }],
+    stepProgress: { a: { state: "done", completedAt: "2026-03-01T12:00:00" }, b: { state: "failed" } },
+  };
+  assert.equal(isGhosting(procCold, { now: NOW }), true);
+});
+
+test("Saved (never-applied) leads are never stalled or ghosted", () => {
+  assert.ok(NON_STALE_STATUSES.has("Saved"));
+  const saved = { status: "Saved", createdAt: "2026-01-01T12:00:00" };
+  assert.equal(isStale(saved, { now: NOW }), false);
+  assert.equal(isGhosting(saved, { now: NOW }), false);
+  assert.equal(ageBand(saved, NOW), "terminal");
+});
+
 test("daysWaiting prefers the last passed round, then stagePassedAt, then current stage", () => {
   // (1) most-recent completed process leaf wins
   const proc = {

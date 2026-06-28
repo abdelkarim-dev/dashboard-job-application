@@ -10,6 +10,7 @@ import {
   isProcessWaiting,
   isWaiting,
   lastPassedTimestamp,
+  latestProcessActivity,
   isProcessComplete,
   processSummary,
   applyStepState,
@@ -101,6 +102,15 @@ test("lastPassedTimestamp returns the most-recent done leaf's completion", () =>
     s3: { state: "scheduled" },
   }));
   assert.equal(ts, "2026-05-10T12:00:00Z");
+});
+
+test("latestProcessActivity returns the freshest scheduled-or-completed round date", () => {
+  assert.equal(latestProcessActivity({ status: "Applied" }), "", "no process → empty");
+  const ts = latestProcessActivity(appWith({
+    s1: { state: "done", completedAt: "2026-05-01T12:00:00Z" },
+    s2: { state: "scheduled", scheduledAt: "2026-06-10T12:00:00Z" },
+  }));
+  assert.equal(ts, "2026-06-10T12:00:00Z", "future scheduled round wins over an earlier completion");
 });
 
 test("isProcessComplete when every step is resolved", () => {

@@ -8,7 +8,7 @@
 // One internal edge: it imports two pure predicates from process.mjs (isWaiting,
 // lastPassedTimestamp). The dependency is one-way — process.mjs imports NOTHING
 // from here — so the graph stays acyclic. Keep it that way.
-import { isWaiting, lastPassedTimestamp } from "./process.mjs";
+import { isWaiting, lastPassedTimestamp, latestProcessActivity } from "./process.mjs";
 
 // Pipeline stages that mean "the application advanced past Applied". A rejection
 // is tracked separately because it is a response but not a positive one.
@@ -78,12 +78,20 @@ export const GHOST_THRESHOLD_DAYS = 30;
 // Within the Waiting set, a reply this fresh shouldn't be chased yet (the
 // nudge-cadence boundary that holds back "just heard back" rows).
 export const FOLLOWUP_FRESH_DAYS = 3;
-export const NON_STALE_STATUSES = new Set(["Rejected", "Offer"]);
+// Statuses that are never "stale"/"ghosting": terminal (Rejected/Offer) and the
+// pre-application "Saved" wishlist (it was never submitted, so a company can't go
+// silent on it).
+export const NON_STALE_STATUSES = new Set(["Rejected", "Offer", "Saved"]);
 
 // Best timestamp for the stage the application is currently sitting in, falling
 // back to applied time / rejection time / last-touched metadata.
 export function getCurrentStageTimestamp(app) {
   if (!app) return "";
+  // Process-tracked apps keep round dates in stepProgress, not stageDateTimes —
+  // age them from the freshest round activity so an app with an upcoming/recent
+  // round isn't falsely treated as idle-since-applied (and ghosted).
+  const procTs = latestProcessActivity(app);
+  if (procTs) return procTs;
   const status = app.status || "Applied";
   return (app.stageDateTimes && app.stageDateTimes[status])
     || (status === "Applied" ? getAppliedTimestamp(app) : "")

@@ -165,6 +165,28 @@ export function lastPassedTimestamp(app) {
   return latest;
 }
 
+// The freshest round activity (scheduled OR completed) across a process snapshot
+// — the real "current stage" date for a process-tracked app, since round dates
+// live in stepProgress, not stageDateTimes. "" when there's no process or no
+// dated rounds. Used by metrics to age staleness without false-ghosting an
+// app that has an upcoming/recent round.
+export function latestProcessActivity(app) {
+  if (!hasProcess(app)) return "";
+  const progress = app.stepProgress || {};
+  let latest = 0;
+  let iso = "";
+  for (const leaf of flattenSteps(app.processSteps)) {
+    const entry = progress[leaf.id];
+    if (!entry) continue;
+    for (const ts of [entry.completedAt, entry.scheduledAt]) {
+      if (!ts) continue;
+      const t = new Date(ts).getTime();
+      if (Number.isFinite(t) && t > latest) { latest = t; iso = ts; }
+    }
+  }
+  return iso;
+}
+
 export function isProcessComplete(app) {
   if (!hasProcess(app)) return false;
   const progress = app.stepProgress || {};

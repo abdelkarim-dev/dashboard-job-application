@@ -1123,11 +1123,14 @@ export default function Dashboard({
       if (advanced) {
         band = "InProgress";
       } else {
-        // Every role still at Applied (step 1). Surface by the freshest role's age.
+        // Every role still at step 1. Surface by the freshest role's age; only
+        // genuinely cold roles fall into Stalled/Ghosted, so a never-applied
+        // "Saved" lead (ageBand "terminal") stays in Recent rather than archived.
         const bands = nonRejected.map((a) => ageBand(a));
         if (bands.includes("active")) band = "Recent";
         else if (bands.includes("stalled")) band = "Stalled";
-        else band = "Ghosting";
+        else if (bands.includes("ghosting")) band = "Ghosting";
+        else band = "Recent";
       }
 
       const bestStep = nonRejected.length ? Math.max(0, ...nonRejected.map((a) => statusStep(a.status))) : 0;
@@ -1233,9 +1236,10 @@ export default function Dashboard({
   const totalRoles = companyGroups.reduce((s, g) => s + g.apps.length, 0)
     + rejectedGroups.reduce((s, g) => s + g.apps.length, 0);
 
-  // The board, top → bottom. Nothing is hidden — the lower three are collapsed by
-  // default (see the initial collapsedSections), so they're one click from view.
-  //   In progress (expanded) → Recently applied (expanded)
+  // The board, top → bottom. Nothing is hidden — only "In progress" is expanded by
+  // default (see the initial collapsedSections); the rest are collapsed, one click
+  // from view.
+  //   In progress (expanded) → Recently applied (collapsed)
   //   → Stalled (collapsed) → Ghosted (collapsed) → Closed (collapsed)
   const stageSections = useMemo(() => {
     const byBand = (b) => companyGroups.filter((g) => g.band === b);
