@@ -8,6 +8,8 @@ import {
   isGhosting,
   ageBand,
   waitingTier,
+  buildAttentionItems,
+  formatNextActionDue,
 } from "../lib/metrics.mjs";
 import { hasProcess, isWaiting, getDefaultProcess, deriveProcessStatus } from "../lib/process.mjs";
 import ApplicationProcessPanel from "./ApplicationProcessPanel.jsx";
@@ -412,17 +414,19 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
           <button className="ndash-panel-close" onClick={onClose} type="button" aria-label="Close">✕</button>
         </div>
 
-        {/* When a process applies (assigned, or the inherited default), the stage
-            position shows as the process flow instead of the generic pipeline. */}
+        {/* A role with an ASSIGNED process shows its detailed process flow; a
+            process-less role (incl. Applied / Saved) keeps the clickable generic
+            pipeline so the user can one-click advance it to the next stage (or
+            click the active stage to revert). Rejected stays read-only. */}
         <div className="ndash-pipeline">
-          {(hasProcess(editData) || (store && getDefaultProcess(store))) ? (
+          {(hasProcess(editData) || editData.status === "Rejected") ? (
             <div style={{ flex: 1, minWidth: 0 }}>
-              {/* Read-only (no onChange) for terminal Rejected / not-yet-applied
-                  Saved, so ticking a stage can't un-reject or pre-advance them. */}
+              {/* Read-only (no onChange) for terminal Rejected, so ticking a stage
+                  can't un-reject it. */}
               <ProcessProgressBar
                 app={editData}
                 store={store}
-                onChange={(editData.status === "Rejected" || editData.status === "Saved") ? undefined : handleProcessChange}
+                onChange={editData.status === "Rejected" ? undefined : handleProcessChange}
                 variant="panel"
                 saving={saving}
               />
@@ -1085,6 +1089,11 @@ export default function Dashboard({
 
   const searchActive = globalText !== "" || fieldFilters.length > 0;
 
+  // Time-sensitive reminders only: OAs to submit, interviews within the next week,
+  // and overdue/today next-actions. Excludes the "ball in their court" items, so
+  // it's a calm to-do nudge — not the Your-move/Waiting vanity counts.
+  const attention = useMemo(() => buildAttentionItems(applications), [applications]);
+
   // ONE card per company, routed to a single band:
   //   In progress  — the process moved past step 1 (a later stage OR waiting
   //                  between rounds). Important: always shown, even when gone quiet.
@@ -1316,6 +1325,31 @@ export default function Dashboard({
 
         {/* Search tags */}
         <SearchTags fieldFilters={fieldFilters} searchRaw={searchRaw} onRemove={removeFilter} />
+
+        {/* Time-sensitive reminders — only when something actually needs a hand. */}
+        {attention.length > 0 && !searchActive && (
+          <div className="ndash-reminders" aria-label="Needs attention soon">
+            <span className="ndash-reminders-icon" aria-hidden="true">⏰</span>
+            {attention.slice(0, 5).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`ndash-reminder ndash-reminder--${item.kind}`}
+                onClick={() => handleOpenFromPulse(item.id)}
+                title={`${item.company} — ${item.role}`}
+              >
+                <span className="ndash-reminder-label">{item.label}</span>
+                <span className="ndash-reminder-co">{item.company}</span>
+                {item.date && (
+                  <span className="ndash-reminder-date">
+                    {item.kind === "action" ? formatNextActionDue(item.date) : formatDate(item.date)}
+                  </span>
+                )}
+              </button>
+            ))}
+            {attention.length > 5 && <span className="ndash-reminder-more">+{attention.length - 5} more</span>}
+          </div>
+        )}
 
         {/* Content */}
         <div className="ndash-content">

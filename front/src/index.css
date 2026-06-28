@@ -6727,6 +6727,38 @@ body.pane-resizing {
 }
 
 /* ── Scrollable content area ─────────────────────── */
+/* ── Time-sensitive reminder strip (shown only when something needs a hand) ── */
+.ndash-reminders {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 24px;
+  flex-shrink: 0;
+}
+.ndash-reminders-icon { font-size: 14px; opacity: 0.85; flex-shrink: 0; }
+.ndash-reminder {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-1);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: border-color 0.14s ease, transform 0.14s ease, background 0.14s ease;
+}
+.ndash-reminder:hover { transform: translateY(-1px); border-color: var(--md-outline); background: var(--ndash-fill-subtle); }
+.ndash-reminder-label { font-weight: 700; }
+.ndash-reminder--oa .ndash-reminder-label { color: var(--s-oa); }
+.ndash-reminder--interview .ndash-reminder-label { color: var(--s-interview); }
+.ndash-reminder--action .ndash-reminder-label { color: var(--s-screen); }
+.ndash-reminder-co { color: var(--md-on-surface); font-weight: 600; }
+.ndash-reminder-date { color: var(--md-on-surface-variant); font-variant-numeric: tabular-nums; }
+.ndash-reminder-more { font-size: 11px; font-weight: 600; color: var(--md-on-surface-variant); }
+
 .ndash-content {
   flex: 1;
   overflow-y: auto;
