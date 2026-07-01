@@ -115,10 +115,13 @@ export const practiceRoutes: RouteHandler = async (req, res, url) => {
         ?? (language === "python" ? existing.draft : makeStarterCode(existing, "java"))
         ?? "";
       const code = String(input.code ?? existingDraft ?? "");
+      // Review-mode runs set preserveDraft: the attempt still records and grades,
+      // but the blank re-attempt must not overwrite the saved (solved) draft.
+      const preserveDraft = Boolean(input.preserveDraft);
       const runnable = normalizePracticeProblem({
         ...existing,
         language,
-        draft: code,
+        ...(preserveDraft ? {} : { draft: code }),
         solutionRevealed: input.solutionRevealed,
         customTests: Array.isArray(input.customTests) ? input.customTests : existing.customTests,
         methodName: input.methodName ?? existing.methodName,
@@ -137,7 +140,7 @@ export const practiceRoutes: RouteHandler = async (req, res, url) => {
         stdout: result.stdout || "",
         stderr: result.stderr || "",
         error: result.error || "",
-        draft: code,
+        ...(preserveDraft ? {} : { draft: code }),
         solutionRevealed: input.solutionRevealed,
       });
       store.problems[index] = updated;

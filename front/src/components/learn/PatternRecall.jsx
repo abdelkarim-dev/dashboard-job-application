@@ -107,18 +107,18 @@ export default function PatternRecall() {
   }, []);
 
   const toggle = (patternId, index) => {
-    setRecall((prev) => {
-      const forPattern = { ...(prev[patternId] || {}) };
-      const wasDone = !!forPattern[index];
-      if (wasDone) delete forPattern[index];
-      else forPattern[index] = true;
-      const next = { ...prev, [patternId]: forPattern };
-      if (Object.keys(forPattern).length === 0) delete next[patternId];
-      saveRecall(next);
-      // Award a point only when checking ON (a fresh rep), never on uncheck.
-      if (!wasDone) awardPoints("patternRecalled");
-      return next;
-    });
+    // Side effects (persist + points) stay OUTSIDE the state updater: React
+    // double-invokes updaters in StrictMode, which would double-award points.
+    const forPattern = { ...(recall[patternId] || {}) };
+    const wasDone = !!forPattern[index];
+    if (wasDone) delete forPattern[index];
+    else forPattern[index] = true;
+    const next = { ...recall, [patternId]: forPattern };
+    if (Object.keys(forPattern).length === 0) delete next[patternId];
+    saveRecall(next);
+    // Award a point only when checking ON (a fresh rep), never on uncheck.
+    if (!wasDone) awardPoints("patternRecalled");
+    setRecall(next);
   };
 
   const masteredCount = PATTERNS.filter((p) => {

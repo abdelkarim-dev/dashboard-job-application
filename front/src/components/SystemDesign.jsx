@@ -161,7 +161,14 @@ function TopicCard({ topic, onPatch, onDelete }) {
 
   return (
     <article className={`sd-card ${open ? "open" : ""} ${dueToday ? "sd-due" : ""}`}>
-      <header className="sd-card-head" onClick={() => setOpen((o) => !o)}>
+      <header
+        className="sd-card-head"
+        onClick={() => setOpen((o) => !o)}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setOpen((o) => !o))}
+      >
         <div className="sd-card-headmain">
           <h3>{topic.title}</h3>
           <div className="sd-card-meta">
@@ -297,7 +304,14 @@ function CourseCard({ course, onPatch }) {
 
   return (
     <article className={`sd-card ${open ? "open" : ""}`}>
-      <header className="sd-card-head" onClick={() => setOpen((o) => !o)}>
+      <header
+        className="sd-card-head"
+        onClick={() => setOpen((o) => !o)}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setOpen((o) => !o))}
+      >
         <div className="sd-card-headmain">
           <h3>{course.title}</h3>
           <div className="sd-card-meta">
@@ -472,7 +486,13 @@ export default function SystemDesign() {
 
       {/* Prebuilt reference playbook */}
       <section className="sd-playbook">
-        <header onClick={() => setPlaybookOpen((o) => !o)}>
+        <header
+          onClick={() => setPlaybookOpen((o) => !o)}
+          role="button"
+          tabIndex={0}
+          aria-expanded={playbookOpen}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setPlaybookOpen((o) => !o))}
+        >
           <h2>📐 Interview playbook & cheat sheet</h2>
           <span className="sd-chevron">{playbookOpen ? "▾" : "▸"}</span>
         </header>

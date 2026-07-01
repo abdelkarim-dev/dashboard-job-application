@@ -103,8 +103,11 @@ export default function Learn({ sub, onNavigate, practiceProps = {}, onTrainPlan
         return <SystemDesign />;
       default: {
         const concept = conceptById[activeSub];
+        // Keyed by concept id: navigating between pages must remount so the
+        // reviewed/checklist/quiz/Ask-Gemma state re-derives for the new concept
+        // (ConceptPage's lazy useState initializers only run on mount).
         return concept ? (
-          <ConceptPage concept={concept} navItems={navItems} onNavigate={onNavigate} />
+          <ConceptPage key={concept.id} concept={concept} navItems={navItems} onNavigate={onNavigate} />
         ) : null;
       }
     }

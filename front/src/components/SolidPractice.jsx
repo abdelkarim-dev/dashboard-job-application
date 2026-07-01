@@ -613,11 +613,6 @@ export default function SolidPractice() {
           <div><span>Java example</span><small>Keep the dependency direction visible</small></div>
           <pre><code>{lesson.example}</code></pre>
         </div>
-        {lesson.id === "clean-architecture" && (
-          <div className="solid-layer-map" aria-label="Clean Architecture dependency direction">
-            <span>Frameworks</span><b>→</b><span>Adapters</span><b>→</b><span>Use cases</span><b>→</b><span>Entities</span>
-          </div>
-        )}
         <div className="solid-lesson-actions">
           <button className={progress.completedLessons.includes(lesson.id) ? "btn-ghost" : "btn-primary"} onClick={toggleLesson} type="button">
             {progress.completedLessons.includes(lesson.id) ? "✓ Completed" : "Mark lesson complete"}

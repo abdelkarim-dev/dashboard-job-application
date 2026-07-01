@@ -632,7 +632,10 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
       editor.commands.addCommand({
         name: "runLockedTests",
         bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" },
-        exec: () => handleCompileAndRun(),
+        // Via ref: this command registers ONCE, so calling the closure directly
+        // would freeze the first render's selectedProblem/reviewMode and run
+        // the wrong problem after switching in the sidebar.
+        exec: () => runShortcutRef.current(),
       });
 
       editorInstanceRef.current = editor;
@@ -773,6 +776,9 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
       timeSpentMinutes: focusMinutes,
       notes,
       solutionRevealed: selectedProblem.solutionRevealed || sidePanelMode === "solution",
+      // Review runs must NOT overwrite the saved (solved) draft with the blank
+      // re-attempt — the attempt still records, the draft stays untouched.
+      preserveDraft: reviewMode,
     };
 
     try {
@@ -839,8 +845,15 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     }
   };
 
+  // Keep the Ace Ctrl-Enter command pointed at the LATEST run handler (the
+  // command itself registers once, in the editor-setup effect).
+  const runShortcutRef = useRef(handleCompileAndRun);
+  runShortcutRef.current = handleCompileAndRun;
+
   const handleSaveDraft = async () => {
-    if (!selectedProblem) return;
+    // In review mode the editor holds a blank re-attempt; saving it would
+    // destroy the previously-solved draft (the button is disabled too).
+    if (!selectedProblem || reviewMode) return;
     const language = selectedLanguageRef.current;
     const payload = {
       language,
@@ -941,97 +954,6 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
     const matching = problems.filter((p) => matchesPattern(p, pattern));
     const target = matching.find((p) => !p.solved) || matching[0];
     if (target) handleSelectProblem(target);
-  };
-
-  const handleMarkSolved = async () => {
-    if (!selectedProblem) return;
-    const language = selectedLanguageRef.current;
-    const payload = {
-      language,
-      draft: getCode(),
-      timeSpentMinutes: focusMinutes,
-      reflection,
-      solutionRevealed: selectedProblem.solutionRevealed || sidePanelMode === "solution",
-    };
-
-    try {
-      const res = await fetch(`/api/practice/problems/${encodeURIComponent(selectedProblem.id)}/mark-solved`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const saved = await res.json();
-        setCompilerStatus("Problem marked as SOLVED! SRS schedule advanced.");
-        await fetchPracticeStore(saved.id);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleMarkFailed = async () => {
-    if (!selectedProblem) return;
-    const language = selectedLanguageRef.current;
-    const payload = {
-      language,
-      draft: getCode(),
-      timeSpentMinutes: focusMinutes,
-      reflection,
-      solutionRevealed: selectedProblem.solutionRevealed || sidePanelMode === "solution",
-    };
-
-    try {
-      const res = await fetch(`/api/practice/problems/${encodeURIComponent(selectedProblem.id)}/mark-failed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const saved = await res.json();
-        setCompilerStatus("Problem marked as FAILED. SRS reset to Level 0 review.");
-        await fetchPracticeStore(saved.id);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const createNewPracticeProblem = async () => {
-    const title = window.prompt("Enter problem title:");
-    if (!title) return;
-    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const difficulty = window.prompt("Enter difficulty (Easy, Medium, Hard):") || "Easy";
-    const methodName = window.prompt("Enter execution methodName:") || "solve";
-
-    const newProblem = {
-      id: `custom-${slug}`,
-      title,
-      slug,
-      difficulty,
-      tags: [],
-      methodName,
-      customTests: [],
-      starterCode: `class Solution:\n    def ${methodName}(self):\n        pass\n`,
-      languageDrafts: {
-        python: `class Solution:\n    def ${methodName}(self):\n        pass\n`,
-        java: `import java.util.*;\n\nclass Solution {\n    public Object ${methodName}() {\n        return null;\n    }\n}\n`,
-      },
-    };
-
-    try {
-      const res = await fetch("/api/practice/problems", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newProblem),
-      });
-      if (res.ok) {
-        const saved = await res.json();
-        await fetchPracticeStore(saved.id);
-      }
-    } catch (err) {
-      console.error(err);
-    }
   };
 
   const useStarterCode = () => {
@@ -1742,7 +1664,12 @@ export default function Practice({ timerState, setTimerState, activePlan = null,
                       onClick={toggleSolutionPanel}
                       disabled={reviewMode}
                     />
-                    <IconButton label="Save draft" icon="save" onClick={handleSaveDraft} />
+                    <IconButton
+                      label={reviewMode ? "Draft protected in review" : "Save draft"}
+                      icon="save"
+                      onClick={handleSaveDraft}
+                      disabled={reviewMode}
+                    />
                     <IconButton
                       label={running ? "Running tests" : "Run tests"}
                       icon="play"
