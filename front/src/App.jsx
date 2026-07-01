@@ -78,8 +78,6 @@ function DashboardSkeleton() {
   );
 }
 
-const REMINDERS_KEY = "jobHuntReminders";
-
 // Default subpage when entering the Learn hub without one (the prep planner).
 const DEFAULT_LEARN_SUB = "study-plans";
 
@@ -106,23 +104,6 @@ function parseHash(hash) {
   if (hash.startsWith("#/learn/")) return { tab: "learn", sub: hash.slice("#/learn/".length) || DEFAULT_LEARN_SUB };
   if (LEGACY_LEARN_HASH[hash]) return { tab: "learn", sub: LEGACY_LEARN_HASH[hash] };
   return { tab: "newdashboard" };
-}
-
-function loadReminders() {
-  try {
-    const raw = localStorage.getItem(REMINDERS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistReminders(list) {
-  try {
-    localStorage.setItem(REMINDERS_KEY, JSON.stringify(list));
-  } catch {}
 }
 
 export default function App() {
@@ -181,75 +162,11 @@ export default function App() {
     return () => clearInterval(id);
   }, [timerState.running]);
 
-  // Reminders: persisted in localStorage, fired via the browser Notification API
-  // while the tab is open. Asking for permission on demand keeps the first-load
-  // experience quiet.
-  const [reminders, setReminders] = useState(loadReminders);
-  const [notificationPermission, setNotificationPermission] = useState(
-    typeof Notification !== "undefined" ? Notification.permission : "denied"
-  );
-
-  useEffect(() => {
-    persistReminders(reminders);
-  }, [reminders]);
-
   // Theme: apply + persist whenever it changes. Defaults to dark.
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("theme", theme);
   }, [theme]);
-
-  const addReminder = ({ applicationId = null, message, fireAt }) => {
-    if (!message || !fireAt) return;
-    const reminder = {
-      id: `rem-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      applicationId,
-      message,
-      fireAt: new Date(fireAt).toISOString(),
-      fired: false,
-      createdAt: new Date().toISOString(),
-    };
-    setReminders((prev) => [...prev, reminder]);
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().then(setNotificationPermission);
-    }
-    return reminder;
-  };
-
-  const deleteReminder = (id) => {
-    setReminders((prev) => prev.filter((r) => r.id !== id));
-  };
-
-  const requestNotificationPermission = () => {
-    if (typeof Notification === "undefined") return;
-    Notification.requestPermission().then(setNotificationPermission);
-  };
-
-  // Poller: every 30s, fire any due reminders that haven't fired yet.
-  useEffect(() => {
-    const fire = () => {
-      const now = Date.now();
-      let mutated = false;
-      const next = reminders.map((r) => {
-        if (!r.fired && Date.parse(r.fireAt) <= now) {
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            try {
-              const app = applications.find((a) => a.id === r.applicationId);
-              const title = app ? `${app.company} — ${app.role}` : "Claire reminder";
-              new Notification(title, { body: r.message, tag: r.id });
-            } catch {}
-          }
-          mutated = true;
-          return { ...r, fired: true, firedAt: new Date().toISOString() };
-        }
-        return r;
-      });
-      if (mutated) setReminders(next);
-    };
-    fire(); // run immediately on load too
-    const id = setInterval(fire, 30000);
-    return () => clearInterval(id);
-  }, [reminders, applications]);
 
   // Open the dashboard panel for a specific app when directed from the extension.
   // Two entry points: ?openApp=<id> query param (new tab) or JH_OPEN_DRAWER

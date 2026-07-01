@@ -24,7 +24,7 @@ export default function Analytics({
     }
   };
 
-  const STATUSES = ["Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer", "Rejected"];
+  const STATUSES = ["Saved", "Applied", "Online Assessment", "Recruiter Screen", "Interview", "Offer", "Rejected"];
 
   const getAppliedTimestamp = (app) => app.appliedAt || app.stageDateTimes?.Applied || app.dateApplied;
   const getRejectedTimestamp = (app) => app.rejectedAt || app.stageDateTimes?.Rejected;
@@ -156,8 +156,15 @@ export default function Analytics({
     if (statuses.includes("Recruiter Screen")) return "Recruiter Screen";
     if (statuses.includes("Online Assessment")) return "Online Assessment";
     if (statuses.includes("Applied")) return "Applied";
+    // A saved-only company was never applied to — it is NOT "Rejected".
+    if (statuses.includes("Saved")) return "Saved";
     return "Rejected";
   };
+
+  // Companies actually APPLIED to — saved-only leads don't belong in the
+  // conversion funnel (nothing was submitted, so nothing can "convert").
+  const appliedCompaniesCount = Object.values(companyGroups)
+    .filter((apps) => getCompanyHighestStatus(apps) !== "Saved").length;
 
   // Average applications per company
   const avgRolesVal = totalCompaniesCount > 0 ? (totalCount / totalCompaniesCount).toFixed(1) : "0.0";
@@ -390,83 +397,86 @@ export default function Analytics({
               💡 Click on any funnel stage below to view those specific roles on your Dashboard.
             </p>
             <div className="funnel-container">
+              {/* Denominator: companies actually applied to (saved-only leads
+                  can't convert). Counts are "ever reached this stage or further";
+                  clicking filters the Dashboard to roles CURRENTLY at the stage. */}
               <div
                 className="funnel-stage stage-applied"
                 onClick={() => handleFunnelStageClick("Applied")}
-                title="Click to view all Applied roles on Dashboard"
+                title="Companies applied to — click to view roles currently at Applied"
               >
                 <div className="funnel-label">Applied</div>
                 <div className="funnel-bar">
                   <div className="funnel-bar-fill" id="funnelFillApplied" style={{ width: "100%" }}></div>
                 </div>
-                <div className="funnel-value" id="funnelValApplied">{totalCompaniesCount}</div>
+                <div className="funnel-value" id="funnelValApplied">{appliedCompaniesCount}</div>
               </div>
               <div
                 className="funnel-stage stage-oa"
                 onClick={() => handleFunnelStageClick("Online Assessment")}
-                title="Click to view all Online Assessment roles on Dashboard"
+                title="Reached OA or further — click to view roles currently at Online Assessment"
               >
                 <div className="funnel-label">OA Invited</div>
                 <div className="funnel-bar">
                   <div
                     className="funnel-bar-fill"
                     id="funnelFillOa"
-                    style={{ width: `${totalCompaniesCount > 0 ? Math.round((companyOaCount / totalCompaniesCount) * 100) : 0}%`, background: "#a855f7" }}
+                    style={{ width: `${appliedCompaniesCount > 0 ? Math.round((companyOaCount / appliedCompaniesCount) * 100) : 0}%`, background: "#a855f7" }}
                   ></div>
                 </div>
                 <div className="funnel-value" id="funnelValOa">
-                  {companyOaCount} ({totalCompaniesCount > 0 ? Math.round((companyOaCount / totalCompaniesCount) * 100) : 0}%)
+                  {companyOaCount} ({appliedCompaniesCount > 0 ? Math.round((companyOaCount / appliedCompaniesCount) * 100) : 0}%)
                 </div>
               </div>
               <div
                 className="funnel-stage stage-screen"
                 onClick={() => handleFunnelStageClick("Recruiter Screen")}
-                title="Click to view all Recruiter Screen roles on Dashboard"
+                title="Reached a screen or further — click to view roles currently at Recruiter Screen"
               >
                 <div className="funnel-label">Recruiter Screen</div>
                 <div className="funnel-bar">
                   <div
                     className="funnel-bar-fill"
                     id="funnelFillScreen"
-                    style={{ width: `${totalCompaniesCount > 0 ? Math.round((companyScreenCount / totalCompaniesCount) * 100) : 0}%`, background: "#2dd4bf" }}
+                    style={{ width: `${appliedCompaniesCount > 0 ? Math.round((companyScreenCount / appliedCompaniesCount) * 100) : 0}%`, background: "#2dd4bf" }}
                   ></div>
                 </div>
                 <div className="funnel-value" id="funnelValScreen">
-                  {companyScreenCount} ({totalCompaniesCount > 0 ? Math.round((companyScreenCount / totalCompaniesCount) * 100) : 0}%)
+                  {companyScreenCount} ({appliedCompaniesCount > 0 ? Math.round((companyScreenCount / appliedCompaniesCount) * 100) : 0}%)
                 </div>
               </div>
               <div
                 className="funnel-stage stage-interview"
                 onClick={() => handleFunnelStageClick("Interview")}
-                title="Click to view all Interviewing roles on Dashboard"
+                title="Reached an interview or further — click to view roles currently Interviewing"
               >
                 <div className="funnel-label">Interviewing</div>
                 <div className="funnel-bar">
                   <div
                     className="funnel-bar-fill"
                     id="funnelFillInterview"
-                    style={{ width: `${totalCompaniesCount > 0 ? Math.round((companyInterviewCount / totalCompaniesCount) * 100) : 0}%` }}
+                    style={{ width: `${appliedCompaniesCount > 0 ? Math.round((companyInterviewCount / appliedCompaniesCount) * 100) : 0}%` }}
                   ></div>
                 </div>
                 <div className="funnel-value" id="funnelValInterview">
-                  {companyInterviewCount} ({totalCompaniesCount > 0 ? Math.round((companyInterviewCount / totalCompaniesCount) * 100) : 0}%)
+                  {companyInterviewCount} ({appliedCompaniesCount > 0 ? Math.round((companyInterviewCount / appliedCompaniesCount) * 100) : 0}%)
                 </div>
               </div>
               <div
                 className="funnel-stage stage-offer"
                 onClick={() => handleFunnelStageClick("Offer")}
-                title="Click to view all Offer roles on Dashboard"
+                title="Offers received — click to view roles currently at Offer"
               >
                 <div className="funnel-label">Offers</div>
                 <div className="funnel-bar">
                   <div
                     className="funnel-bar-fill"
                     id="funnelFillOffer"
-                    style={{ width: `${totalCompaniesCount > 0 ? Math.round((companyOfferCount / totalCompaniesCount) * 100) : 0}%` }}
+                    style={{ width: `${appliedCompaniesCount > 0 ? Math.round((companyOfferCount / appliedCompaniesCount) * 100) : 0}%` }}
                   ></div>
                 </div>
                 <div className="funnel-value" id="funnelValOffer">
-                  {companyOfferCount} ({totalCompaniesCount > 0 ? Math.round((companyOfferCount / totalCompaniesCount) * 100) : 0}%)
+                  {companyOfferCount} ({appliedCompaniesCount > 0 ? Math.round((companyOfferCount / appliedCompaniesCount) * 100) : 0}%)
                 </div>
               </div>
             </div>
@@ -550,6 +560,7 @@ export default function Analytics({
                   const count = Object.values(companyGroups).filter((apps) => getCompanyHighestStatus(apps) === status).length;
                   const pct = totalCompaniesCount > 0 ? Math.round((count / totalCompaniesCount) * 100) : 0;
                   const colors = {
+                    Saved: "var(--md-on-surface-variant)",
                     Applied: "var(--status-applied)",
                     "Online Assessment": "#a855f7",
                     "Recruiter Screen": "#2dd4bf",

@@ -33,48 +33,10 @@ export default function Profile() {
   const cvInputBackend = useRef(null);
   const cvInputArchitect = useRef(null);
 
-  // Integration States
-  const [calendarStatus, setCalendarStatus] = useState({ configured: false, hasLocalToken: false });
-  const [authUrl, setAuthUrl] = useState("");
-  const [authError, setAuthError] = useState("");
-  const [copiedLink, setCopiedLink] = useState(false);
-
   useEffect(() => {
     fetchProfile();
-    fetchCalendarStatus();
     fetchCvMeta();
   }, []);
-
-  const fetchCalendarStatus = async () => {
-    try {
-      const res = await fetch("/api/calendar/status");
-      if (res.ok) {
-        const data = await res.json();
-        setCalendarStatus(data);
-        if (data.configured && !data.hasLocalToken) {
-          fetchAuthUrl();
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load calendar status", err);
-    }
-  };
-
-  const fetchAuthUrl = async () => {
-    try {
-      const res = await fetch("/api/calendar/auth-url");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.configured && data.url) {
-          setAuthUrl(data.url);
-        } else {
-          setAuthError(data.error || "Credentials missing.");
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load OAuth URL", err);
-    }
-  };
 
   const fetchProfile = async () => {
     try {
@@ -383,6 +345,7 @@ export default function Profile() {
                 value={profile.resumeText}
                 onChange={handleChange}
                 placeholder="Paste resume text as fallback for Gemma evaluation…"
+                aria-label="Backend CV text (paste fallback)"
                 style={{ marginTop: "8px" }}
               />
             </details>
@@ -451,6 +414,7 @@ export default function Profile() {
                 value={profile.resumeText2 || ""}
                 onChange={handleChange}
                 placeholder="Paste architect/principal resume text as fallback…"
+                aria-label="Architect CV text (paste fallback)"
                 style={{ marginTop: "8px" }}
               />
             </details>

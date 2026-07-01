@@ -127,3 +127,8 @@
 .ndc-role-row .ppb-actions { opacity: 0; transition: opacity 0.15s ease; }
 .ndc-role-row:hover .ppb-actions,
 .ndc-role-row:focus-within .ppb-actions { opacity: 1; }
+
+/* ── Ended (application rejected): frozen, muted, no live "current" signal ── */
+.ppb--ended { opacity: 0.75; }
+.ppb--ended .ppb-stage { color: var(--s-rejected, #f87171); }
+.ppb--ended .ppb-dot--current { animation: none; box-shadow: none; }

@@ -57,6 +57,9 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
   const view = processViewForApp(app, store);
   if (!view) return null;
 
+  // A rejected application's process is OVER — freeze the stepper (no pulsing
+  // "current" ring, no actions) and say so, instead of implying a live round.
+  const ended = app && app.status === "Rejected";
   const current = view.currentLeaf;
   const position = view.currentIndex >= 0 ? Math.min(view.currentIndex + 1, view.total) : 0;
   const leaves = view.leaves || [];
@@ -72,20 +75,24 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
 
   // The stage label carries the words; the dots carry the progress — no separate
   // status chip (the card's status pill already owns "Waiting"/"Offer"/…).
-  const stageName = view.complete
-    ? (view.statusPhase === "Offer" ? "Offer 🎉" : "Complete")
-    : (current ? current.name : "");
+  const stageName = ended
+    ? `Ended · rejected at ${current ? current.name : "—"}`
+    : view.complete
+      ? (view.statusPhase === "Offer" ? "Offer 🎉" : "Complete")
+      : (current ? current.name : "");
 
   return (
-    <div className={`ppb ppb--${variant}${view.waiting ? " ppb--waiting" : ""}`} onClick={(e) => e.stopPropagation()}>
+    <div className={`ppb ppb--${variant}${view.waiting && !ended ? " ppb--waiting" : ""}${ended ? " ppb--ended" : ""}`} onClick={(e) => e.stopPropagation()}>
       <div className="ppb-head">
         <div
           className="ppb-steps"
           role="img"
-          aria-label={`Stage ${position} of ${view.total}${current ? ` — ${current.name}` : ""}${view.waiting ? " — waiting on the company" : ""}`}
+          aria-label={ended
+            ? `Process ended — rejected at stage ${position} of ${view.total}${current ? ` (${current.name})` : ""}`
+            : `Stage ${position} of ${view.total}${current ? ` — ${current.name}` : ""}${view.waiting ? " — waiting on the company" : ""}`}
         >
           {leaves.map((leaf, i) => {
-            const state = dotState(leaf, view.waiting);
+            const state = ended && leaf.isCurrent ? "failed" : dotState(leaf, view.waiting);
             const prev = leaves[i - 1];
             const filled = prev && (prev.state === "done" || prev.state === "failed");
             return (
@@ -113,7 +120,7 @@ export default function ProcessProgressBar({ app, store, onChange, variant = "ca
           </span>
         )}
 
-        {current && !current.synthetic && !view.complete && onChange && (
+        {current && !current.synthetic && !view.complete && !ended && onChange && (
           <span className="ppb-actions">
             {editingDate ? (
               <input

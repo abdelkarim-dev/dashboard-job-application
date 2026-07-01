@@ -180,7 +180,9 @@ function matchesDisplayFilter(app, filter) {
   if (filter === "Ghosting") return getDisplayStatus(app) === "Ghosting";
   if (filter === "REJECTED_ATS") return getDisplayStatus(app) === "REJECTED_ATS";
   if (filter === "Rejected") return app.status === "Rejected" && !isAtsRejection(app);
-  return app.status === filter;
+  // Pipeline stages match the EFFECTIVE status (process-derived when assigned) —
+  // the same stage the card displays, so a filter never contradicts the board.
+  return effectiveStatusOf(app) === filter;
 }
 
 function companyCountLabel(count) {
@@ -226,7 +228,7 @@ function dateInputToISO(value) {
 }
 
 // ── Side Panel ────────────────────────────────────────────────────────────────
-function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetchApplications, store }) {
+function SidePanel({ app, onClose, onSave, saving, fetchApplications, store }) {
   const [editData, setEditData] = useState(() => ({ ...app }));
   const [dirty, setDirty] = useState(false);
   const [evalLoading, setEvalLoading] = useState(false);
@@ -285,13 +287,22 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
     setDirty(true);
   };
 
+  // Persist a status change FROM THE LIVE FORM STATE — building the PUT off the
+  // last-saved snapshot would silently drop any unsaved field edits the user
+  // typed before clicking a stage dot / Reject.
+  const commitStatus = (status) => {
+    const next = { ...editData, status };
+    setEditData(next);
+    setDirty(false);
+    onSave(next);
+  };
+
   const handlePipelineClick = (clickedStatus) => {
     if (clickedStatus === editData.status) {
       const idx = PIPELINE_FORWARD.indexOf(clickedStatus);
-      const prev = idx > 0 ? PIPELINE_FORWARD[idx - 1] : "Applied";
-      onStatusChange(prev);
+      commitStatus(idx > 0 ? PIPELINE_FORWARD[idx - 1] : "Applied");
     } else {
-      onStatusChange(clickedStatus);
+      commitStatus(clickedStatus);
     }
   };
 
@@ -342,10 +353,12 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
   const handleEvaluate = async () => {
     setEvalLoading(true);
     try {
+      // Evaluate the LIVE form state — the user pastes a job description into
+      // the (still unsaved) textarea and expects that text to be what's scored.
       const res = await fetch("/api/evaluate-job", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(app),
+        body: JSON.stringify(editData),
       });
       const result = await res.json();
       if (result?.ok && result.evaluation) {
@@ -354,8 +367,9 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
         await fetch(`/api/applications/${encodeURIComponent(app.id)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...app, evaluation: normed }),
+          body: JSON.stringify({ ...editData, evaluation: normed }),
         });
+        setDirty(false);
         if (fetchApplications) await fetchApplications();
       } else {
         setEvaluation({ ok: false, error: result?.error || "Evaluation failed — is your local AI running?" });
@@ -405,7 +419,7 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
             <button
               type="button"
               className="ndash-reject-btn"
-              onClick={() => onStatusChange("Rejected")}
+              onClick={() => commitStatus("Rejected")}
               title="Mark as Rejected"
             >
               ✕ Reject
@@ -453,7 +467,7 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
           )}
           <button
             className={`ndash-pipeline-step ndash-pipeline-step--reject ${editData.status === "Rejected" ? "ndash-pipeline-step--active" : ""} ${saving ? "ndash-pipeline-step--saving" : ""}`}
-            onClick={() => editData.status === "Rejected" ? handlePipelineClick("Rejected") : onStatusChange("Rejected")}
+            onClick={() => editData.status === "Rejected" ? commitStatus("Applied") : commitStatus("Rejected")}
             type="button"
             title={editData.status === "Rejected" ? "Revert status" : "Mark as Rejected"}
             style={editData.status === "Rejected" ? { "--step-color": STATUS_META["Rejected"].color } : {}}
@@ -466,8 +480,9 @@ function SidePanel({ app, allApps, onClose, onStatusChange, onSave, saving, fetc
 
       {/* Body */}
       <div className="ndash-panel-body">
-        {/* Stage date */}
-        {STAGE_DATE_STATUSES.has(editData.status) && (
+        {/* Stage date — hidden for process-tracked apps: their round dates live
+            in stepProgress (this legacy field would be silently ignored). */}
+        {!hasProcess(editData) && STAGE_DATE_STATUSES.has(editData.status) && (
           <div className="ndash-panel-field ndash-panel-field--stage">
             <label className="ndash-panel-label">
               <span className="ndash-stage-date-icon">📅</span>
@@ -694,16 +709,27 @@ function PipelineStepper({ app, onAdvance, saving }) {
         {next && onAdvance && (
           <span className="ppb-actions">
             {dateValue !== null ? (
-              <input
-                type="date"
-                className="ppb-dateinput"
-                autoFocus
-                value={dateValue}
-                onChange={(e) => setDateValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") confirmAdvance(); if (e.key === "Escape") setDateValue(null); }}
-                onBlur={confirmAdvance}
-                title={`${STATUS_META[next].short} date`}
-              />
+              <>
+                <input
+                  type="date"
+                  className="ppb-dateinput"
+                  autoFocus
+                  value={dateValue}
+                  onChange={(e) => setDateValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") confirmAdvance(); if (e.key === "Escape") setDateValue(null); }}
+                  onBlur={() => setDateValue(null)}
+                  title={`${STATUS_META[next].short} date — Enter or ✓ to confirm, Esc to cancel`}
+                />
+                {/* onMouseDown so the click beats the input's cancel-on-blur. */}
+                <button
+                  type="button"
+                  className="ppb-pass"
+                  onMouseDown={(e) => { e.preventDefault(); confirmAdvance(); }}
+                  disabled={saving}
+                  title={`Confirm ${STATUS_META[next].short} date`}
+                  aria-label={`Confirm ${STATUS_META[next].short} date`}
+                >✓</button>
+              </>
             ) : (
               <button type="button" className="ppb-pass" onClick={startAdvance} disabled={saving} title={`Advance to ${STATUS_META[next].short}`} aria-label={`Advance to ${STATUS_META[next].short}`}>✓</button>
             )}
@@ -716,7 +742,9 @@ function PipelineStepper({ app, onAdvance, saving }) {
 
 // ── Role Row (inside company card) ────────────────────────────────────────────
 function RoleRow({ app, isSelected, onSelect, onQuickStatusChange }) {
-  const dotColor = (STATUS_META[app.status] || getDisplayMeta(app)).dot;
+  // Display meta so the dot matches the row's real state — amber while Waiting,
+  // grey when Ghosted, orange when Stalled — not just the raw pipeline colour.
+  const dotColor = getDisplayMeta(app).dot;
   const applied = formatDate(getAppliedDate(app));
   const rejected = app.status === "Rejected"
     ? formatDate(app.rejectedAt || app.stageDateTimes?.Rejected)
@@ -877,7 +905,7 @@ function CompanyCard({ company, apps, selectedAppId, onSelect, onQuickStatusChan
 }
 
 // ── Omni Search Tags ──────────────────────────────────────────────────────────
-function SearchTags({ fieldFilters, searchRaw, onRemove }) {
+function SearchTags({ fieldFilters, onRemove }) {
   if (fieldFilters.length === 0) return null;
   return (
     <div className="ndash-search-tags">
@@ -1047,6 +1075,15 @@ export default function Dashboard({
   useEffect(() => {
     if (!statusFilterOverride) return;
     setStatusFilter(statusFilterOverride);
+    // A rejected-status drill-down lands in the (collapsed-by-default) Closed
+    // section — open it so the filter's results are actually visible.
+    if (statusFilterOverride === "Rejected" || statusFilterOverride === "REJECTED_ATS") {
+      setCollapsedSections((prev) => {
+        const next = new Set(prev);
+        next.delete("Rejected");
+        return next;
+      });
+    }
     onStatusFilterOverrideHandled?.();
   }, [statusFilterOverride, onStatusFilterOverrideHandled]);
 
@@ -1160,12 +1197,15 @@ export default function Dashboard({
   }, [applications, appMatches, statusFilter]);
 
   // Closed (rejected) companies — always present as a collapsed-by-default
-  // category ("everything else"), narrowed only by the search box.
+  // category ("everything else"), narrowed by the search box AND the active
+  // status filter (so a "Rejected ATS" drill-down filters here too, and an
+  // "Interview" filter doesn't leave a stale full Closed list behind).
   const rejectedGroups = useMemo(() => {
     const companyMap = new Map();
     for (const app of applications) {
       if (!appMatches(app)) continue;
       if (app.status !== "Rejected") continue;
+      if (!matchesDisplayFilter(app, statusFilter)) continue;
       const key = app.company || "Unknown";
       if (!companyMap.has(key)) companyMap.set(key, []);
       companyMap.get(key).push(app);
@@ -1173,7 +1213,7 @@ export default function Dashboard({
     return Array.from(companyMap.entries())
       .map(([company, apps]) => ({ company, apps }))
       .sort((a, b) => a.company.localeCompare(b.company));
-  }, [applications, appMatches]);
+  }, [applications, appMatches, statusFilter]);
 
   const handleSelectApp = useCallback((app) => {
     setSelectedApp((prev) => (prev?.id === app.id ? null : app));
@@ -1190,24 +1230,6 @@ export default function Dashboard({
     if (fetchApplications) await fetchApplications();
     if (created?.id) setSelectedApp(created);
   }, [fetchApplications]);
-
-  const handleStatusChange = useCallback(async (newStatus) => {
-    if (!selectedApp || saving) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/applications/${encodeURIComponent(selectedApp.id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...selectedApp, status: newStatus }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setSelectedApp(updated);
-        if (fetchApplications) await fetchApplications();
-      }
-    } catch {}
-    finally { setSaving(false); }
-  }, [selectedApp, saving, fetchApplications]);
 
   // Quick status change from the card pill (without opening the panel). `extra`
   // carries the chosen stage date / interviewDate / rejectedAt so switching to
@@ -1278,6 +1300,21 @@ export default function Dashboard({
             <span className="ndash-total-badge">
               {totalRoles} {totalRoles === 1 ? "role" : "roles"} · {totalCompanies} {totalCompanies === 1 ? "company" : "companies"}
             </span>
+            {/* Active status filter (set by an Analytics drill-down) — always
+                visible and one click to clear, so it can never silently hide
+                the rest of the board. */}
+            {statusFilter !== "All" && (
+              <button
+                type="button"
+                className="ndash-filter-pill"
+                onClick={() => setStatusFilter("All")}
+                title="Clear this filter"
+              >
+                <span className="ndash-filter-pill-dot" style={{ background: (STATUS_META[statusFilter] || STATUS_META["Applied"]).dot }} />
+                {STATUS_META[statusFilter]?.short || statusFilter}
+                <span className="ndash-filter-pill-x" aria-hidden="true">✕</span>
+              </button>
+            )}
           </div>
           <div className="ndash-search-wrap">
             <span className="ndash-search-icon">⌕</span>
@@ -1324,7 +1361,7 @@ export default function Dashboard({
         )}
 
         {/* Search tags */}
-        <SearchTags fieldFilters={fieldFilters} searchRaw={searchRaw} onRemove={removeFilter} />
+        <SearchTags fieldFilters={fieldFilters} onRemove={removeFilter} />
 
         {/* Time-sensitive reminders — only when something actually needs a hand. */}
         {attention.length > 0 && !searchActive && (
@@ -1368,6 +1405,11 @@ export default function Dashboard({
                 <div className="ndash-empty-icon">🔍</div>
                 <strong>No results</strong>
                 <p>{searchRaw ? `No applications match "${searchRaw}"` : "Nothing in this view."}</p>
+                {statusFilter !== "All" && (
+                  <button className="ndash-empty-add" type="button" onClick={() => setStatusFilter("All")}>
+                    Clear the “{STATUS_META[statusFilter]?.short || statusFilter}” filter
+                  </button>
+                )}
               </div>
             )
           )}
@@ -1467,9 +1509,7 @@ export default function Dashboard({
         <SidePanel
           key={selectedApp.id}
           app={selectedApp}
-          allApps={applications}
           onClose={() => setSelectedApp(null)}
-          onStatusChange={handleStatusChange}
           onSave={handleSave}
           saving={saving}
           fetchApplications={fetchApplications}

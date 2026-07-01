@@ -8,7 +8,7 @@
 // One internal edge: it imports two pure predicates from process.mjs (isWaiting,
 // lastPassedTimestamp). The dependency is one-way — process.mjs imports NOTHING
 // from here — so the graph stays acyclic. Keep it that way.
-import { isWaiting, lastPassedTimestamp, latestProcessActivity } from "./process.mjs";
+import { isWaiting, lastPassedTimestamp, latestProcessActivity, hasProcess, flattenSteps, stepPhase } from "./process.mjs";
 
 // Pipeline stages that mean "the application advanced past Applied". A rejection
 // is tracked separately because it is a response but not a positive one.
@@ -340,6 +340,37 @@ export function buildAttentionItems(applications = [], { now = new Date(), horiz
     // A stage the user already marked as passed needs nothing from them —
     // the ball is in the company's court.
     if (app.stagePassedAt && app.stagePassedAt[app.status]) continue;
+    // Process-tracked apps keep round dates in stepProgress, not stageDateTimes:
+    // surface the most urgent SCHEDULED round instead of the legacy fields.
+    // OA-phase rounds always surface (they're to-dos with deadlines, incl.
+    // overdue ones); interview rounds only within the horizon.
+    if (hasProcess(app)) {
+      const progress = app.stepProgress || {};
+      let best = null;
+      for (const leaf of flattenSteps(app.processSteps)) {
+        const entry = progress[leaf.id];
+        if (!entry || entry.state !== "scheduled" || !entry.scheduledAt) continue;
+        const phase = leaf.phase || stepPhase(leaf.type);
+        const days = dayDiff(now, entry.scheduledAt);
+        if (days === null) continue;
+        const isOa = phase === "Online Assessment";
+        if (!isOa && (days < 0 || days > horizonDays)) continue;
+        const rank = isOa ? 0 : 1;
+        if (!best || rank < best.rank || (rank === best.rank && days < best.days)) {
+          best = { rank, days, date: entry.scheduledAt, name: leaf.name || "" };
+        }
+      }
+      if (best) {
+        items.push({
+          id: app.id,
+          kind: best.rank === 0 ? "oa" : "interview",
+          label: best.rank === 0 ? "OA to submit" : (best.name || "Interview round"),
+          company: app.company || "", role: app.role || "",
+          date: best.date, daysUntil: best.days, rank: best.rank,
+        });
+      }
+      continue;
+    }
     if (app.status === "Online Assessment" && !app.oaCompletedAt) {
       const date = (app.stageDateTimes && app.stageDateTimes["Online Assessment"]) || "";
       items.push({

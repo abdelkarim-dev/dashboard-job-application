@@ -3,9 +3,11 @@ import "./ApplicationProcessPanel.css";
 import {
   STEP_STATES,
   STEP_STATE_META,
+  GROUP_TYPE,
   stepType,
   stepPhase,
   hasProcess,
+  isGroupStep,
   processSummary,
   applyStepState,
 } from "../lib/process.mjs";
@@ -55,16 +57,26 @@ export default function ApplicationProcessPanel({ app, onChange, saving }) {
   const assignProcess = (processId) => {
     const proc = processes.find((p) => p.id === processId);
     if (!proc) return;
-    const steps = (proc.steps || []).map((s) => ({
-      id: s.id, name: s.name, type: s.type, phase: s.phase || stepPhase(s.type),
-    }));
+    // Snapshot the template's step tree INCLUDING group children — flattening a
+    // group here would silently drop its rounds (the server prunes childless
+    // groups), losing e.g. every round of an "Onsite Loop".
+    const cloneLeaf = (s) => ({ id: s.id, name: s.name, type: s.type, phase: s.phase || stepPhase(s.type) });
+    const steps = (proc.steps || []).map((s) =>
+      isGroupStep(s)
+        ? { id: s.id, name: s.name, type: GROUP_TYPE, children: (s.children || []).map(cloneLeaf) }
+        : cloneLeaf(s)
+    );
+    const firstLeaf = steps.length ? (isGroupStep(steps[0]) ? steps[0].children?.[0] : steps[0]) : null;
     onChange({
       ...app,
       processId: proc.id,
       processName: proc.name,
       processSteps: steps,
       stepProgress: {},
-      currentStepId: steps[0]?.id || "",
+      currentStepId: firstLeaf?.id || "",
+      // The process now owns the waiting semantics — a stale legacy "stage
+      // passed" flag would otherwise flag this fresh 0-progress process Waiting.
+      stagePassedAt: {},
     });
   };
 
@@ -108,7 +120,64 @@ export default function ApplicationProcessPanel({ app, onChange, saving }) {
 
   const summary = processSummary(app);
   const pct = summary.total ? Math.round((summary.doneCount / summary.total) * 100) : 0;
-  const endedOnFailure = summary.complete && app.processSteps.some((s) => (app.stepProgress || {})[s.id]?.state === "failed");
+  const progressMap = app.stepProgress || {};
+  const endedOnFailure = summary.complete
+    && Object.values(progressMap).some((entry) => entry?.state === "failed");
+
+  // One leaf round of the checklist (top-level, or nested inside a group).
+  const renderLeafStep = (step, inGroup) => {
+    const entry = progressMap[step.id] || {};
+    const state = STEP_STATES.includes(entry.state) ? entry.state : "pending";
+    const isCurrent = step.id === summary.current?.id;
+    const meta = stepType(step.type);
+    return (
+      <li key={step.id} className={`apx-step apx-step--${state} ${isCurrent ? "apx-step--current" : ""} ${inGroup ? "apx-step--ingroup" : ""}`}>
+        <span className="apx-step-rail" aria-hidden="true">
+          <span className="apx-step-node">{STEP_STATE_META[state].icon}</span>
+        </span>
+        <div className="apx-step-body">
+          <div className="apx-step-top">
+            <span className="apx-step-name">
+              <span className="apx-step-icon" aria-hidden="true">{meta.icon}</span>
+              {step.name}
+              {isCurrent && !summary.complete && <span className="apx-current-tag">current</span>}
+            </span>
+            {state === "scheduled" && entry.scheduledAt && (
+              <span className="apx-step-date">{formatShort(entry.scheduledAt)}</span>
+            )}
+            {state === "done" && entry.completedAt && (
+              <span className="apx-step-date apx-step-date--done">passed {formatShort(entry.completedAt)}</span>
+            )}
+          </div>
+          <div className="apx-step-controls">
+            {STEP_STATES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={`apx-state-btn ${state === s ? "is-active" : ""}`}
+                style={state === s ? { "--state-color": STEP_STATE_META[s].color } : undefined}
+                onClick={() => setStepState(step.id, s)}
+                disabled={saving}
+                title={STEP_STATE_META[s].label}
+              >
+                <span aria-hidden="true">{STEP_STATE_META[s].icon}</span>
+                <span className="apx-state-label">{STEP_STATE_META[s].label}</span>
+              </button>
+            ))}
+            {state === "scheduled" && (
+              <input
+                type="date"
+                className="apx-step-dateinput"
+                value={dateForInput(entry.scheduledAt)}
+                onChange={(e) => setStepDate(step.id, e.target.value)}
+                aria-label={`${step.name} date`}
+              />
+            )}
+          </div>
+        </div>
+      </li>
+    );
+  };
 
   return (
     <div className="apx-panel">
@@ -131,58 +200,23 @@ export default function ApplicationProcessPanel({ app, onChange, saving }) {
       )}
 
       <ol className="apx-steps">
-        {app.processSteps.map((step, idx) => {
-          const entry = (app.stepProgress || {})[step.id] || {};
-          const state = STEP_STATES.includes(entry.state) ? entry.state : "pending";
-          const isCurrent = step.id === summary.current?.id;
-          const meta = stepType(step.type);
-          return (
-            <li key={step.id} className={`apx-step apx-step--${state} ${isCurrent ? "apx-step--current" : ""}`}>
-              <span className="apx-step-rail" aria-hidden="true">
-                <span className="apx-step-node">{STEP_STATE_META[state].icon}</span>
-              </span>
-              <div className="apx-step-body">
-                <div className="apx-step-top">
-                  <span className="apx-step-name">
-                    <span className="apx-step-icon" aria-hidden="true">{meta.icon}</span>
-                    {step.name}
-                    {isCurrent && !summary.complete && <span className="apx-current-tag">current</span>}
-                  </span>
-                  {state === "scheduled" && entry.scheduledAt && (
-                    <span className="apx-step-date">{formatShort(entry.scheduledAt)}</span>
-                  )}
-                  {state === "done" && entry.completedAt && (
-                    <span className="apx-step-date apx-step-date--done">passed {formatShort(entry.completedAt)}</span>
-                  )}
+        {app.processSteps.map((step) => {
+          // Progress is keyed by LEAF ids — a group renders as a labelled run of
+          // its child rounds (rendering the group as one opaque row would hide
+          // the rounds and write progress under an id the server strips).
+          if (isGroupStep(step)) {
+            return (
+              <li key={step.id} className="apx-group">
+                <div className="apx-group-label">
+                  <span aria-hidden="true">🔁</span> {step.name}
                 </div>
-                <div className="apx-step-controls">
-                  {STEP_STATES.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className={`apx-state-btn ${state === s ? "is-active" : ""}`}
-                      style={state === s ? { "--state-color": STEP_STATE_META[s].color } : undefined}
-                      onClick={() => setStepState(step.id, s)}
-                      disabled={saving}
-                      title={STEP_STATE_META[s].label}
-                    >
-                      <span aria-hidden="true">{STEP_STATE_META[s].icon}</span>
-                      <span className="apx-state-label">{STEP_STATE_META[s].label}</span>
-                    </button>
-                  ))}
-                  {state === "scheduled" && (
-                    <input
-                      type="date"
-                      className="apx-step-dateinput"
-                      value={dateForInput(entry.scheduledAt)}
-                      onChange={(e) => setStepDate(step.id, e.target.value)}
-                      aria-label={`${step.name} date`}
-                    />
-                  )}
-                </div>
-              </div>
-            </li>
-          );
+                <ol className="apx-group-steps">
+                  {(step.children || []).map((child) => renderLeafStep(child, true))}
+                </ol>
+              </li>
+            );
+          }
+          return renderLeafStep(step, false);
         })}
       </ol>
 

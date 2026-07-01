@@ -357,3 +357,59 @@ test("buildAttentionItems sorts interviews soonest-first within rank", () => {
   const items = buildAttentionItems(apps, { now: NOW });
   assert.deepEqual(items.map((i) => i.id), ["soon", "late"]);
 });
+
+// ── Process-tracked apps: reminders come from stepProgress, not stageDateTimes ──
+
+const procSteps = [
+  { id: "s-rec", name: "Recruiter Screen", type: "recruiter", phase: "Recruiter Screen" },
+  { id: "s-oa", name: "Coding Challenge", type: "assessment", phase: "Online Assessment" },
+  { id: "g-loop", name: "Onsite Loop", type: "group", children: [
+    { id: "s-l1", name: "Loop 1 — Coding", type: "coding", phase: "Interview" },
+    { id: "s-l2", name: "Loop 2 — System Design", type: "system_design", phase: "Interview" },
+  ] },
+];
+const procApp = (id, stepProgress, extra = {}) => ({
+  id, company: id, role: "BE", status: "Recruiter Screen",
+  processId: "proc-x", processSteps: procSteps, stepProgress, ...extra,
+});
+
+test("buildAttentionItems surfaces a process app's scheduled round (incl. group children)", () => {
+  const apps = [
+    // Scheduled loop round (inside a group) in 3 days → interview item
+    procApp("p-loop", { "s-rec": { state: "done", completedAt: "2026-05-20T12:00:00.000Z" },
+      "s-oa": { state: "done", completedAt: "2026-05-25T12:00:00.000Z" },
+      "s-l1": { state: "scheduled", scheduledAt: "2026-06-03T12:00:00.000Z" } }),
+    // Scheduled round beyond the 7-day horizon → not surfaced
+    procApp("p-far", { "s-l1": { state: "scheduled", scheduledAt: "2026-06-20T12:00:00.000Z" } }),
+    // Waiting between rounds (nothing scheduled) → nothing to do, not surfaced
+    procApp("p-wait", { "s-rec": { state: "done", completedAt: "2026-05-28T12:00:00.000Z" } }),
+  ];
+  const items = buildAttentionItems(apps, { now: NOW });
+  assert.deepEqual(items.map((i) => i.id), ["p-loop"]);
+  assert.equal(items[0].kind, "interview");
+  assert.equal(items[0].label, "Loop 1 — Coding");
+  assert.equal(items[0].daysUntil, 3);
+});
+
+test("buildAttentionItems ranks a process app's scheduled OA first, even overdue", () => {
+  const apps = [
+    // OA-phase round scheduled 2 days ago (deadline slipped) → still an OA to-do
+    procApp("p-oa", { "s-oa": { state: "scheduled", scheduledAt: "2026-05-29T12:00:00.000Z" } }),
+    // Interview round scheduled tomorrow → rank 1, after the OA
+    procApp("p-int", { "s-oa": { state: "done", completedAt: "2026-05-25T12:00:00.000Z" },
+      "s-l1": { state: "scheduled", scheduledAt: "2026-06-01T12:00:00.000Z" } }),
+  ];
+  const items = buildAttentionItems(apps, { now: NOW });
+  assert.deepEqual(items.map((i) => i.id), ["p-oa", "p-int"]);
+  assert.deepEqual(items.map((i) => i.kind), ["oa", "interview"]);
+});
+
+test("buildAttentionItems ignores a process app's legacy stage fields", () => {
+  const apps = [
+    // Legacy stageDateTimes says tomorrow, but the process has nothing scheduled
+    // → the process is the source of truth: nothing surfaces.
+    procApp("p-legacy", {}, { stageDateTimes: { "Recruiter Screen": "2026-06-01" } }),
+  ];
+  const items = buildAttentionItems(apps, { now: NOW });
+  assert.deepEqual(items, []);
+});
