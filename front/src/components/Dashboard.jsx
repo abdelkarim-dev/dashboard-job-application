@@ -527,10 +527,14 @@ function SidePanel({ app, onClose, onSave, saving, fetchApplications, store }) {
         )}
 
         {/* Interview process tracker — assign a reusable process, then advance
-            through its company-specific rounds (with a Waiting state between). */}
-        <div className="ndash-panel-field">
-          <ApplicationProcessPanel app={editData} onChange={handleProcessChange} saving={saving} />
-        </div>
+            through its company-specific rounds (with a Waiting state between).
+            A rejected app keeps its checklist as history, but offering to
+            ASSIGN a process to a closed application makes no sense — hide it. */}
+        {(hasProcess(editData) || editData.status !== "Rejected") && (
+          <div className="ndash-panel-field">
+            <ApplicationProcessPanel app={editData} onChange={handleProcessChange} saving={saving} />
+          </div>
+        )}
 
         {/* Core fields */}
         <div className="ndash-panel-grid">

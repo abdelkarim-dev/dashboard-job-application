@@ -602,126 +602,6 @@ button, input, select, textarea { font: inherit; }
   cursor: pointer;
 }
 
-.board-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.oa-passed-action,
-.reminders-action {
-  border: 1px solid rgba(52, 211, 153, 0.45);
-  background: rgba(52, 211, 153, 0.12);
-  color: #86efac;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 800;
-  transition: background 120ms, color 120ms, transform 120ms;
-}
-
-.oa-passed-action:hover,
-.reminders-action:hover {
-  background: rgba(52, 211, 153, 0.22);
-  color: #bbf7d0;
-}
-
-/* ── Stalled shelf ────────────────────────────────────────────
-   Collapsed by default to a single bar above the board; the button reveals a
-   full-width band of fully-expanded cards that flow and grow to fill the room. */
-.stalled-shelf {
-  flex-shrink: 0;
-  border: 1px solid rgba(251, 146, 60, 0.28);
-  border-radius: 14px;
-  background: rgba(251, 146, 60, 0.06);
-  overflow: hidden;
-}
-.stalled-shelf-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  cursor: pointer;
-  user-select: none;
-}
-.stalled-shelf-label {
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #fb923c;
-  white-space: nowrap;
-}
-.stalled-shelf-header strong {
-  font-size: 13px;
-  color: var(--md-on-surface);
-  white-space: nowrap;
-}
-.stalled-shelf-hint {
-  flex: 1;
-  font-size: 11px;
-  color: var(--md-on-surface-variant);
-}
-.stalled-shelf-toggle {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(251, 146, 60, 0.4);
-  background: rgba(251, 146, 60, 0.12);
-  color: #fb923c;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 120ms;
-}
-.stalled-shelf-toggle:hover {
-  background: rgba(251, 146, 60, 0.22);
-}
-
-/* Expanded band: cards flow across the width and grow into any spare space. */
-.stalled-shelf-cards {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 10px;
-  padding: 2px 16px 16px;
-  max-height: 48vh;
-  overflow-y: auto;
-  border-top: 1px solid rgba(251, 146, 60, 0.15);
-}
-.stalled-shelf-cards > * {
-  flex: 1 1 230px;
-  min-width: 210px;
-  max-width: 360px;
-}
-/* Cards always render fully expanded — drop the fixed-height clipped grid (which
-   crushed the alerts row into the skills row) so each card shows its whole
-   content, sized to fit. */
-.stalled-shelf-cards .board-card-standard {
-  width: auto;
-  height: auto;
-  min-height: 0;
-  max-height: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow: visible;
-  border-color: rgba(251, 146, 60, 0.2);
-}
-.stalled-shelf-cards .board-card-standard .board-card-alerts,
-.stalled-shelf-cards .board-card-standard .board-card-skills,
-.stalled-shelf-cards .board-card-standard .board-card-meta {
-  min-height: 0;
-  max-height: none;
-}
-.stalled-shelf-cards .board-card-standard .board-card-meta {
-  flex-wrap: wrap;
-}
-/* Empty alert/skill rows collapse entirely instead of leaving a gap. */
-.stalled-shelf-cards .board-card-alerts.is-empty,
-.stalled-shelf-cards .board-card-skills.is-empty {
-  display: none;
-}
-
 /* ── OA card action buttons ───────────────────────────── */
 .board-card-mark-oa {
   flex-shrink: 0;
@@ -4450,20 +4330,6 @@ body.pane-resizing {
   width: fit-content;
 }
 
-.oa-passed-action {
-  margin-top: 7px;
-  padding: 5px 8px;
-  font-size: 11px;
-  line-height: 1.1;
-  width: fit-content;
-}
-
-.oa-passed-action.compact {
-  margin-top: 6px;
-  padding: 4px 7px;
-  font-size: 10px;
-}
-
 .board-card-advance {
   border: 1px solid var(--md-outline-variant);
   background: var(--md-surface-2);
@@ -4527,159 +4393,6 @@ body.pane-resizing {
   color: var(--md-on-surface-variant);
   border: none;
   font-weight: 600;
-}
-
-/* ── Reminders ─────────────────────────────────────────────── */
-.reminders-strip {
-  background: var(--md-surface-1);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 12px;
-  padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.reminders-strip-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.reminders-strip-empty {
-  font-size: 12px;
-  color: var(--md-on-surface-variant);
-}
-
-.reminders-strip-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.reminders-strip-list li {
-  display: grid;
-  grid-template-columns: 130px 200px minmax(0, 1fr) auto auto auto;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--md-surface-2);
-  font-size: 12px;
-}
-
-.reminders-when {
-  font-weight: 700;
-  color: var(--md-primary);
-}
-
-.reminders-target {
-  font-weight: 600;
-  color: var(--md-on-surface);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.reminders-msg {
-  color: var(--md-on-surface-variant);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.reminders-action {
-  padding: 4px 7px;
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.reminders-dismiss {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  color: var(--md-on-surface-variant);
-  border-radius: 6px;
-}
-
-.reminders-dismiss:hover {
-  background: rgba(248, 113, 113, 0.15);
-  color: var(--status-rejected, #f87171);
-}
-
-.reminders-field {
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 12px;
-  padding: 12px;
-  background: var(--md-surface-1);
-}
-
-.reminders-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.reminders-add-row {
-  display: grid;
-  grid-template-columns: 180px 1fr auto;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.reminders-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.reminders-list li {
-  display: grid;
-  grid-template-columns: 130px 1fr auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: var(--md-surface-2);
-  font-size: 12px;
-}
-
-.reminders-list li.fired {
-  opacity: 0.55;
-}
-
-.reminders-list li.reminders-empty {
-  display: block;
-  text-align: center;
-  font-size: 12px;
-  color: var(--md-on-surface-variant);
-  background: transparent;
-  padding: 8px 0;
-}
-
-.reminders-fired-badge {
-  font-size: 9px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--md-surface-2);
-  color: var(--md-on-surface-variant);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .group-expand-btn {
@@ -5256,8 +4969,7 @@ body.pane-resizing {
   display: none;
 }
 
-.board-card-alerts .board-card-stale,
-.board-card-alerts .oa-passed-action {
+.board-card-alerts .board-card-stale {
   margin-top: 0;
 }
 
@@ -5408,62 +5120,6 @@ body.pane-resizing {
 @keyframes warnPulse {
   0%, 100% { box-shadow: none; }
   50%       { box-shadow: 0 0 8px rgba(251, 113, 36, 0.3); }
-}
-
-/* Collapsible Operations Alerts and Reminders Widget */
-.reminders-trigger-btn {
-  background: rgba(56, 189, 248, 0.1);
-  color: var(--md-primary);
-  border: 1px solid rgba(56, 189, 248, 0.2);
-  border-radius: 99px;
-  padding: 4px 12px;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: background 0.15s ease, transform 0.1s ease;
-}
-
-.reminders-trigger-btn:hover {
-  background: rgba(56, 189, 248, 0.18);
-  transform: translateY(-1px);
-}
-
-.reminders-trigger-btn.active-reminders {
-  background: rgba(251, 191, 36, 0.1);
-  color: var(--md-tertiary);
-  border-color: rgba(251, 191, 36, 0.25);
-  animation: glowReminders 2s infinite ease-in-out;
-}
-
-@keyframes glowReminders {
-  0% { box-shadow: 0 0 4px rgba(251, 191, 36, 0.1); }
-  50% { box-shadow: 0 0 10px rgba(251, 191, 36, 0.25); }
-  100% { box-shadow: 0 0 4px rgba(251, 191, 36, 0.1); }
-}
-
-/* Floating Alerts Popover Drawer */
-.reminders-floating-tray {
-  position: absolute;
-  top: 48px;
-  right: 0;
-  width: 320px;
-  background: rgba(15, 15, 21, 0.94);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  box-shadow: var(--shadow-3);
-  z-index: 1000;
-  padding: 12px;
-  animation: slideDrawerDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes slideDrawerDown {
-  from { transform: translateY(-8px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
 }
 
 /* Elegant Dynamic Grouping Selector */
@@ -6647,114 +6303,6 @@ body.pane-resizing {
   line-height: 1;
 }
 
-/* ── Filter bar ──────────────────────────────────── */
-.ndash-filterbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 24px 14px;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-.ndash-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.ndash-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--md-surface-2);
-  border: 1px solid var(--md-outline-variant);
-  color: var(--md-on-surface-variant);
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-.ndash-chip:hover {
-  border-color: var(--md-primary);
-  color: var(--md-primary);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-}
-.ndash-chip--active {
-  background: var(--md-primary-container);
-  border-color: var(--md-primary);
-  color: var(--md-primary);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-}
-.ndash-chip--today {
-  border-color: color-mix(in srgb, var(--md-tertiary, #c792ea) 40%, var(--md-outline-variant));
-}
-.ndash-chip--active.ndash-chip--today {
-  background: color-mix(in srgb, var(--md-tertiary, #c792ea) 15%, transparent);
-  border-color: var(--md-tertiary, #c792ea);
-  color: var(--md-tertiary, #c792ea);
-}
-.ndash-chip-count {
-  background: var(--ndash-fill-medium);
-  border-radius: 10px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-weight: 700;
-}
-.ndash-chip--active .ndash-chip-count {
-  background: rgba(56,189,248,0.2);
-}
-.ndash-toggles {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-.ndash-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--md-surface-2);
-  border: 1px solid var(--md-outline-variant);
-  color: var(--md-on-surface-variant);
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-.ndash-toggle-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.4;
-  transition: opacity 0.15s;
-}
-.ndash-toggle--on .ndash-toggle-dot { opacity: 1; }
-.ndash-toggle:hover { border-color: var(--md-outline); }
-.ndash-toggle--stalled.ndash-toggle--on { border-color: #fb923c; color: #fb923c; background: rgba(251,146,60,0.08); }
-.ndash-toggle--rejected.ndash-toggle--on { border-color: #f87171; color: #f87171; background: rgba(248,113,113,0.08); }
-.ndash-toggle--ats {
-  border-color: color-mix(in srgb, var(--s-ats) 28%, var(--md-outline-variant));
-  color: var(--s-ats);
-  background: var(--s-ats-bg);
-}
-.ndash-toggle--readonly {
-  cursor: default;
-}
-.ndash-toggle-count {
-  background: var(--ndash-fill-medium);
-  border-radius: 10px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-weight: 700;
-}
-
 /* ── Scrollable content area ─────────────────────── */
 /* ── Time-sensitive reminder strip (shown only when something needs a hand) ── */
 .ndash-reminders {
@@ -7040,10 +6588,8 @@ body.pane-resizing {
 /* ── Responsive ──────────────────────────────────── */
 @media (max-width: 900px) {
   .ndash-topbar { padding: 14px 16px 8px; flex-wrap: wrap; }
-  .ndash-filterbar { padding: 0 16px 10px; }
   .ndash-content { padding: 0 16px 24px; }
   .ndash-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-  .ndash-toggles { margin-left: 0; }
 }
 @media (max-width: 600px) {
   .ndash-grid { grid-template-columns: 1fr; }
@@ -7223,15 +6769,6 @@ body.pane-resizing {
   background: var(--md-secondary-container) !important;
   color: var(--md-secondary) !important;
   border-color: var(--md-secondary) !important;
-}
-
-/* ── Filter bar right side ───────────────────────── */
-.ndash-filterbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-left: auto;
-  flex-wrap: wrap;
 }
 
 /* ── Group by toggle ─────────────────────────────── */
@@ -7556,9 +7093,6 @@ body.pane-resizing {
 .ndash-advance-btn:active { transform: scale(0.98); }
 .ndash-advance-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ── Remove old toggles margin-left auto (now in filterbar-right) ── */
-.ndash-toggles { margin-left: auto; }
-
 /* ════════════════════════════════════════════════════
    NDASH LAYOUT WITH SIDE PANEL
    ════════════════════════════════════════════════════ */
@@ -7820,30 +7354,6 @@ body.pane-resizing {
   font-weight: 600;
 }
 
-/* Single status pill — shows the status AND its date (e.g. "Phone Interview ·
-   Jun 16"), and is itself the click target to change status. */
-.ndc-status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: none;
-  cursor: pointer;
-  line-height: 1.2;
-  white-space: nowrap;
-  transition: transform 0.14s cubic-bezier(0.22,1,0.36,1), filter 0.14s ease, box-shadow 0.14s ease;
-}
-.ndc-status-pill:hover { filter: brightness(1.07); transform: translateY(-1px); box-shadow: var(--shadow-1); }
-.ndc-status-pill:active { transform: translateY(0); }
-.ndc-status-pill-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.ndc-status-pill-label { letter-spacing: 0.01em; }
-.ndc-status-pill-date { font-weight: 600; opacity: 0.9; }
-.ndc-status-pill-arrow { font-size: 9px; opacity: 0.7; }
-.ndc-status-pill--ats { cursor: default; }
-.ndc-status-pill--ats:hover { transform: none; filter: none; box-shadow: none; }
 .ndc-skill {
   background: color-mix(in srgb, var(--md-secondary) 8%, var(--md-surface));
   border: 1px solid var(--md-outline-variant);
@@ -8266,9 +7776,8 @@ body.pane-resizing {
   border-color: var(--md-primary) !important;
 }
 
-/* Ops bar / reminders / panels / cards */
+/* Ops bar / panels / cards */
 :root:not([data-theme="dark"]) .tactical-ops-bar,
-:root:not([data-theme="dark"]) .reminders-floating-tray,
 :root:not([data-theme="dark"]) .integration-card,
 :root:not([data-theme="dark"]) .group-select-bar {
   background: var(--md-surface) !important;
@@ -8344,167 +7853,6 @@ body.pane-resizing {
 :root:not([data-theme="dark"]) .ndash-section-count {
   background: var(--md-surface-2);
 }
-:root:not([data-theme="dark"]) .ndash-chip--active .ndash-chip-count {
-  background: rgba(15,111,92,0.16);
-}
-
-/* ════════════════════════════════════════════════════
-   STATUS QUICK PICKER
-   ════════════════════════════════════════════════════ */
-.ndc-quick-reject {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  background: transparent;
-  color: var(--md-error);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  flex-shrink: 0;
-  margin-left: auto;
-  opacity: 0.55;
-  transition: background 150ms, opacity 150ms, transform 150ms;
-  white-space: nowrap;
-}
-.ndc-role-row:hover .ndc-quick-reject,
-.ndc-role-row:focus-visible .ndc-quick-reject {
-  opacity: 1;
-}
-.ndc-quick-reject:hover {
-  background: var(--md-error-container);
-  transform: scale(1.04);
-  opacity: 1;
-}
-.ndc-status-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  background: var(--md-surface);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 12px;
-  box-shadow: var(--shadow-3);
-  padding: 4px;
-  z-index: 300;
-  min-width: 188px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  animation: ndc-menu-in 0.12s cubic-bezier(0.22,1,0.36,1);
-}
-.ndc-status-menu--floating {
-  position: fixed;
-  right: auto;
-  z-index: 1200;
-  width: 210px;
-}
-@keyframes ndc-menu-in {
-  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-:root:not([data-theme="dark"]) .ndc-status-menu {
-  background: #ffffff;
-  border-color: rgba(0,0,0,0.08);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08);
-}
-.ndc-status-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  background: none;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--md-on-surface);
-  text-align: left;
-  width: 100%;
-  transition: background 0.1s;
-}
-.ndc-status-menu-item:hover { background: var(--ndash-fill-subtle); }
-.ndc-status-menu-item--active {
-  background: var(--md-primary-container);
-  color: var(--md-primary);
-}
-:root:not([data-theme="dark"]) .ndc-status-menu-item--active {
-  background: var(--md-primary-container);
-  color: var(--md-on-primary-container);
-}
-.ndc-status-menu-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.ndc-status-menu-label { flex: 1; }
-.ndc-status-menu-cal { font-size: 11px; opacity: 0.6; }
-
-/* Inline "ask for a date" step shown after picking a stage that needs one. */
-.ndc-status-datestep {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-}
-.ndc-status-datestep-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--md-on-surface);
-}
-.ndc-status-datestep-cal { font-size: 13px; }
-.ndc-status-datestep-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 9px;
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--md-on-surface);
-  background: var(--ndash-fill-subtle);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 8px;
-}
-.ndc-status-datestep-input:focus {
-  outline: none;
-  border-color: var(--md-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-primary) 22%, transparent);
-}
-.ndc-status-datestep-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-.ndc-status-datestep-back {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--md-on-surface-variant);
-  padding: 6px 8px;
-  border-radius: 8px;
-}
-.ndc-status-datestep-back:hover { background: var(--ndash-fill-subtle); }
-.ndc-status-datestep-set {
-  background: var(--md-primary);
-  color: var(--md-on-primary);
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 7px 14px;
-  border-radius: 8px;
-  transition: filter 0.14s ease;
-}
-.ndc-status-datestep-set:hover { filter: brightness(1.08); }
 
 /* ════════════════════════════════════════════════════
    GEMMA EVALUATION PANEL SECTION
@@ -8586,11 +7934,6 @@ body.pane-resizing {
 /* ════════════════════════════════════════════════════
    ATS REJECT + STALLED BADGE OVERRIDES
    ════════════════════════════════════════════════════ */
-.ndc-status-pill--ats {
-  font-style: italic;
-  opacity: 0.85;
-}
-
 /* Stalled section header distinct styling */
 .ndash-stage-section--stalled .ndash-section-label { color: var(--s-stalled) !important; }
 .ndash-stage-section--stalled .ndash-section-header:hover { background: rgba(251,146,60,0.06); }
@@ -8641,141 +7984,6 @@ body.pane-resizing {
 :root:not([data-theme="dark"]) .ndash-search:focus {
   box-shadow: 0 0 0 3px rgba(15,111,92,0.15);
 }
-:root:not([data-theme="dark"]) .ndash-chip--active {
-  background: var(--md-primary-container);
-  border-color: var(--md-primary);
-  color: var(--md-on-primary-container);
-}
-
-/* ── Dashboard pulse strip (stats + needs-attention) ──────────── */
-.ndash-pulse {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin: 4px 0 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 14px;
-  background: var(--ndash-fill-faint);
-}
-
-.ndash-pulse-stats {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.ndash-pulse-tile {
-  display: grid;
-  justify-items: center;
-  gap: 1px;
-  min-width: 78px;
-  padding: 6px 10px;
-  border-radius: 10px;
-}
-.ndash-pulse-tile + .ndash-pulse-tile {
-  border-left: 1px solid var(--md-outline-variant);
-  border-radius: 0 10px 10px 0;
-}
-
-.ndash-pulse-value {
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1.1;
-  color: var(--md-on-surface);
-  font-variant-numeric: tabular-nums;
-}
-
-.ndash-pulse-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--md-on-surface-variant);
-  white-space: nowrap;
-}
-
-.ndash-pulse-attention {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: 1;
-  min-width: 240px;
-  padding-left: 12px;
-  border-left: 1px solid var(--md-outline-variant);
-}
-
-.ndash-pulse-clear {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--s-offer);
-}
-
-.ndash-pulse-attn-label {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--md-on-surface-variant);
-}
-
-.ndash-pulse-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  max-width: 100%;
-  padding: 5px 10px;
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 999px;
-  background: var(--ndash-fill-subtle);
-  color: var(--md-on-surface);
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.ndash-pulse-item:hover,
-.ndash-pulse-item:focus-visible {
-  background: var(--ndash-fill-hover);
-  border-color: var(--md-outline);
-}
-
-.ndash-pulse-item-kind {
-  font-weight: 700;
-  white-space: nowrap;
-}
-.ndash-pulse-item--oa .ndash-pulse-item-kind { color: var(--s-oa); }
-.ndash-pulse-item--interview .ndash-pulse-item-kind { color: var(--s-interview); }
-.ndash-pulse-item--action .ndash-pulse-item-kind { color: var(--s-screen); }
-.ndash-pulse-item--stalled .ndash-pulse-item-kind { color: var(--s-stalled); }
-
-.ndash-pulse-item-co {
-  color: var(--md-on-surface-variant);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
-}
-
-.ndash-pulse-item-date {
-  font-weight: 700;
-  font-size: 10.5px;
-  color: var(--md-on-surface-variant);
-  white-space: nowrap;
-}
-
-.ndash-pulse-more {
-  font-size: 11px;
-  color: var(--md-on-surface-variant);
-  font-weight: 600;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 6px;
-}
-.ndash-pulse-more:hover { color: var(--md-on-surface); }
-
 /* ── Dashboard quick-add ──────────────────────────────────────── */
 .ndash-add-btn {
   display: inline-flex;
@@ -8876,17 +8084,6 @@ body.pane-resizing {
 }
 .ndash-empty-add:hover { filter: brightness(1.08); }
 .ndash-empty-add:active { transform: scale(0.97); }
-
-@media (max-width: 900px) {
-  .ndash-pulse { flex-direction: column; }
-  .ndash-pulse-attention {
-    border-left: none;
-    border-top: 1px solid var(--md-outline-variant);
-    padding-left: 0;
-    padding-top: 10px;
-  }
-  .ndash-pulse-stats { flex-wrap: wrap; }
-}
 
 /* ── Stage outcome: passed, awaiting next step ────────────────── */
 .ndash-stage-outcome {
