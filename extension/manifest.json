@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Claire — Job Hunt Copilot",
   "description": "Capture job posts into Claire, your local job-hunt copilot.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "background": {
     "service_worker": "background.js"
   },
@@ -10,13 +10,11 @@
     "default_title": "Toggle Claire toolbar"
   },
   "permissions": [
-    "activeTab",
     "scripting",
     "tabs"
   ],
   "host_permissions": [
-    "<all_urls>",
-    "http://127.0.0.1:8787/*"
+    "<all_urls>"
   ],
   "content_scripts": [
     {

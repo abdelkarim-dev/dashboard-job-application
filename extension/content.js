@@ -65,7 +65,7 @@ const IS_TOP_FRAME = (() => {
   }
 })();
 // Last time this subframe ran an autofill pass — guards against double fills
-// when both a direct popup message and the top-frame broadcast arrive.
+// when overlapping broadcasts arrive from the top frame.
 let lastFrameAutofillAt = 0;
 let autofillRunInProgress = false;
 let autofillRunStartedAt = 0;
@@ -113,25 +113,6 @@ async function apiProxy(url, method = "GET", body = null) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "EXTRACT_JOB") {
-    // Only the top document answers — the popup wants the job posting, not an
-    // embedded ATS iframe's form chrome.
-    if (!IS_TOP_FRAME) return false;
-    sendResponse(extractJob());
-    return false;
-  }
-  if (message?.type === "AUTOFILL_FORM") {
-    if (IS_TOP_FRAME) {
-      ensureCopilotPanel(message.profile);
-      enableSubmitTrackingFromUser("autofill requested", { broadcast: true, silent: true });
-      expandWidget();
-      autofillWebForm(message.profile, { useAi: true });
-    } else {
-      enableSubmitTrackingFromUser("autofill requested", { silent: true });
-      runFrameAutofill(message.profile, { useAi: true, runId: message.runId || "" });
-    }
-    return false;
-  }
   // Relay from the top frame (via background): fill embedded ATS iframes that
   // the top document cannot script directly.
   if (message?.type === "AUTOFILL_FRAME") {
@@ -198,7 +179,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         widget.style.display = "none";
       }
     } else {
-      // Explicit user intent (icon/popup click) always wins — never refuse the
+      // Explicit user intent (icon click) always wins — never refuse the
       // toolbar just because the page heuristics didn't recognise a job posting.
       ensureProfileLoaded().then((ok) => {
         if (!ok) {
@@ -227,8 +208,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-// Heuristically flag the page as a job posting so the toolbar icon can light up
-// before the user even opens the popup.
+// Heuristically flag the page as a job posting so the extension badge can light
+// up before the user even opens the toolbar.
 (function signalIfJobPage() {
   try {
     // Subframes count too: ATS embeds (Greenhouse/Lever/Ashby) put the actual
@@ -346,7 +327,6 @@ function attachFormSubmitTracker(reason = "manual", { silent = false } = {}) {
   }
 
   updateSubmitListenerStatus(reason);
-  updatePrefillButtonState();
   if (!wasAttached && !silent) {
     showToast("Submit listener attached. Claire will track the final submit.");
   }
@@ -730,25 +710,16 @@ async function trackJobApplication(trigger = "submit") {
   }
 }
 
-async function manualTrackJobApplication() {
-  submitTrackerLastTrackedAt = Date.now();
-  await trackJobApplication("manual button");
-}
-
 function trackApplicationViaBackground(jobData, { trigger = "submit", runEvaluation = true } = {}) {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage(
         { type: "TRACK_APPLICATION", jobData, trigger, runEvaluation },
-        async (response) => {
+        (response) => {
           if (chrome.runtime.lastError || !response) {
-            try {
-              const { data, status } = await apiRequest("http://127.0.0.1:8787/api/applications", "POST", jobData);
-              chrome.runtime.sendMessage({ type: "TRACKER_UPDATED" }).catch(() => {});
-              resolve({ ok: true, status, app: data, evaluationSaved: false, evaluationError: chrome.runtime.lastError?.message || "" });
-            } catch (err) {
-              resolve({ ok: false, error: err.message || "Network error" });
-            }
+            // No fallback POST here: apiRequest routes through the SAME
+            // background worker, so if it didn't answer, that path is dead too.
+            resolve({ ok: false, error: chrome.runtime.lastError?.message || "Extension background unavailable" });
             return;
           }
           resolve(response);
@@ -780,8 +751,8 @@ function ensureCopilotPanel(profile = localProfile) {
 }
 
 // Lean autofill used inside ATS iframes: no toolbar/panel UI, just fill the
-// fields + CV and let toasts relay up to the top frame. Debounced because a
-// popup-triggered AUTOFILL_FORM and the top frame's broadcast both arrive.
+// fields + CV and let toasts relay up to the top frame. Debounced because
+// overlapping top-frame broadcasts can arrive close together.
 async function runFrameAutofill(profile, { useAi = false, runId = "" } = {}) {
   if (!profile || IS_TOP_FRAME) return;
   const now = Date.now();
@@ -877,7 +848,6 @@ document.addEventListener("focusin", (e) => {
 
   currentFocusedElement = el;
   lastFocusedInput = el;
-  updateActiveFieldLabel();
 
   // Only show the inline ⚡ trigger if the user has already activated the
   // extension (toolbar is present). Never auto-inject on focus.
@@ -3525,7 +3495,7 @@ async function autofillWebFormLocked(profile, { useAi = false, runId = "" } = {}
   const activeRunId = IS_TOP_FRAME ? currentAutofillRunId : runId;
   ensureCopilotPanel(profile);
   expandWidget();
-  attachFormSubmitTracker("scan/prefill clicked", { silent: true });
+  attachFormSubmitTracker("autofill started", { silent: true });
   showCopilotPanel("autofill");
 
   // Ask the background worker to relay this fill into any embedded ATS iframes
@@ -3549,20 +3519,6 @@ async function autofillWebFormLocked(profile, { useAi = false, runId = "" } = {}
 
   // Pick CV before scanning
   const { text: resumeText, label: cvLabel } = pickResumeText(profile);
-
-  // Update fill button to show which CV was selected (DOM methods, no innerHTML)
-  const fillBtn = document.getElementById("jh-btn-prefill");
-  if (fillBtn) {
-    fillBtn.replaceChildren();
-    const icon = document.createElement("span");
-    icon.className = "jh-icon";
-    icon.textContent = "⚡";
-    const lbl = document.createElement("span");
-    lbl.className = "jh-btn-label";
-    lbl.textContent = "Fill";
-    fillBtn.append(icon, lbl);
-    fillBtn.title = `Used: ${cvLabel}`;
-  }
 
   // Show explicit details of what we're feeding to Gemma
   const jobCtxForLog = extractJob();
@@ -4334,14 +4290,6 @@ function injectWebCopilot(profile) {
   actionsBar.id = "jh-floating-actions";
   actionsBar.title = "Drag to move Claire buttons";
 
-  // Create Prefill Form button
-  const prefillBtn = document.createElement("button");
-  prefillBtn.id = "jh-btn-prefill";
-  prefillBtn.type = "button";
-  prefillBtn.className = "jh-floating-btn jh-prefill-btn";
-  prefillBtn.setAttribute("aria-label", "Scan and prefill form");
-  prefillBtn.innerHTML = `<span class="jh-icon">⚡</span><span class="jh-btn-label">Fill</span>`;
-
   // CV toggle button — cycles through auto / backend / architect
   const cvBtn = document.createElement("button");
   cvBtn.id = "jh-btn-cv";
@@ -4375,15 +4323,6 @@ function injectWebCopilot(profile) {
   evalBtn.setAttribute("aria-label", "Evaluate job with Gemma");
   evalBtn.innerHTML = `<span class="jh-icon">🧠</span><span class="jh-btn-label">Evaluate</span>`;
 
-  // Create Company Check button
-  const companyBtn = document.createElement("button");
-  companyBtn.id = "jh-btn-company";
-  companyBtn.type = "button";
-  companyBtn.className = "jh-floating-btn jh-company-btn";
-  companyBtn.title = "Check if you've applied to this company before";
-  companyBtn.setAttribute("aria-label", "Check previous applications at this company");
-  companyBtn.innerHTML = `<span class="jh-icon">🏢</span><span class="jh-btn-label">Applied?</span>`;
-
   // Create Today button — quick view of applications tracked today
   const todayBtn = document.createElement("button");
   todayBtn.id = "jh-btn-today";
@@ -4411,43 +4350,6 @@ function injectWebCopilot(profile) {
   trackBtn.setAttribute("aria-label", "Manually add this application now");
   trackBtn.innerHTML = `<span class="jh-icon">＋</span><span class="jh-btn-label">Track</span>`;
 
-  // Secondary tools stay tucked away until needed.
-  const toolbarMenu = document.createElement("div");
-  toolbarMenu.id = "jh-toolbar-menu";
-  toolbarMenu.className = "jh-toolbar-menu";
-  toolbarMenu.hidden = true;
-  toolbarMenu.setAttribute("role", "menu");
-  toolbarMenu.setAttribute("aria-label", "Claire secondary actions");
-
-  const moreBtn = document.createElement("button");
-  moreBtn.id = "jh-btn-more";
-  moreBtn.type = "button";
-  moreBtn.className = "jh-floating-btn jh-more-btn";
-  moreBtn.title = "Show more Claire actions";
-  moreBtn.setAttribute("aria-label", "Show more Claire actions");
-  moreBtn.setAttribute("aria-expanded", "false");
-  moreBtn.innerHTML = `<span class="jh-icon">...</span><span class="jh-btn-label">More</span>`;
-
-  const setToolbarMenuOpen = (open) => {
-    toolbarMenu.hidden = !open;
-    toolbarMenu.classList.toggle("visible", open);
-    moreBtn.setAttribute("aria-expanded", String(open));
-  };
-
-  moreBtn.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setToolbarMenuOpen(!toolbarMenu.classList.contains("visible"));
-  });
-
-  document.addEventListener("pointerdown", (event) => {
-    if (!actionsBar.contains(event.target)) setToolbarMenuOpen(false);
-  }, { capture: true });
-
-  [askBtn, cvBtn, evalBtn, todayBtn, trackBtn].forEach((button) => {
-    button.addEventListener("click", () => setToolbarMenuOpen(false));
-  });
-
   // Create Close/Hide button
   const hideBtn = document.createElement("button");
   hideBtn.id = "jh-btn-hide";
@@ -4457,43 +4359,37 @@ function injectWebCopilot(profile) {
   hideBtn.setAttribute("aria-label", "Hide Copilot toolbar");
   hideBtn.innerHTML = `<span class="jh-icon">✕</span>`;
   hideBtn.addEventListener("click", () => {
-    setToolbarMenuOpen(false);
     actionsBar.style.display = "none";
     const w = document.getElementById("jh-copilot-widget");
     if (w) w.style.display = "none";
   });
 
-  // Fill (prefillBtn) and Applied? (companyBtn) are intentionally NOT added to
-  // the toolbar — they now run automatically when the toolbar opens (see
-  // runAutoOpenFlow). The button objects are still created above so their logic
-  // can be reused by the auto-open flow and the company search panel.
-  toolbarMenu.append(cvBtn);
+  // Filling and the applied-before check run automatically when the toolbar
+  // opens (see runAutoOpenFlow) — the bar carries only the on-demand actions.
+  // The CV toggle sits directly on the bar (it was the sole item of a "More"
+  // menu, which isn't worth a submenu).
   actionsBar.appendChild(askBtn);
+  actionsBar.appendChild(cvBtn);
   actionsBar.appendChild(evalBtn);
   actionsBar.appendChild(todayBtn);
   actionsBar.appendChild(trackBtn);
-  actionsBar.appendChild(moreBtn);
   actionsBar.appendChild(hideBtn);
-  actionsBar.appendChild(toolbarMenu);
-  setToolbarMenuOpen(false);
   document.body.appendChild(actionsBar);
   makeFloatingActionsDraggable(actionsBar);
 
-  updatePrefillButtonState(prefillBtn);
-  let prefillObserverTimer = null;
-  const prefillObserver = new MutationObserver((mutations) => {
+  let pageChangeObserverTimer = null;
+  const pageChangeObserver = new MutationObserver((mutations) => {
     const onlyWidgetChanges = mutations.every((mutation) =>
       mutation.target?.closest?.("#jh-copilot-widget, #jh-floating-actions")
     );
     if (onlyWidgetChanges) return;
-    clearTimeout(prefillObserverTimer);
-    prefillObserverTimer = setTimeout(() => {
-      updatePrefillButtonState(prefillBtn);
+    clearTimeout(pageChangeObserverTimer);
+    pageChangeObserverTimer = setTimeout(() => {
       updateSubmitListenerStatus("page changed");
     }, 250);
   });
   if (document.body) {
-    prefillObserver.observe(document.body, { childList: true, subtree: true });
+    pageChangeObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   // Create unified overlay card
@@ -4535,7 +4431,7 @@ function injectWebCopilot(profile) {
             <span class="jh-listener-dot" id="jh-submit-listener-dot"></span>
             <strong id="jh-submit-listener-status">Submit listener off</strong>
           </div>
-          <p id="jh-submit-listener-detail">Click Scan/Prefill to attach the submit tracker.</p>
+          <p id="jh-submit-listener-detail">Autofill attaches the submit tracker automatically.</p>
         </div>
         <div id="jh-autofill-audit-log">
           <div id="jh-autofill-summary" class="jh-audit-summary">Form scanned successfully.</div>
@@ -4712,13 +4608,6 @@ function injectWebCopilot(profile) {
       ]);
       showToast("Evaluation failed: " + err.message);
     }
-  });
-
-  // Prefill Button Handler — fills the ATS form only. Tracker cards are created
-  // by the actual submit action, or by the explicit Track form.
-  prefillBtn.addEventListener("click", () => {
-    showCopilotPanel("autofill");
-    autofillWebForm(profile, { useAi: true });
   });
 
   // Manual Track Button Handler (Displays the prefilled form for manual review)
@@ -4923,16 +4812,6 @@ function injectWebCopilot(profile) {
     }
   };
 
-  companyBtn.addEventListener("click", async () => {
-    showCopilotPanel("company");
-    const detectedCompany = extractJob().company;
-    const searchInput = document.getElementById("jh-company-search-input");
-    // Default the search box to the detected name; the user can overwrite it
-    // when extraction picked the wrong (or no) company.
-    if (searchInput) searchInput.value = detectedCompany || "";
-    await runCompanyCheck(detectedCompany);
-  });
-
   const companySearchForm = document.getElementById("jh-company-search-form");
   companySearchForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -4971,7 +4850,7 @@ function injectWebCopilot(profile) {
   const runAutoOpenFlow = async () => {
     const currentUrl = locationHref();
     if (copilotAutoRanForUrl === currentUrl) return; // once per page open
-    copilotAutoRanForUrl = currentUrl;
+    copilotAutoRanForUrl = currentUrl; // set NOW (re-entrancy guard too)
 
     const detectedCompany = clean(extractJob().company || "");
     showCopilotPanel("company");
@@ -4994,6 +4873,8 @@ function injectWebCopilot(profile) {
 
     if (!apps) {
       // Couldn't reach the tracker — surface the error; don't silently autofill.
+      // Un-mark the page so re-opening the toolbar retries once the server is up.
+      copilotAutoRanForUrl = "";
       renderCompanyPanel(resultEl, detectedCompany, null);
       return;
     }
@@ -5029,47 +4910,6 @@ function injectWebCopilot(profile) {
     autofillWebForm(profile, { useAi: true });
   };
   runCopilotAutoOpen = runAutoOpenFlow;
-
-  // Expose toggle helpers for other parts of extension compatibility
-  window.openCopilotDrawer = () => {
-    widget.classList.remove("minimized");
-    trackBtn.click(); // Default opening manually displays the track panel
-  };
-  window.expandWidget = () => widget.classList.remove("minimized");
-}
-
-// On focus changes, keep the floating Prefill button's state in sync with whether
-// the current page looks like an application form. (The older inline "active field"
-// drawer this once updated was removed; only the prefill-button sync remains.)
-function updateActiveFieldLabel() {
-  updatePrefillButtonState(document.getElementById("jh-btn-prefill"));
-}
-
-function updatePrefillButtonState(prefillBtn = document.getElementById("jh-btn-prefill")) {
-  if (!prefillBtn) return;
-  const hasForm = looksLikeApplicationForm();
-  prefillBtn.style.display = "flex";
-  prefillBtn.classList.toggle("jh-no-form", !hasForm);
-  prefillBtn.title = hasForm
-    ? submitTrackerAttached
-      ? "Inject visible form fields. Submit listener is attached."
-      : "Inject visible form fields and attach the submit listener."
-    : submitTrackerAttached
-      ? "Submit listener is attached. Scan again after the form appears."
-      : "Scan for visible form fields. If none are found yet, click Apply on the job page first.";
-  const stateLabel = submitTrackerAttached
-    ? hasForm ? "Prefill + Listening" : "Listening"
-    : hasForm ? "Prefill Form" : "Scan Form";
-  prefillBtn.setAttribute("aria-label", stateLabel);
-  prefillBtn.dataset.label = stateLabel;
-  const icon = prefillBtn.querySelector(".jh-icon");
-  if (icon) {
-    icon.textContent = submitTrackerAttached ? "✓" : "⚡";
-  }
-  const label = prefillBtn.querySelector(".jh-btn-label");
-  if (label) {
-    label.textContent = "Fill";
-  }
 }
 
 function makeFloatingActionsDraggable(actionsBar) {
@@ -5083,7 +4923,7 @@ function makeFloatingActionsDraggable(actionsBar) {
 
   actionsBar.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
-    if (event.target?.closest?.(".jh-floating-btn, .jh-toolbar-menu")) return;
+    if (event.target?.closest?.(".jh-floating-btn")) return;
     const rect = actionsBar.getBoundingClientRect();
     dragFloatingActionsState = {
       pointerId: event.pointerId,
@@ -5656,7 +5496,8 @@ function injectStyles() {
   const style = document.createElement("style");
   style.id = styleId;
   style.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+    /* System font stack — no third-party font fetch from every page the
+       toolbar opens on (blocked by strict CSP anyway). */
 
     /* Floating action buttons container — one compact horizontal pill bar */
     #jh-floating-actions {
@@ -5696,34 +5537,6 @@ function injectStyles() {
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
     }
 
-    .jh-toolbar-menu {
-      position: absolute;
-      right: 0;
-      bottom: calc(100% + 8px);
-      width: min(220px, 84vw);
-      display: none;
-      flex-direction: column;
-      gap: 5px;
-      padding: 7px;
-      border-radius: 12px;
-      background: rgba(18, 20, 24, 0.96);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(255,255,255,0.04) inset;
-      backdrop-filter: blur(24px) saturate(180%);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
-      cursor: default;
-      animation: jh-dropdown-fade 0.16s ease-out;
-    }
-
-    .jh-toolbar-menu[hidden],
-    .jh-toolbar-menu:not(.visible) {
-      display: none !important;
-    }
-
-    .jh-toolbar-menu.visible {
-      display: flex;
-    }
-
     .jh-floating-btn {
       flex: 0 0 auto;
       height: 34px;
@@ -5743,25 +5556,6 @@ function injectStyles() {
       box-shadow: none;
       transition: background 0.18s, border-color 0.18s, transform 0.18s, filter 0.18s, opacity 0.18s;
       color: #E8E8EC;
-    }
-
-    .jh-toolbar-menu .jh-floating-btn {
-      width: 100%;
-      height: 36px;
-      justify-content: flex-start;
-      border-radius: 8px;
-      padding: 0 10px;
-      background: rgba(255, 255, 255, 0.045);
-    }
-
-    .jh-more-btn {
-      border-color: rgba(255, 255, 255, 0.1);
-      background: rgba(255, 255, 255, 0.075);
-    }
-
-    .jh-more-btn[aria-expanded="true"] {
-      background: rgba(255, 179, 0, 0.14);
-      border-color: rgba(255, 179, 0, 0.38);
     }
 
     .jh-icon {
@@ -5793,30 +5587,12 @@ function injectStyles() {
       filter: brightness(0.95);
     }
 
-    /* Primary action: Fill — the only filled (amber) pill */
-    .jh-prefill-btn {
-      background: linear-gradient(135deg, #FFB300, #F57C00);
-      border-color: transparent;
-      color: #1A0C00;
-      font-weight: 700;
-    }
-    .jh-prefill-btn .jh-btn-label { color: #1A0C00; font-weight: 700; }
-    .jh-prefill-btn:hover {
-      background: linear-gradient(135deg, #FFC233, #FB8C00);
-      border-color: transparent;
-    }
-
-    .jh-prefill-btn.jh-no-form { opacity: 0.75; }
-
-    /* Secondary actions: neutral pills with a colored accent */
+    /* Actions: neutral pills with a colored accent */
     .jh-cv-btn .jh-btn-label { color: #BFD9FF; }
     .jh-cv-btn:hover { border-color: rgba(162, 201, 255, 0.45); background: rgba(162, 201, 255, 0.12); }
 
     .jh-evaluate-btn .jh-btn-label { color: #CBB7FF; }
     .jh-evaluate-btn:hover { border-color: rgba(124, 77, 255, 0.45); background: rgba(124, 77, 255, 0.16); }
-
-    .jh-company-btn .jh-btn-label { color: #9ADFF5; }
-    .jh-company-btn:hover { border-color: rgba(0, 180, 219, 0.45); background: rgba(0, 180, 219, 0.14); }
 
     .jh-track-btn .jh-btn-label { color: #9FE8BD; }
     .jh-track-btn:hover { border-color: rgba(0, 200, 83, 0.45); background: rgba(0, 200, 83, 0.14); }

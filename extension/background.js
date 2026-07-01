@@ -228,14 +228,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TRACKER_UPDATED") {
     lastFetch = 0; // invalidate cache so next badge check re-fetches
     // Refresh the sending tab's badge so the SAVED indicator appears immediately.
+    // (Always a content-script sender — the popup surface is gone.)
     if (sender?.tab?.id && sender.tab.url) {
       applyBadge(sender.tab.id, sender.tab.url);
-    } else {
-      // Sent from extension UI (popup) — no sender.tab; refresh the active tab.
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const tab = tabs[0];
-        if (tab?.id && tab.url) applyBadge(tab.id, tab.url);
-      });
     }
   }
   if (msg?.type === "JOB_PAGE_DETECTED" && sender?.tab?.id) {
@@ -385,9 +380,12 @@ chrome.action.onClicked.addListener(async (tab) => {
     await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_TOOLBAR" });
   } catch (err) {
     try {
+      // Must match manifest content_scripts order: content.js references ~20
+      // globals defined in lib/extract.js — injecting content.js alone leaves
+      // every feature throwing ReferenceError on pre-install tabs.
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["content.js"]
+        files: ["lib/extract.js", "content.js"]
       });
       setTimeout(() => {
         chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_TOOLBAR" }).catch(() => {});
